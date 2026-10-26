@@ -14,5 +14,12 @@ export default [
       "no-empty": "off",
     },
   },
-  { ignores: ["reference-source/**", "node_modules/**", "dist/**"] },
+  {
+    ignores: [
+      "reference-source/**",
+      "node_modules/**",
+      "dist/**",
+      "web/editor-bundle.js",
+    ],
+  },
 ];

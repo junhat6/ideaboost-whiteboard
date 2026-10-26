@@ -20,7 +20,7 @@ mutationのscope/preflight/readbackは従来のhandlerを直接使用し、snaps
 
 ## UI契約
 
-元fetchedAtとageを保ち、「直近の取得結果・最新確認中」を表示して即座にfresh GETを開始する。内容の欠けたsummaryではないため、原文の全文検索・Demo goal・担当者・詳細閲覧は利用可能。最新確認完了まで編集/dragを止め、失敗時も止めたまま理由と再試行を出す。公開範囲変更が判明したら既表示カードを消す。通常のdirty draft保護と同期再開は継続。
+元fetchedAtとageを保ち、「直近の取得結果・最新確認中」を表示して即座にfresh GETを開始する。内容の欠けたsummaryではないため、原文の全文検索・Demo goal・担当者・詳細閲覧は利用可能。ADR005により入力は即時可能。保存はfresh baseline照合を経由し、dragは最新確認完了まで止める。失敗時は理由と文脈に応じた再確認を出す。公開範囲変更が判明したら既表示カードを消す。通常のdirty draft保護と同期再開は継続。
 
 ## 計測基準
 

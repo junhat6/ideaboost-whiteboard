@@ -11,7 +11,7 @@
 - 繰り返し編集、canonical refetch、未保存の破棄確認。
 - 保存中の閉じる操作と重複保存、部分保存後の再送禁止と回復。
 - XSS文字列の非実行とMarkdown原文、コードブロック/コメント除外。
-- 更新間隔、編集/picker中の自動更新停止、同列drag/Doing正規Status。
+- 更新間隔、保存/picker中の自動更新停止と入力中の差分同期、同列drag/Doing正規Status。
 - キーボード、テーマ、Fullscreen API。
 
 認証試験はローカル生成RSA署名を用いてJWT検証そのものを試す。匿名/nonmemberのHTML・assets・API、偽造/期限切れ/別audience、plain header偽装、別host、cross-origin POSTを拒否。
@@ -55,12 +55,16 @@ PBI起点と全走査の同値性、子・孫の各ページ、元のProject順�
 
 45秒タイマーでtitle/body/assignees/Status、新しい正式子Issue、閉じたPBIの表示範囲変更を反映する試験を追加。担当者filter、overflow/見送り/未分類一覧、開いたreadonly詳細も追従する。初回失敗からonline復帰、複数wake-upの集約、遅いGETの直列化、編集保持とキャンセル直後の保留同期再開、resizeで中断したdragからの再開を確認。テストは制御したmockの上流変更であり、実Issueを書き換えた伝播試験ではない。
 
-自動取得は表示中45秒ごととfocus/online復帰。連続wake-upは最短5秒間隔にまとめる。編集・保存・drag・PBI選択中は一時停止し、保留された確認を操作終了後に再開する。通常の反映待ちは最大約45秒＋GitHub取得時間（上流検索反映遅延は別）。オフライン・非表示・編集中はこの目安を保証しない。Webhook即時通知ではない。
+自動取得は表示中45秒ごととfocus/online復帰。連続wake-upは最短5秒間隔にまとめる。保存・drag・PBI選択中は一時停止し、保留された確認を操作終了後に再開する。通常の反映待ちは最大約45秒＋GitHub取得時間（上流検索反映遅延は別）。オフライン・非表示・保存中はこの目安を保証しない。Webhook即時通知ではない。
 
 ## 共有読み取り結果の回帰
 
 27件GitHub + 26件auth/coordinator/public/shared reader = 53件。共有readerは、cold/fresh、元fetchedAt/age、60秒期限、milestone分離、前後の公開確認、公開→非公開、view/Status変更、同時取得singleflight、保存中・保存をまたいだreadのepoch、古い進行要求への再参加防止、エラー非保持を検証。実GitHub handlerとのscopeメタデータ整合もmockで検証。保存開始通知失敗では操作しない／終了通知失敗で確定した保存成功を失敗へ変えない／不確定結果は再利用を解除しないことを確認。
 
-ブラウザ34シナリオ×2サイズ = 68件。直近結果の実カード表示、元時刻と年齢、即時fresh要求、編集ロック、正本到着後の解放、更新失敗とretry、非公開判明時の表示停止を追加。既存の45秒同期・offline復帰・dirty保持・右80%・全文・競合試験を継続。
+ブラウザ34シナリオ×2サイズ = 68件。直近結果の実カード表示、元時刻と年齢、即時fresh要求、保存前の正本照合、入力の継続、更新失敗とretry、非公開判明時の表示停止を追加。既存の45秒同期・offline復帰・dirty保持・右80%・全文・競合試験を継続。
 
 共有readerのメタデータ変更競合を追加修正。古いsnapshotと進行中readがある状態でviewまたはStatus定義が変わると、epochとともに進行要求の共有参照も破棄する。2つのgated回帰は修正前に失敗し、修正後に成功。旧readの遅い完了が新readの共有参照を消さず、新snapshotも上書きしないことを確認。backendは27+28=55件。
+
+## ライブIssue編集（ADR005）
+
+55 backend + 80 browser（40シナリオ×1920/2560）。即時Markdown入力、原文保持、Undo、安全なGFMプレビュー、タイトルリンク、背景GET中の入力、別項目マージ、同本文の競合選択、二重保存防止、合成IMEイベント、永続未確定fence、保存成功後GET失敗、scope外下書き保持を検証。OS実機IMEは未検証。本番は読み取り・編集取消のみで実Issue保存は行わない。

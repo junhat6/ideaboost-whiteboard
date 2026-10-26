@@ -395,7 +395,7 @@ function markFresh() {
   lastReadError = "";
   snapshotPending = state.readState?.kind === "snapshot";
   saveBlocked = snapshotPending;
-  $("#detail-error").hidden = true;
+  if (!editorOutcome) $("#detail-error").hidden = true;
   stale = snapshotPending;
   lastReceivedAt = new Date().toISOString();
 }
@@ -537,7 +537,7 @@ function render() {
         ? "GitHubと同期中…"
         : "接続先に保存中…"
       : editMode
-        ? "編集中 · 自動同期は一時停止"
+        ? "編集中 · 入力を保持して自動同期"
         : stale
           ? "接続エラー · 表示は最新未確認"
           : state.scope?.filterApplied === false ||
@@ -693,98 +693,236 @@ async function move(id, column) {
     return;
   await updateIssue("Task", id, { status: targetStatus[column] });
 }
-function setEdit(value) {
-  editMode = value;
-  $("#save-issue").disabled = !value || pending || saveBlocked;
-  $("#detail-fields").disabled = !value || pending;
-  $("#edit-issue").hidden = value;
-  $("#save-issue").hidden = !value;
-  $("#cancel-edit").hidden = !value;
-  $("#detail-fields").classList.toggle("read-only", !value);
-  $("#detail-body").hidden = !value;
-  $("#detail-body-view").hidden = value;
-  if (value) detailUpdated = false;
+let composer = null,
+  composerModule = null,
+  composerPromise = null;
+let editorLatest = null,
+  editorConflicts = {},
+  editorOutcome = null;
+let editorBusy = false,
+  editorPosting = false,
+  composing = false,
+  previewMode = false;
+let editorSession = 0;
+let pendingEditorRemote = undefined,
+  editorSaved = false,
+  refreshFlight = null;
+const editorFields = ["title", "body", "assignees", "status"];
+const fieldNames = {
+  title: "タイトル",
+  body: "本文",
+  assignees: "担当者",
+  status: "ステータス",
+};
+function fieldValue(item, key) {
+  return key === "assignees"
+    ? (item.assignees || []).map((a) => a.login).sort()
+    : (item[key] ?? null);
+}
+function equalField(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function editorDraft() {
+  return {
+    title: $("#detail-title").value,
+    body: $("#detail-body").value,
+    assignees: [...$("#detail-assignee").selectedOptions]
+      .map((o) => o.value)
+      .sort(),
+    status: $("#detail-status").value || fieldValue(editorBaseline, "status"),
+  };
+}
+function writeField(key, value) {
+  if (key === "body") {
+    $("#detail-body").value = value || "";
+    composer?.set(value || "");
+    renderPreview();
+  } else if (key === "assignees") {
+    for (const login of value || [])
+      if (![...$("#detail-assignee").options].some((o) => o.value === login))
+        $("#detail-assignee").add(new Option(login, login));
+    for (const option of $("#detail-assignee").options)
+      option.selected = (value || []).includes(option.value);
+  } else if (key === "status") {
+    const optionValue = value || "";
+    if (![...$("#detail-status").options].some((o) => o.value === optionValue))
+      $("#detail-status").add(new Option(value || "未設定", optionValue));
+    $("#detail-status").value = optionValue;
+  } else $("#detail-title").value = value || "";
+}
+function setBaseField(key, value) {
+  if (key === "assignees")
+    editorBaseline.assignees = (value || []).map((login) => ({ login }));
+  else editorBaseline[key] = value;
+}
+function updateDirty() {
+  if (!editorBaseline) return;
+  const draft = editorDraft();
+  editMode = editorFields.some(
+    (key) => !equalField(draft[key], fieldValue(editorBaseline, key)),
+  );
+  if (editMode) editorSaved = false;
+  syncEditorControls();
+}
+function setEdit() {
+  updateDirty();
+}
+function syncEditorControls() {
+  const dirty = editMode || composing;
+  $("#save-issue").disabled =
+    !dirty ||
+    editorBusy ||
+    composing ||
+    detailUnavailable ||
+    !!editorOutcome ||
+    Object.keys(editorConflicts).length > 0;
+  $("#save-issue").innerHTML = editorPosting
+    ? "保存中…"
+    : editorBusy
+      ? "確認中…"
+      : "保存 <kbd>⌘↵</kbd>";
+  $("#cancel-edit").hidden = !dirty;
+  $("#cancel-edit").disabled = editorPosting;
+  $("#detail-fields").disabled = editorPosting;
+  $("#detail-title").disabled = editorPosting;
+  composer?.disabled(editorPosting);
+  $("#recover-edit").hidden = !editorOutcome && !lastReadError;
+  $("#recover-edit").disabled = editorBusy || loading;
+  $("#recover-edit").textContent = editorOutcome?.durable
+    ? "管理者による確認が必要"
+    : editorOutcome
+      ? "保存結果を確認"
+      : "接続を再確認";
+  if (editorOutcome?.durable) $("#recover-edit").disabled = true;
   updateDetailSync();
-  if (!value) resumeAutoRefresh();
+}
+function setComposition(value) {
+  composing = value;
+  if (!value && pendingEditorRemote !== undefined) {
+    const incoming = pendingEditorRemote;
+    pendingEditorRemote = undefined;
+    reconcileEditor(incoming);
+  }
+  updateDirty();
+}
+function renderPreview() {
+  if (previewMode && composerModule)
+    composerModule.preview($("#detail-body").value, $("#detail-body-view"));
+}
+function setPreview(value) {
+  previewMode = value;
+  $("#markdown-editor").hidden = value;
+  $("#detail-body").hidden = value || !!composer;
+  $("#detail-body-view").hidden = !value;
+  $("#markdown-write").setAttribute("aria-pressed", String(!value));
+  $("#markdown-preview").setAttribute("aria-pressed", String(value));
+  $(".format-actions").hidden = value;
+  renderPreview();
+}
+async function ensureComposer() {
+  try {
+    composerModule ||= await (composerPromise ||= import("./editor-bundle.js"));
+    if (!$("#details").open || composer || composing) return;
+    const focused = document.activeElement === $("#detail-body");
+    composer = composerModule.createEditor(
+      $("#markdown-editor"),
+      $("#detail-body").value,
+      (value) => {
+        $("#detail-body").value = value;
+        updateDirty();
+      },
+      setComposition,
+      () => $("#detail-form").requestSubmit(),
+    );
+    $("#markdown-preview").disabled = false;
+    setPreview(previewMode);
+    if (focused) composer.focus();
+  } catch {
+    composerPromise = null;
+    $("#markdown-preview").disabled = true;
+    $(".editor-hint").textContent =
+      "本文はこの入力欄で編集できます。⌘/Ctrl + Enterで保存";
+  }
+}
+function canonicalIssueUrl(t) {
+  try {
+    const u = new URL(t.url);
+    return u.origin === "https://github.com" &&
+      /^\/engineer-first\/idea-boost\/issues\/[1-9]\d*$/.test(u.pathname)
+      ? u.href
+      : null;
+  } catch {
+    return null;
+  }
 }
 function fillDetail() {
   const t = issue(editing.kind, editing.id);
+  if (!t) return;
   editorBaseline = clone(t);
+  editorLatest = clone(t);
+  editorConflicts = {};
+  pendingEditorRemote = undefined;
   $("#detail-heading").textContent = t.title;
-  $("#detail-meta").textContent =
-    `${adapter ? "GITHUB" : "SAMPLE"} ${issueLabel(t)}`;
-  $("#detail-badges").textContent = [
-    t.state,
-    t.type || editing.kind,
-    t.lane
-      ? `Parent: ${state.lanes.find((l) => l.id === t.lane)?.title || "—"}`
-      : null,
-    t.repository,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  $("#detail-title").value = t.title;
-  $("#detail-body").value = t.body;
-  $("#detail-body-view").textContent = t.body || "本文はありません。";
-  $("#detail-status").innerHTML =
-    (!rawStatuses.includes(t.status)
-      ? `<option value="">${esc(t.status || "Status未設定")}（変更なし）</option>`
-      : "") + rawStatuses.map((s) => `<option>${s}</option>`).join("");
-  $("#detail-status").value = rawStatuses.includes(t.status) ? t.status : "";
-  const selected = t.assignees
-    ? t.assignees.map((a) => a.login)
-    : [t.assignee || "none"];
-  const opts = adapter
-    ? [...(state.assigneeOptions || []), ...(t.assignees || [])].reduce(
-        (o, a) => {
-          o[a.login] = a.name || a.login;
-          return o;
-        },
-        {},
-      )
-    : people;
-  $("#detail-assignee").multiple = !!adapter;
-  $("#detail-assignee").size = adapter
-    ? Math.min(8, Math.max(3, Object.keys(opts).length))
-    : 1;
-  $("#detail-assignee").innerHTML = Object.entries(opts)
+  const url = canonicalIssueUrl(t);
+  if (url) $("#detail-heading").href = url;
+  else $("#detail-heading").removeAttribute("href");
+  $("#detail-meta").textContent = issueLabel(t);
+  $("#detail-status").innerHTML = rawStatuses
+    .map((s) => `<option>${esc(s)}</option>`)
+    .join("");
+  const users = new Map(
+    [...(state.assigneeOptions || []), ...(t.assignees || [])].map((a) => [
+      a.login,
+      a,
+    ]),
+  );
+  $("#detail-assignee").multiple = true;
+  $("#detail-assignee").size = Math.min(7, Math.max(3, users.size));
+  $("#detail-assignee").innerHTML = [...users.values()]
     .map(
-      ([id, name]) =>
-        `<option value="${esc(id)}" ${selected.includes(id) ? "selected" : ""}>${esc(name)}</option>`,
+      (a) =>
+        `<option value="${esc(a.login)}">${esc(a.name || a.login)}</option>`,
     )
     .join("");
-  $("#detail-source").hidden = !/^https:\/\//.test(t.url || "");
-  if (!$("#detail-source").hidden) $("#detail-source").href = t.url;
-  $("#detail-note").textContent = adapter
-    ? "GitHubの保存結果を確認し、ボードを再取得します。完了・担当変更でProjectの自動処理が動く場合があります。"
-    : "サンプルIssueです。変更はこのブラウザーのみ。GitHubには反映されません。";
+  for (const key of editorFields) writeField(key, fieldValue(t, key));
+  $("#detail-status").disabled = t.projectItemId === null;
+  $("#detail-note").hidden = t.projectItemId !== null;
+  $("#detail-note").textContent =
+    "このIssueはProject外のため、ステータスは変更できません。";
   $("#body-hint").hidden = editing.kind !== "PBI";
-  $("#edit-issue").disabled = pending || snapshotPending;
-  $("#detail-status").disabled = !!adapter && t.projectItemId === null;
-  if ($("#detail-status").disabled)
-    $("#detail-note").textContent =
-      "対象Project外の親PBIです。タイトル・本文・担当者は編集できます。Project Statusは変更できません。";
+  $("#title-editor").hidden = true;
+  $("#detail-error").hidden = !editorOutcome;
+  renderConflicts();
+  updateDirty();
 }
 function updateDetailSync() {
   const indicator = $("#detail-sync");
-  indicator.hidden =
-    !loading &&
-    !stale &&
-    !editMode &&
-    !detailUpdated &&
-    !detailUnavailable &&
-    !snapshotPending;
-  indicator.textContent = snapshotPending
-    ? "直近の取得結果を表示しています。最新確認が完了すると編集できます。"
-    : loading
-      ? "最新を確認中です。取得済みのIssueを表示しています。"
-      : editMode
-        ? "編集中は自動同期を一時停止しています。入力は保持されます。保存・キャンセル後に最新を確認します。"
+  indicator.hidden = false;
+  indicator.textContent = editorPosting
+    ? "GitHubに保存中…"
+    : editorBusy
+      ? "保存前に最新の内容を確認しています…"
+      : editorOutcome
+        ? "入力を保持しています。保存結果の確認が必要です。"
         : detailUnavailable
-          ? "このIssueは現在の表示範囲から外れました。表示は前回取得した内容です。元のIssueを確認してください。"
-          : stale
-            ? "最新の確認に失敗しました。前回取得した内容です。「最新を取得」で再確認してください。"
-            : "GitHub側の変更を反映しました。";
+          ? "現在の表示範囲から外れています。入力は保持しています。"
+          : Object.keys(editorConflicts).length
+            ? "同じ項目にGitHub側の変更があります。内容を選んでください。"
+            : composing || editMode
+              ? "未保存の変更" + (loading ? " · 同期中（入力は保持）" : "")
+              : snapshotPending
+                ? "直近の取得結果 · 最新確認中（入力できます）"
+                : loading
+                  ? "同期中（入力できます）"
+                  : lastReadError
+                    ? editorSaved
+                      ? "保存しました。ボードの再同期は接続回復後に行います。"
+                      : "同期できませんでした。入力は続けられます。"
+                    : editorSaved
+                      ? "保存しました"
+                      : detailUpdated
+                        ? "GitHub側の変更を反映しました"
+                        : "すべての変更を保存済み";
 }
 function detailVersion(i) {
   return (
@@ -799,21 +937,113 @@ function detailVersion(i) {
     ])
   );
 }
-function reconcileDetail(previous) {
-  if (!$("#details").open || editMode) return;
-  const current = issue(editing.kind, editing.id);
-  detailUnavailable = !current;
-  if (current) {
-    detailUpdated =
-      detailUpdated || detailVersion(previous) !== detailVersion(current);
-    fillDetail();
+function reconcileEditor(current) {
+  if (!$("#details").open) return;
+  if (composing) {
+    pendingEditorRemote = current;
+    return;
   }
-  $("#edit-issue").disabled = pending || snapshotPending || detailUnavailable;
-  updateDetailSync();
+  detailUnavailable = !current;
+  if (!current) {
+    syncEditorControls();
+    return;
+  }
+  editorLatest = clone(current);
+  for (const person of [
+    ...(state.assigneeOptions || []),
+    ...(current.assignees || []),
+  ]) {
+    const option = [...$("#detail-assignee").options].find(
+      (o) => o.value === person.login,
+    );
+    if (option) option.textContent = person.name || person.login;
+    else
+      $("#detail-assignee").add(
+        new Option(person.name || person.login, person.login),
+      );
+  }
+  const draft = editorDraft();
+  for (const key of editorFields) {
+    const base = fieldValue(editorBaseline, key),
+      remote = fieldValue(current, key),
+      local = draft[key];
+    if (equalField(local, base) || equalField(local, remote)) {
+      if (!equalField(local, remote)) writeField(key, remote);
+      setBaseField(key, remote);
+      delete editorConflicts[key];
+    } else if (!equalField(remote, base)) editorConflicts[key] = { remote };
+    else delete editorConflicts[key];
+  }
+  $("#detail-heading").textContent = current.title;
+  renderConflicts();
+  updateDirty();
+}
+function renderConflicts() {
+  const root = $("#editor-conflicts");
+  root.replaceChildren();
+  root.hidden = !Object.keys(editorConflicts).length;
+  for (const [key, { remote }] of Object.entries(editorConflicts)) {
+    const section = document.createElement("section");
+    section.className = "field-conflict";
+    const title = document.createElement("strong");
+    title.textContent = fieldNames[key] + "がGitHubでも更新されました";
+    section.append(title);
+    const details = document.createElement("details"),
+      summary = document.createElement("summary"),
+      pre = document.createElement("pre");
+    summary.textContent = "GitHubの変更を確認";
+    pre.textContent = Array.isArray(remote)
+      ? remote.join(", ")
+      : (remote ?? "未設定");
+    details.append(summary, pre);
+    section.append(details);
+    for (const [choice, label] of [
+      ["mine", "自分の変更を残す"],
+      ["remote", "GitHubの変更を使う"],
+    ]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.dataset.resolve = key;
+      b.dataset.choice = choice;
+      b.onclick = () => {
+        if (choice === "remote") writeField(key, remote);
+        setBaseField(key, remote);
+        delete editorConflicts[key];
+        renderConflicts();
+        updateDirty();
+      };
+      section.append(b);
+    }
+    root.append(section);
+  }
+}
+function reconcileDetail(previous) {
+  if (!$("#details").open) return;
+  const current = issue(editing.kind, editing.id);
+  detailUpdated =
+    detailUpdated || detailVersion(previous) !== detailVersion(current);
+  reconcileEditor(current);
 }
 let returnFocusSelector = null;
 function openIssue(kind, id) {
   if ((pending && !loading) || !adapter || !issue(kind, id)) return;
+  if (
+    $("#details").open &&
+    (editMode || composing) &&
+    !confirm("未保存の変更を破棄して別のIssueを開きますか？")
+  )
+    return;
+  editorSession++;
+  composer?.destroy();
+  composer = null;
+  $("#markdown-editor").replaceChildren();
+  editorOutcome = null;
+  editorSaved = false;
+  editorBusy = false;
+  editorPosting = false;
+  composing = false;
+  previewMode = false;
   detailUpdated = false;
   detailUnavailable = false;
   editing = { kind, id };
@@ -822,17 +1052,27 @@ function openIssue(kind, id) {
   fillDetail();
   setEdit(false);
   $("#details").showModal();
+  setPreview(false);
+  ensureComposer();
   updateDetailSync();
   $("#close-detail").focus();
 }
 function closeDetail() {
-  if (pending && !loading) return;
+  if (composing || editorPosting) return;
   if (editMode && !confirm("未保存の変更を破棄して閉じますか？")) return;
   const d = $("#details");
   d.classList.add("closing");
   setTimeout(() => {
     d.close();
-    setEdit(false);
+    editorSession++;
+    editMode = false;
+    editorBusy = false;
+    editorOutcome = null;
+    composing = false;
+    composer?.destroy();
+    composer = null;
+    $("#markdown-editor").replaceChildren();
+    resumeAutoRefresh();
     d.classList.remove("closing");
     const target = returnFocus?.isConnected
       ? returnFocus
@@ -947,16 +1187,52 @@ $("#board").addEventListener("drop", (e) => {
   clearDrag();
 });
 $("#board").addEventListener("dragend", clearDrag);
-$("#edit-issue").onclick = () => {
-  if (pending || snapshotPending || detailUnavailable) return;
-  fillDetail();
-  setEdit(true);
+$("#rename-issue").onclick = () => {
+  $("#title-editor").hidden = false;
   $("#detail-title").focus();
+};
+$("#finish-title").onclick = () => {
+  $("#title-editor").hidden = true;
+  $("#rename-issue").focus();
+};
+$("#detail-title").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing) {
+    e.preventDefault();
+    $("#finish-title").click();
+  }
+});
+for (const id of ["#detail-title", "#detail-body"]) {
+  $(id).addEventListener("compositionstart", () => setComposition(true));
+  $(id).addEventListener("compositionend", () => {
+    setComposition(false);
+    ensureComposer();
+  });
+}
+$("#detail-fields").addEventListener("input", updateDirty);
+$("#detail-fields").addEventListener("change", updateDirty);
+$("#detail-title").addEventListener("input", updateDirty);
+$("#markdown-write").onclick = () => {
+  setPreview(false);
+  composer?.focus();
+};
+$("#markdown-preview").onclick = () => setPreview(true);
+$(".format-actions").onclick = (e) => {
+  const kind = e.target.closest("[data-format]")?.dataset.format;
+  if (!kind || !composer) return;
+  const formats = {
+    bold: ["**", "**"],
+    heading: ["## ", ""],
+    list: ["- ", ""],
+    code: ["`", "`"],
+  };
+  composer.format(...formats[kind]);
 };
 $("#cancel-edit").onclick = () => {
   if (!confirm("未保存の変更を破棄しますか？")) return;
+  const outcome = editorOutcome;
   fillDetail();
-  setEdit(false);
+  editorOutcome = outcome;
+  syncEditorControls();
 };
 $("#close-detail").onclick = closeDetail;
 $("#details").addEventListener("click", (e) => {
@@ -974,50 +1250,105 @@ $("#details").addEventListener("cancel", (e) => {
   e.preventDefault();
   closeDetail();
 });
+$("#detail-form").addEventListener("keydown", (e) => {
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    e.key === "Enter" &&
+    !e.isComposing &&
+    !composing
+  ) {
+    e.preventDefault();
+    $("#detail-form").requestSubmit();
+  }
+});
 $("#detail-form").onsubmit = async (e) => {
   e.preventDefault();
-  if (!editMode || pending || saveBlocked) return;
-  const old = editorBaseline,
-    patch = {};
-  if ($("#detail-title").value !== old.title)
-    patch.title = $("#detail-title").value;
-  if ($("#detail-body").value !== old.body)
-    patch.body = $("#detail-body").value;
   if (
-    !$("#detail-status").disabled &&
-    $("#detail-status").value &&
-    $("#detail-status").value !== old.status
+    !editMode ||
+    composing ||
+    editorBusy ||
+    editorOutcome ||
+    detailUnavailable ||
+    Object.keys(editorConflicts).length
   )
-    patch.status = $("#detail-status").value;
-  if (adapter) {
-    const selected = [...$("#detail-assignee").selectedOptions].map(
-      (o) => o.value,
-    );
-    const prev = (old.assignees || []).map((a) => a.login);
-    if (
-      JSON.stringify([...selected].sort()) !== JSON.stringify([...prev].sort())
-    )
-      patch.assignees = selected;
-  } else patch.assignee = $("#detail-assignee").value;
-  if ("title" in patch && !patch.title.trim()) return;
-  if (!Object.keys(patch).length) {
-    setEdit(false);
     return;
-  }
-  $("#save-issue").disabled = true;
-  $("#cancel-edit").disabled = true;
-  $("#detail-fields").disabled = true;
-  const ok = await updateIssue(editing.kind, editing.id, patch, editorBaseline);
-  $("#save-issue").disabled = saveBlocked;
-  $("#cancel-edit").disabled = false;
-  $("#detail-fields").disabled = false;
-  if (ok) {
-    if (issue(editing.kind, editing.id)) fillDetail();
-    else {
-      $("#details").close();
-      announce("保存を確認しました。このIssueは現在の表示範囲から外れました。");
+  const target = { ...editing };
+  const session = editorSession;
+  editorBusy = true;
+  syncEditorControls();
+  try {
+    const fresh = await refreshBoard(undefined, { silent: true });
+    if (!$("#details").open || editorSession !== session) return;
+    if (
+      !fresh ||
+      detailUnavailable ||
+      composing ||
+      Object.keys(editorConflicts).length
+    )
+      return;
+    const latest = editorLatest,
+      draft = editorDraft(),
+      patch = {};
+    for (const key of editorFields)
+      if (!equalField(draft[key], fieldValue(latest, key)))
+        patch[key] = draft[key];
+    if (!Object.keys(patch).length) {
+      editorSaved = true;
+      return;
     }
-    setEdit(false);
+    if (!draft.title.trim()) {
+      $("#detail-error").textContent = "タイトルを入力してください。";
+      $("#detail-error").hidden = false;
+      return;
+    }
+    editorPosting = true;
+    pending = true;
+    syncEditorControls();
+    const result = await adapter.saveIssue({
+      kind: target.kind,
+      id: target.id,
+      patch,
+      expectedRevision: latest.revision,
+      expectedStatus: latest.status ?? null,
+    });
+    if (!result || result.id !== target.id)
+      throw Object.assign(new Error("保存結果を確認できません。"), {
+        ambiguous: true,
+      });
+    const current = issue(target.kind, target.id);
+    if (current) Object.assign(current, result);
+    reconcileEditor(result);
+    editorSaved = true;
+    editorOutcome = null;
+    $("#detail-error").hidden = true;
+    editorPosting = false;
+    pending = false;
+    editorBusy = false;
+    syncEditorControls();
+    await refreshBoard(undefined, { silent: true });
+    if (editorSession === session) editorSaved = !editMode;
+  } catch (error) {
+    const durable = error.serverError === "mutation_outcome_unresolved";
+    editorOutcome = {
+      durable,
+      uncertain: !!(error.ambiguous || error.partial),
+      code: error.serverError || error.code,
+    };
+    $("#detail-error").textContent =
+      error.message +
+      (durable
+        ? " 管理者がGitHubの状態を確認するまで追加保存できません。"
+        : " 入力は保持しています。自動再送はしません。");
+    $("#detail-error").hidden = false;
+  } finally {
+    if (editorSession === session && $("#details").open) {
+      editorPosting = false;
+      pending = false;
+      editorBusy = false;
+      syncEditorControls();
+      render();
+      resumeAutoRefresh();
+    }
   }
 };
 $("#search").oninput = () => {
@@ -1039,18 +1370,21 @@ $("#next-page").onclick = () => {
 };
 $("#show-deferred").onclick = () => openList(null, "見送り");
 $("#show-unmapped").onclick = () => openList(null, "未分類");
-async function refreshBoard(options, { silent = false } = {}) {
+function refreshBoard(options, flags = {}) {
+  if (refreshFlight) return refreshFlight;
+  refreshFlight = performRefresh(options, flags).finally(() => {
+    refreshFlight = null;
+  });
+  return refreshFlight;
+}
+async function performRefresh(options, { silent = false } = {}) {
   if (!adapter || pending || pickerDraft) return false;
-  if ($("#details").open && editMode) {
-    announce("編集中の内容を保存またはキャンセルしてください。");
-    return false;
-  }
   autoRefreshRequested = false;
   pending = true;
   loading = true;
   $("#refresh").disabled = true;
   $("#milestone-filter").disabled = true;
-  $("#edit-issue").disabled = true;
+
   updateDetailSync();
   render();
   try {
@@ -1083,7 +1417,7 @@ async function refreshBoard(options, { silent = false } = {}) {
     loading = false;
     $("#refresh").disabled = false;
     $("#milestone-filter").disabled = false;
-    $("#edit-issue").disabled = snapshotPending || detailUnavailable;
+    syncEditorControls();
     updateDetailSync();
     render();
     resumeAutoRefresh();
@@ -1094,16 +1428,29 @@ $("#refresh").onclick = () =>
     ? refreshBoard()
     : window.Whiteboard.connectApi().catch((e) => announce(e.message));
 $("#recover-edit").onclick = async () => {
-  if (pending) return;
-  if (
-    editMode &&
-    !confirm(
-      "入力内容を破棄してGitHubから最新を取得しますか？必要なら先にコピーしてください。",
-    )
-  )
-    return;
-  setEdit(false);
-  await refreshBoard();
+  if (editorBusy || editorOutcome?.durable) return;
+  const session = editorSession;
+  editorBusy = true;
+  syncEditorControls();
+  const ok = await refreshBoard(undefined, { silent: true });
+  if (session !== editorSession) return;
+  if (ok && editorOutcome && !detailUnavailable) {
+    const same = editorFields.every((key) =>
+      equalField(editorDraft()[key], fieldValue(editorLatest, key)),
+    );
+    if (
+      same ||
+      confirm(
+        "GitHubの現在の内容を取得しました。入力を保持したまま保存の停止を解除しますか？\n差分を確認してから、必要な場合だけ再度保存してください。",
+      )
+    ) {
+      editorOutcome = null;
+      $("#detail-error").hidden = true;
+      editorSaved = same;
+    }
+  }
+  editorBusy = false;
+  syncEditorControls();
 };
 $("#milestone-filter").onchange = async () => {
   const previous = selectedMilestone;
@@ -1305,7 +1652,6 @@ async function drainAutoRefresh() {
     !navigator.onLine ||
     pending ||
     loading ||
-    editMode ||
     dragged ||
     pickerDraft ||
     bootstrapAttempt
@@ -1351,7 +1697,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("beforeunload", (e) => {
-  if (editMode || pending) {
+  if (editMode || composing || (pending && !loading)) {
     e.preventDefault();
     e.returnValue = "";
   }

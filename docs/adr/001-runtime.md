@@ -6,7 +6,7 @@ Cloudflare Access のメール OTP と明示的 allowlist を候補とする。A
 
 GitHub App tokenはサーバーメモリ内のみ。GitHub Appの既存権限を拡張しない。チームメンバーへの代理操作はApp名で記録されるため、個人のGitHub OAuth代理操作とは異なる。
 
-UI状態はPBI選択とテーマだけlocalStorage。Issueの本文・担当者・tokenは永続化しない。45秒の可視中更新とfocus更新を行い、編集/drag/picker/通信中は停止する。
+UI状態はPBI選択とテーマだけlocalStorage。Issueの本文・担当者・tokenは永続化しない。45秒の可視中更新とfocus更新を行い、保存/drag/picker/通信中は停止する。ADR005では入力中も差分照合付きで同期する。
 
 変更可能性: GitHub transport、Access auth、UIを分離。認証IdPを変更してもGitHub/domain契約に影響しない。
 

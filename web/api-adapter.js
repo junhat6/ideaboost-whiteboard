@@ -69,7 +69,9 @@
                 `GitHub連携の処理を確認できません（${response.status}）。最新を取得してください。`,
       );
       if (data.error === "scope_not_public") connected = false;
-      e.code = response.status === 409 ? "CONFLICT" : data.error;
+      e.code = data.error === "conflict" ? "CONFLICT" : data.error;
+      e.serverError = data.error;
+      e.httpStatus = response.status;
       e.partial = !!data.partial;
       e.ambiguous = !!data.ambiguous;
       e.latestBoard = data.board || null;

@@ -1,112 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
-const statuses = ["未整理", "作業中", "レビュー中", "完了"];
-function snapshot() {
-  const base = {
-    revision: "2026-10-26T00:00:00Z",
-    state: "OPEN",
-    assignees: [
-      {
-        login: "tester",
-        name: "検証担当者",
-        avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
-      },
-    ],
-    projectItemId: "item",
-    statusEditable: true,
-    body: "## ユーザーに提供する体験\n- 原文の **Markdown** を保持する\n\n## 詳細\n本文の全体",
-  };
-  const lanes = Array.from({ length: 7 }, (_, i) => ({
-    ...base,
-    id: `p${i}`,
-    nodeId: `p${i}`,
-    number: i + 1,
-    type: "PBI",
-    status: "作業中",
-    title: `チームのアイデアを共有して育てる ${i + 1}`,
-  }));
-  const tasks = lanes.flatMap((l, i) =>
-    statuses.flatMap((status, j) =>
-      Array.from({ length: j === 0 ? 5 : 4 }, (_, k) => ({
-        ...base,
-        id: `t${i}-${j}-${k}`,
-        nodeId: `t${i}-${j}-${k}`,
-        number: 100 + i * 20 + j * 5 + k,
-        type: "Task",
-        title: `利用者が投稿したアイデアの内容を確認して、チームへ共有できる ${k + 1}`,
-        status,
-        lane: l.id,
-      })),
-    ),
-  );
-  return {
-    lanes,
-    tasks,
-    assigneeOptions: base.assignees,
-    scope: {
-      owner: "engineer-first",
-      repo: "idea-boost",
-      projectNumber: 3,
-      viewNumber: 16,
-      filterApplied: true,
-    },
-    fetchedAt: "2026-10-26T00:00:00Z",
-  };
-}
-async function setup(
-  page: Page,
-  {
-    failure = false,
-    slow = false,
-    abort = false,
-    conflict = false,
-    prefix = "",
-    longPbi = false,
-  } = {},
-) {
-  const board = snapshot();
-  if (longPbi)
-    board.lanes[0].title =
-      "日本語の非常に長いPBIタイトルを読みながら進捗も確認する".repeat(8);
-  let posts = 0;
-  let reads = 0;
-  await page.route("**/api/**", async (route) => {
-    const p = new URL(route.request().url()).pathname.slice(prefix.length);
-    if (p === "/api/health")
-      return route.fulfill({
-        json: {
-          configured: true,
-          accessMode: prefix ? "public-temporary" : "team",
-        },
-      });
-    if (p === "/api/board") {
-      reads++;
-      return route.fulfill({ json: board });
-    }
-    posts++;
-    if (conflict)
-      return route.fulfill({
-        status: 409,
-        json: { ok: false, error: "conflict" },
-      });
-    if (abort) return route.abort("connectionreset");
-    if (slow) await new Promise((r) => setTimeout(r, 500));
-    if (failure)
-      return route.fulfill({
-        status: 502,
-        json: { ok: false, ambiguous: true, partial: true },
-      });
-    const patch = route.request().postDataJSON();
-    const id = Number(p.split("/").pop());
-    const issue = [...board.lanes, ...board.tasks].find(
-      (i) => i.number === id,
-    )!;
-    Object.assign(issue, { ...patch, revision: "2026-10-26T00:00:01Z" });
-    return route.fulfill({ json: { ok: true, issue } });
-  });
-  await page.goto(prefix + "/");
-  await expect(page.locator(".pbi-title")).toHaveCount(6);
-  return { board, posts: () => posts, reads: () => reads };
-}
+import { test, expect } from "@playwright/test";
+import { setup, snapshot } from "./fixtures";
 test("six rows, four cards per cell, whole title lines, no page scroll", async ({
   page,
 }) => {
@@ -166,7 +59,7 @@ test("repeated editor saves, cancel draft, canonical refetch and no full-body pa
   const state = await setup(page);
   for (let i = 0; i < 3; i++) {
     await page.locator(".task-title").first().click();
-    await page.locator("#edit-issue").click();
+    await page.locator("#rename-issue").click();
     await page.locator("#detail-title").fill(`更新した日本語タイトル ${i}`);
     await page.locator("#save-issue").click();
     await expect(page.locator("#detail-heading")).toHaveText(
@@ -178,8 +71,8 @@ test("repeated editor saves, cancel draft, canonical refetch and no full-body pa
   expect(state.posts()).toBe(3);
   expect(state.reads()).toBeGreaterThanOrEqual(4);
   await page.locator(".pbi-title").first().click();
-  await page.locator("#edit-issue").click();
-  await page.locator("#detail-body").fill("破棄する内容");
+  await page.locator("#rename-issue").click();
+  await page.locator(".cm-content").fill("破棄する内容");
   page.once("dialog", (d) => d.dismiss());
   await page.keyboard.press("Escape");
   await expect(page.locator("#details")).toBeVisible();
@@ -192,7 +85,7 @@ test("partial result prevents replay and preserves recoverable draft", async ({
 }) => {
   const state = await setup(page, { failure: true });
   await page.locator(".task-title").first().click();
-  await page.locator("#edit-issue").click();
+  await page.locator("#rename-issue").click();
   await page.locator("#detail-title").fill("保存結果が不明な変更");
   await page.locator("#save-issue").click();
   await expect(page.locator("#detail-error")).toBeVisible();
@@ -209,7 +102,7 @@ test("partial result prevents replay and preserves recoverable draft", async ({
 test("pending save blocks closing and duplicate submit", async ({ page }) => {
   const state = await setup(page, { slow: true });
   await page.locator(".task-title").first().click();
-  await page.locator("#edit-issue").click();
+  await page.locator("#rename-issue").click();
   await page.locator("#detail-title").fill("通信中の変更");
   await page.locator("#save-issue").click();
   await page.locator("#close-detail").click();
@@ -229,7 +122,7 @@ test("Markdown remains literal and malicious HTML cannot execute", async ({
   await expect(page.locator(".goal-text").first()).not.toContainText("偽");
   expect(await page.evaluate(() => !!(window as any).pwned)).toBe(false);
 });
-test("auto refresh pauses in editor and picker, resumes on visible interval", async ({
+test("auto refresh continues in editor, pauses in picker and resumes", async ({
   page,
 }) => {
   await page.clock.install();
@@ -238,11 +131,10 @@ test("auto refresh pauses in editor and picker, resumes on visible interval", as
   await page.clock.fastForward(46000);
   await expect.poll(s.reads).toBe(start + 1);
   await page.locator(".task-title").first().click();
-  await page.locator("#edit-issue").click();
+  await page.locator("#rename-issue").click();
   const edited = s.reads();
   await page.clock.fastForward(46000);
-  expect(s.reads()).toBe(edited);
-  page.once("dialog", (d) => d.accept());
+  await expect.poll(s.reads).toBe(edited + 1);
   await page.locator("#close-detail").click();
   await page.clock.fastForward(200);
   await page.locator("#operations").click();
@@ -299,7 +191,7 @@ test("interrupted write never retries and leaves draft available", async ({
 }) => {
   const s = await setup(page, { abort: true });
   await page.locator(".task-title").first().click();
-  await page.locator("#edit-issue").click();
+  await page.locator("#rename-issue").click();
   await page.locator("#detail-title").fill("通信が途切れた入力");
   await page.locator("#save-issue").click();
   await expect(page.locator("#detail-error")).toContainText("保存結果が不明");
@@ -361,7 +253,7 @@ for (const mode of ["partial", "network", "conflict"]) {
       conflict: mode === "conflict",
     });
     await page.locator(".task-title").first().click();
-    await page.locator("#edit-issue").click();
+    await page.locator("#rename-issue").click();
     await page.locator("#detail-title").fill("失敗する変更");
     await page.locator("#save-issue").click();
     await expect(page.locator("#detail-error")).toBeVisible();
@@ -378,7 +270,7 @@ for (const mode of ["partial", "network", "conflict"]) {
       });
       await route.fulfill({ json: { ok: true, issue } });
     });
-    await page.locator("#edit-issue").click();
+    await page.locator("#rename-issue").click();
     await expect(page.locator("#save-issue")).toBeEnabled();
     await page.locator("#detail-title").fill("再取得後に明示して保存");
     await page.locator("#save-issue").click();
@@ -395,11 +287,11 @@ test("unpredictable public path preserves same-path API reads and saves", async 
   const prefix = "/b/" + "a".repeat(48);
   const s = await setup(page, { prefix });
   await page.locator('[data-open="t0-0-0"]').click();
-  await page.locator("#edit-issue").click();
+  await page.locator("#rename-issue").click();
   await page.locator("#detail-title").fill("公開パスで保存");
   await page.locator("#save-issue").click();
-  await expect(page.locator("#edit-issue")).toBeVisible();
-  expect(s.posts()).toBe(1);
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await expect.poll(s.posts).toBe(1);
   expect(s.board.tasks[0].title).toBe("公開パスで保存");
 });
 
@@ -458,8 +350,8 @@ test("right 80% viewer opens and closes immediately during background read, then
     .first()
     .click({ position: { x: 8, y: 8 } });
   await expect(page.locator("#details")).toBeVisible();
-  await expect(page.locator("#detail-sync")).toContainText("最新を確認中");
-  await expect(page.locator("#edit-issue")).toBeDisabled();
+  await expect(page.locator("#detail-sync")).toContainText("同期中");
+  await expect(page.locator("#detail-fields")).toBeEnabled();
   await page.waitForTimeout(250);
   const box = await page.locator("#details").boundingBox();
   expect(box!.x).toBeCloseTo(page.viewportSize()!.width * 0.2, 0);
@@ -470,12 +362,13 @@ test("right 80% viewer opens and closes immediately during background read, then
   await expect(page.locator("#details")).toBeVisible();
   s.board.lanes[0].body = "再取得後の正本本文";
   release();
-  await expect(page.locator("#detail-body-view")).toHaveText(
-    "再取得後の正本本文",
-  );
+  await expect(page.locator("#detail-body")).toHaveValue("再取得後の正本本文");
   await expect(page.locator("#detail-sync")).toContainText("変更を反映");
-  await page.locator("#edit-issue").click();
-  await page.locator("#detail-body").fill("未保存");
+  await page.locator("#rename-issue").click();
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.insertText("未保存");
+  await expect(page.locator("#detail-body")).toHaveValue("未保存");
   page.once("dialog", (d) => d.dismiss());
   await page.mouse.click(20, 200);
   await expect(page.locator("#details")).toBeVisible();
@@ -494,13 +387,14 @@ test("viewer remains usable on interrupted refresh and explicit retry restores f
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await page.locator(".task-title").first().click();
   await expect(page.locator("#details")).toBeVisible();
-  await expect(page.locator("#detail-sync")).toContainText("前回取得した内容");
+  await expect(page.locator("#detail-sync")).toContainText(
+    "同期できませんでした",
+  );
   await page.route("**/api/board", (route) => route.fulfill({ json: s.board }));
   await page.locator("#recover-edit").click();
-  await expect(page.locator("#detail-sync")).toBeHidden();
-  await page.locator("#edit-issue").click();
+  await expect(page.locator("#detail-sync")).toContainText("保存済み");
+  await page.locator("#rename-issue").click();
   await expect(page.locator("#detail-title")).toBeEnabled();
-  page.once("dialog", (d) => d.accept());
   await page.keyboard.press("Escape");
   await expect(page.locator("#details")).not.toBeVisible();
   expect(s.posts()).toBe(0);
@@ -639,7 +533,7 @@ test("polling applies upstream fields, a new child and closed PBI without naviga
   });
   await page.clock.fastForward(46000);
   await expect(page.locator("#detail-heading")).toHaveText(target.title);
-  await expect(page.locator("#detail-body-view")).toHaveText(target.body);
+  await expect(page.locator("#detail-body")).toHaveValue(target.body);
   await expect(page.locator("#detail-status")).toHaveValue("レビュー中");
   await expect(page.locator("#detail-assignee")).toHaveValues(["new-user"]);
   await expect(page.locator("#detail-sync")).toContainText("変更を反映");
@@ -660,9 +554,9 @@ test("polling applies upstream fields, a new child and closed PBI without naviga
   await expect(page.locator('[data-pbi="p0"]')).toHaveCount(0);
   await expect(page.locator("#details")).toBeVisible();
   await expect(page.locator("#detail-sync")).toContainText(
-    "表示範囲から外れました",
+    "表示範囲から外れています",
   );
-  await expect(page.locator("#edit-issue")).toBeDisabled();
+  await expect(page.locator("#detail-fields")).toBeEnabled();
   await page.keyboard.press("Escape");
   await page.clock.fastForward(200);
   await expect(page.locator("#operations")).toBeFocused();
@@ -718,24 +612,24 @@ for (const kind of ["見送り", "未分類"])
     expect(s.posts()).toBe(0);
   });
 
-test("dirty editor preserves draft and resumes queued remote sync immediately on cancel", async ({
+test("dirty editor preserves draft during sync and discards explicitly onto current content", async ({
   page,
 }) => {
   await page.clock.install();
   const s = await setup(page);
   await page.locator(".task-title").first().click();
-  await page.locator("#edit-issue").click();
+  await page.locator("#rename-issue").click();
   await page.locator("#detail-title").fill("保持すべき未保存の入力");
   s.board.tasks[0].title = "GitHubで別の人が変更";
   s.board.tasks[0].body = "GitHubの本文変更";
   const reads = s.reads();
   await page.clock.fastForward(46000);
-  expect(s.reads()).toBe(reads);
+  await expect.poll(s.reads).toBe(reads + 1);
   await expect(page.locator("#detail-title")).toHaveValue(
     "保持すべき未保存の入力",
   );
   await expect(page.locator("#detail-sync")).toContainText(
-    "自動同期を一時停止",
+    "同じ項目にGitHub側の変更",
   );
   page.once("dialog", (d) => d.accept());
   await page.locator("#cancel-edit").click();
@@ -743,9 +637,7 @@ test("dirty editor preserves draft and resumes queued remote sync immediately on
   await expect(page.locator("#detail-heading")).toHaveText(
     "GitHubで別の人が変更",
   );
-  await expect(page.locator("#detail-body-view")).toHaveText(
-    "GitHubの本文変更",
-  );
+  await expect(page.locator("#detail-body")).toHaveValue("GitHubの本文変更");
   expect(s.posts()).toBe(0);
 });
 
@@ -854,7 +746,7 @@ test("resize during interrupted drag releases the auto refresh pause", async ({
   expect(s.posts()).toBe(0);
 });
 
-test("shared snapshot paints actual cards then refreshes immediately, with age and edit lock", async ({
+test("shared snapshot paints actual cards then refreshes immediately, with age and editable inputs", async ({
   page,
 }) => {
   const data = snapshot();
@@ -888,17 +780,15 @@ test("shared snapshot paints actual cards then refreshes immediately, with age a
   await expect.poll(() => freshReads).toBe(1);
   await page.locator(".task-title").first().click();
   await expect(page.locator("#details")).toBeVisible();
-  await expect(page.locator("#edit-issue")).toBeDisabled();
+  await expect(page.locator("#detail-fields")).toBeEnabled();
   release();
-  await expect(page.locator("#detail-body-view")).toContainText(
-    "最新の正本本文",
-  );
-  await expect(page.locator("#edit-issue")).toBeEnabled();
+  await expect(page.locator("#detail-body")).toHaveValue("最新の正本本文");
+  await expect(page.locator("#detail-fields")).toBeEnabled();
   await expect(page.locator("#connection")).not.toContainText("直近の取得結果");
   expect(posts).toBe(0);
 });
 
-test("cached view stays noneditable on failed refresh and clears on known private transition", async ({
+test("cached view remains editable on failed refresh and clears on known private transition", async ({
   page,
 }) => {
   const data = snapshot();
@@ -915,7 +805,7 @@ test("cached view stays noneditable on failed refresh and clears on known privat
   await page.goto("/");
   await expect(page.locator("#sync-warning")).toBeVisible();
   await page.locator(".task-title").first().click();
-  await expect(page.locator("#edit-issue")).toBeDisabled();
+  await expect(page.locator("#detail-fields")).toBeEnabled();
   await page.keyboard.press("Escape");
   fail = "scope_not_public";
   await page.locator("#retry-sync").click();
