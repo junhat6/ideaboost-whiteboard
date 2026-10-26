@@ -160,6 +160,9 @@
     })();
     try {
       return await connecting;
+    } catch (e) {
+      window.Whiteboard.setConnectionError("接続できません：" + e.message);
+      throw e;
     } finally {
       connecting = null;
     }

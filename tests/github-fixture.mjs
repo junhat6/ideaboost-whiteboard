@@ -59,6 +59,52 @@ export function fixture({
       if (networkPatch) throw Error("connection lost");
       return Response.json(issue);
     }
+    if (
+      body.query.includes("BoardRowsFull") ||
+      body.query.includes("BoardChildren")
+    ) {
+      let nodes = [];
+      if (body.query.includes("BoardRowsFull"))
+        nodes = [
+          {
+            id: "ITEM1",
+            isArchived: false,
+            content: { ...parent, subIssuesSummary: { total: 1 } },
+            fieldValueByName: { name: "レビュー中" },
+          },
+        ];
+      else if (body.variables.filter.includes("#1"))
+        nodes = [
+          {
+            id: "ITEM2",
+            isArchived: false,
+            content: {
+              ...issue,
+              subIssuesSummary: { total: extraTasks ? 1 : 0 },
+            },
+            fieldValueByName: status === null ? null : { name: status },
+          },
+        ];
+      else if (body.variables.filter.includes("#2") && extraTasks)
+        nodes = [
+          {
+            id: "ITEM3",
+            isArchived: false,
+            content: {
+              ...makeIssue(3, "Task", issue),
+              subIssuesSummary: { total: 0 },
+            },
+            fieldValueByName: { name: "作業中" },
+          },
+        ];
+      return Response.json({
+        data: {
+          organization: {
+            projectV2: { items: { nodes, pageInfo: { hasNextPage: false } } },
+          },
+        },
+      });
+    }
     if (body.query.includes("BoardRows"))
       return Response.json({
         data: {
@@ -178,6 +224,9 @@ export function fixture({
                 paginate && !body.variables?.after
                   ? []
                   : [
+                      ...(/type:PBI/.test(viewFilter)
+                        ? [{ id: "ITEM1", isArchived: false, content: parent }]
+                        : []),
                       item,
                       ...(extraTasks
                         ? [

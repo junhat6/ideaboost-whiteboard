@@ -108,49 +108,58 @@ test("public mutation still checks Origin and uses shared coordinator, never dir
   assert.equal(calls, 1);
 });
 test("public data rejects private repo/project and privacy change during board read; writes reject too", async () => {
-  for (const mode of ["public", "private-repo", "private-project", "changed"]) {
-    const f = fixture();
-    let checks = 0;
-    const handler = createHandler({
-      fetch: async (url: any, opt: any) => {
-        const body = opt.body ? JSON.parse(opt.body) : {};
-        if (
-          body.query?.includes("PublicScope") ||
-          body.query?.includes("BoardBootstrap")
-        ) {
-          checks++;
-          const original = body.query.includes("BoardBootstrap")
-            ? await (await f.fetch(url, opt)).json()
-            : { data: { organization: { projectV2: {} } } };
-          return Response.json({
-            data: {
-              repository: { isPrivate: mode === "private-repo" },
-              organization: {
-                projectV2: {
-                  ...original.data.organization.projectV2,
-                  public:
-                    mode !== "private-project" &&
-                    !(mode === "changed" && checks > 1),
+  for (const viewFilter of ["milestone:Sprint", "type:PBI"])
+    for (const mode of [
+      "public",
+      "private-repo",
+      "private-project",
+      "changed",
+    ]) {
+      const f = fixture({ viewFilter });
+      let checks = 0;
+      const handler = createHandler({
+        fetch: async (url: any, opt: any) => {
+          const body = opt.body ? JSON.parse(opt.body) : {};
+          if (
+            body.query?.includes("PublicScope") ||
+            body.query?.includes("BoardBootstrap")
+          ) {
+            checks++;
+            const original = body.query.includes("BoardBootstrap")
+              ? await (await f.fetch(url, opt)).json()
+              : { data: { organization: { projectV2: {} } } };
+            return Response.json({
+              data: {
+                repository: { isPrivate: mode === "private-repo" },
+                organization: {
+                  projectV2: {
+                    ...original.data.organization.projectV2,
+                    public:
+                      mode !== "private-project" &&
+                      !(mode === "changed" && checks > 1),
+                  },
                 },
               },
-            },
-          });
-        }
-        return f.fetch(url, opt);
-      },
-    });
-    const e = { ...githubEnv, AUTH_MODE: "public-temporary" };
-    const r = await handler(req("/api/board"), e);
-    assert.equal(r!.status, mode === "public" ? 200 : 403, mode);
-    if (mode !== "public")
-      assert.equal((await r!.json()).error, "scope_not_public");
-    if (mode === "private-repo" || mode === "private-project") {
-      assert.equal(
-        (await handler(req("/api/issues/2", patch({ title: "No" })), e))!
-          .status,
-        403,
-      );
-      assert.equal(f.calls.filter((c: any) => c.method === "PATCH").length, 0);
+            });
+          }
+          return f.fetch(url, opt);
+        },
+      });
+      const e = { ...githubEnv, AUTH_MODE: "public-temporary" };
+      const r = await handler(req("/api/board"), e);
+      assert.equal(r!.status, mode === "public" ? 200 : 403, mode);
+      if (mode !== "public")
+        assert.equal((await r!.json()).error, "scope_not_public");
+      if (mode === "private-repo" || mode === "private-project") {
+        assert.equal(
+          (await handler(req("/api/issues/2", patch({ title: "No" })), e))!
+            .status,
+          403,
+        );
+        assert.equal(
+          f.calls.filter((c: any) => c.method === "PATCH").length,
+          0,
+        );
+      }
     }
-  }
 });

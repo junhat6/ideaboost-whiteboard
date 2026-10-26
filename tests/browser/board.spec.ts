@@ -317,6 +317,10 @@ test("unconfigured connection never displays a sample board", async ({
   await page.setViewportSize({ width: 1920, height: 1070 });
   await expect(page.locator("#empty")).toContainText("接続できません");
   await expect(page.locator(".task")).toHaveCount(0);
+  await page.locator("#operations").click();
+  await page.locator("#refresh").click();
+  await expect(page.locator("#empty")).toContainText("接続できません");
+  await expect(page.locator("#board")).toHaveAttribute("aria-busy", "false");
 });
 test("goal parser respects long fences, heading preference and unclosed comments", async ({
   page,

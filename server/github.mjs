@@ -14,7 +14,7 @@ const BASE = "https://api.github.com";
 const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:100) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
 const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
-const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } } } } pageInfo { hasNextPage endCursor }`;
+const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state } } } } pageInfo { hasNextPage endCursor }`;
 const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter }`;
 const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100) { ${INDEX} } } } }`;
 const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after) { ${INDEX} } } } }`;
@@ -362,6 +362,13 @@ export function createHandler({
     )
       throw new ApiError(403, "scope_not_public");
     if (!meta) throw new ApiError(502, "project_unavailable");
+    if (
+      applyView &&
+      meta.view &&
+      !/@/.test(meta.view.filter ?? "") &&
+      /(?:^|\s)type:(?:PBI|"PBI")(?:\s|$)/i.test(meta.view.filter ?? "")
+    )
+      return focusedBoard(env, milestone, meta, read, timings);
     const loadMetadata = async () => {
       const viewFilter = meta.view?.filter ?? null;
       const filterApplied =
@@ -676,6 +683,186 @@ export function createHandler({
     };
     await read("visibilityEnd", () => assertPublic(env));
     return { output, meta, all, timings };
+  }
+  async function focusedBoard(env, milestone, meta, read, timings) {
+    const own = (i) =>
+      i?.id && i.repository?.nameWithOwner === `${OWNER}/${REPO}`;
+    const fullFields = `nodes { id isArchived content { ... on Issue { ${CORE} parent { id repository { nameWithOwner } } subIssuesSummary { total } } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } pageInfo { hasNextPage endCursor }`;
+    async function pages(name, filter) {
+      const items = [];
+      let after = null;
+      for (let page = 0; page < 100; page++) {
+        const data = await read(name, () =>
+          gql(
+            env,
+            `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { ${fullFields} } } } }`,
+            { after, filter },
+          ),
+        );
+        const c = data?.organization?.projectV2?.items;
+        if (!c) throw new ApiError(502, "project_items_unavailable");
+        for (const item of c.nodes) {
+          if (item?.isArchived || !own(item?.content)) continue;
+          const i = item.content;
+          if (
+            typeof i.title !== "string" ||
+            typeof i.body !== "string" ||
+            !i.assignees?.nodes ||
+            !Number.isSafeInteger(i.subIssuesSummary?.total) ||
+            !Number.isSafeInteger(i.number) ||
+            i.number < 1
+          )
+            throw new ApiError(502, "issue_details_unavailable");
+          items.push({
+            issue: normalize(i, item),
+            children: i.subIssuesSummary.total,
+          });
+        }
+        if (!c.pageInfo.hasNextPage) return items;
+        if (!c.pageInfo.endCursor || c.pageInfo.endCursor === after)
+          throw new ApiError(502, "pagination_error");
+        after = c.pageInfo.endCursor;
+      }
+      throw new ApiError(502, "project_too_large");
+    }
+    async function index() {
+      const result = new Map();
+      let after = null;
+      for (let page = 0; page < 100; page++) {
+        const c =
+          page === 0
+            ? meta.items
+            : (await read("index", () => gql(env, ITEMS, { after })))
+                ?.organization?.projectV2?.items;
+        if (!c) throw new ApiError(502, "project_items_unavailable");
+        for (const item of c.nodes)
+          if (!item.isArchived && own(item.content))
+            result.set(item.content.id, item.content);
+        if (!c.pageInfo.hasNextPage) return result;
+        if (!c.pageInfo.endCursor || c.pageInfo.endCursor === after)
+          throw new ApiError(502, "pagination_error");
+        after = c.pageInfo.endCursor;
+      }
+      throw new ApiError(502, "project_too_large");
+    }
+    async function hierarchy() {
+      const rows = (await pages("BoardRowsFull", meta.view.filter)).filter(
+        (v) => v.issue.type === "PBI",
+      );
+      const roots = new Map(rows.map((v) => [v.issue.id, v.issue]));
+      const tasks = new Map();
+      let frontier = rows
+        .filter((v) => v.children > 0)
+        .map((v) => ({ ...v.issue, lane: v.issue.id }));
+      const visited = new Set();
+      for (let depth = 0; frontier.length && depth < 8; depth++) {
+        const next = [];
+        for (let offset = 0; offset < frontier.length; offset += 50) {
+          const group = frontier
+            .slice(offset, offset + 50)
+            .filter((i) => !visited.has(i.id));
+          if (!group.length) continue;
+          group.forEach((i) => visited.add(i.id));
+          const parents = new Map(group.map((i) => [i.id, i]));
+          // parent-issue is immediate-parent filtering; traverse each level explicitly.
+          const filter =
+            `repo:${OWNER}/${REPO} is:issue parent-issue:` +
+            group.map((i) => `${OWNER}/${REPO}#${i.number}`).join(",");
+          for (const { issue: i, children } of await pages(
+            "BoardChildren",
+            filter,
+          )) {
+            const parent = parents.get(i.parentId);
+            if (
+              !parent ||
+              i.type === "PBI" ||
+              roots.has(i.id) ||
+              tasks.has(i.id)
+            )
+              continue;
+            i.lane = parent.lane;
+            tasks.set(i.id, i);
+            if (children > 0) next.push(i);
+          }
+        }
+        frontier = next;
+      }
+      if (frontier.length) throw new ApiError(502, "hierarchy_limit");
+      return { roots, tasks };
+    }
+    const [order, { roots, tasks: found }, options] = await Promise.all([
+      index(),
+      hierarchy(),
+      read("assignees", () => assignees(env)),
+    ]);
+    // Reconcile membership and preserve original Project order across traversal depths.
+    const ordered = [...order.keys()];
+    const tasks = ordered
+      .map((id) => found.get(id))
+      .filter(
+        (i) =>
+          i &&
+          (milestone === null ||
+            i.milestone?.number === milestone ||
+            roots.get(i.lane)?.milestone?.number === milestone),
+      );
+    const used = new Set(tasks.map((i) => i.lane));
+    const lanes = ordered
+      .map((id) => roots.get(id))
+      .filter(
+        (i) =>
+          i &&
+          (milestone === null ||
+            i.milestone?.number === milestone ||
+            used.has(i.id)),
+      );
+    const allowedLanes = new Set(lanes.map((i) => i.id));
+    const visibleTasks = tasks.filter((i) => allowedLanes.has(i.lane));
+    const all = new Map([...lanes, ...visibleTasks].map((i) => [i.id, i]));
+    await Promise.all(
+      [...all.values()].map(async (i) => {
+        i.fingerprint = await fingerprint(i);
+      }),
+    );
+    const milestones = [
+      ...new Map(
+        [...order.values()]
+          .filter((i) => i.milestone)
+          .map((i) => [i.milestone.number, i.milestone]),
+      ).values(),
+    ];
+    await read("visibilityEnd", () => assertPublic(env));
+    return {
+      meta,
+      all,
+      timings,
+      output: {
+        lanes,
+        tasks: visibleTasks,
+        assigneeOptions: options,
+        scope: {
+          owner: OWNER,
+          repo: REPO,
+          projectNumber: PROJECT,
+          projectUrl: meta.url,
+          viewNumber: 16,
+          viewFilter: meta.view.filter,
+          filterApplied: true,
+          filterTarget: "PBI rows",
+          childTasksExpanded: true,
+          milestone,
+          selectedMilestone: milestone,
+          milestones,
+          statusOptions: meta.field?.options?.map((o) => o.name) ?? [],
+          concurrency:
+            "per-issue durable coordinator; optimistic GitHub preflight",
+        },
+        fetchedAt: new Date(now()).toISOString(),
+        warnings: [
+          "view 16 のフィルターはPBI行に適用しています。カードは正式な子IssueをProjectから再帰的に取得しています。",
+        ],
+      },
+    };
   }
   const equalUsers = (a, b) =>
     JSON.stringify(

@@ -496,3 +496,102 @@ test("simultaneous cold board requests share one installation token exchange", a
     1,
   );
 });
+
+test("focused PBI path matches full-scan hierarchy, full editor data and milestone semantics", async () => {
+  const fast = fixture({
+    viewFilter: "type:PBI",
+    extraTasks: true,
+    parentInProject: true,
+  });
+  const scan = fixture({
+    viewFilter: "milestone:Sprint",
+    extraTasks: true,
+    parentInProject: true,
+  });
+  const a = await (await fast.handler(req(), env)).json();
+  const b = await (await scan.handler(req(), env)).json();
+  assert.deepEqual(a.lanes, b.lanes);
+  assert.deepEqual(a.tasks, b.tasks);
+  assert.deepEqual(a.scope.milestones, b.scope.milestones);
+  assert.equal(
+    fast.calls.some((c) =>
+      /BoardRelations|ParentDetails|IssueDetails/.test(c.parsed?.query || ""),
+    ),
+    false,
+  );
+  const empty = await (
+    await fast.handler(req("/api/board?milestone=2"), env)
+  ).json();
+  assert.deepEqual(empty.lanes, []);
+  assert.deepEqual(empty.tasks, []);
+});
+
+test("focused hierarchy paginates each level, rejects unrelated/foreign/archived cards and keeps Project order", async () => {
+  const f = fixture({ viewFilter: "type:PBI", extraTasks: true });
+  const handler = createHandler({
+    fetch: async (url, opt) => {
+      const body = opt.body ? JSON.parse(opt.body) : {};
+      const q = body.query || "";
+      const response = await f.fetch(url, opt);
+      if (!/BoardBootstrap|BoardChildren/.test(q)) return response;
+      const data = await response.json();
+      const c = data.data.organization.projectV2.items;
+      if (q.includes("BoardBootstrap"))
+        c.nodes.sort((a, b) =>
+          a.content.id === "I3" ? -1 : b.content.id === "I3" ? 1 : 0,
+        );
+      if (q.includes("BoardChildren")) {
+        if (!body.variables.after)
+          return Response.json({
+            data: {
+              organization: {
+                projectV2: {
+                  items: {
+                    nodes: [],
+                    pageInfo: { hasNextPage: true, endCursor: "second" },
+                  },
+                },
+              },
+            },
+          });
+        c.nodes.push({
+          id: "BAD",
+          content: makeIssue(99, "Task"),
+          isArchived: false,
+        });
+        c.nodes.push({
+          id: "FOREIGN",
+          content: {
+            ...makeIssue(98, "Task"),
+            repository: { nameWithOwner: "other/repo" },
+          },
+          isArchived: false,
+        });
+        c.nodes.push({
+          id: "ARCHIVED",
+          content: makeIssue(97, "Task"),
+          isArchived: true,
+        });
+        // Missing child-summary is invalid even on an unrelated same-repo card: provide a complete upstream shape.
+        for (const item of c.nodes)
+          item.content.subIssuesSummary ??= { total: 0 };
+      }
+      return Response.json(data);
+    },
+  });
+  const r = await handler(req(), env);
+  assert.equal(r.status, 200);
+  const data = await r.json();
+  assert.deepEqual(
+    data.tasks.map((i) => i.id),
+    ["I3", "I2"],
+  );
+  assert.equal(
+    data.tasks.every((i) => i.lane === "I1"),
+    true,
+  );
+  assert.equal(
+    f.calls.filter((c) => c.parsed?.query?.includes("BoardChildren")).length,
+    4,
+  );
+});
