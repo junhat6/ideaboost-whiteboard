@@ -42,3 +42,9 @@ GitHub transportはmock。ページング、正式parent/descendant、外部親P
 ## 性能・詳細画面の回帰追加
 
 22件GitHub mock + 16件auth/coordinator/public = 38件、20シナリオ×2サイズ = 40件を通過。遅いGETの完了前にTask/PBIを開閉、左80%の実寸、更新中の編集ロック、取得失敗と再試行、背景クリックの破棄確認を追加。索引から選択Issueのみをhydrateし、欠損時はfail closedとする試験を含む。本番の測定結果と実施範囲はPERFORMANCE.mdを参照。
+
+## 右80%・読み込み状態・取得戦略の回帰
+
+27件GitHub mock + 16件auth/coordinator/public = 43件、24シナリオ×2サイズ = 48件。スケルトン6行とページ高さ、7秒の遅延表示、実AbortSignalの期限切れ（試験で期限を短縮）、失敗後のresize/ツールバー再試行、背景同期の失敗通知と再試行を追加。右80%の座標と背景クリックを確認。
+
+PBI起点と全走査の同値性、子・孫の各ページ、元のProject順、対象外/archived/別repositoryの除外、assignee切り捨て拒否を検証。公開→非公開の遷移拒否は両取得戦略で通過。実測値と本番で実施した範囲はPERFORMANCE.md・DEPLOYMENT.md。

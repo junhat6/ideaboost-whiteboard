@@ -42,3 +42,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 実背景更新中も取得済みIssueは約30msで開閉可能。左80vwを使用し、編集/保存操作を上部へ移動。確認中は編集を無効化し状態を明示。
 - 38件backend、40件browser、lint/typecheck/build成功。実配信の1920/2560で6PBI/15cards、完全行、ページ縦スクロールなし、繰り返し編集キャンセル、PBI表示、Fullscreenを再確認。全QA POSTを遮断し実書込0件。
 - 公開mode、host/path/Origin/visibility/rate制約、DO mutation、Free planと鍵は変更なし。
+
+## 再改善版（右80%・初期スケルトン）
+
+- 配信source: `c4ec0332a56a1fa492de68329c607baa691208b8`
+- Active Worker version: `97250b6f-5274-4d1f-b38d-e683d8599c0f`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40277772950 （success）
+- 初回表示3回平均4.241秒（前回6.357秒、最初9.350秒）。スケルトン251–268ms。測定条件・制約はPERFORMANCE.md。
+- 右80%のIssue画面、背景更新中の即時開閉、初期/背景同期/失敗/空状態の区別、再試行、reduced-motionを両解像度で確認。
+- 43件backend、48件browser、lint/typecheck/build成功。Google DESIGN.md lintはエラー0、未参照token警告17。
+- 実GitHub読取は15 PBI/26 tasks。表示6PBI/15cards、タイトル内スクロール0、ページ縦スクロールなし。実IssueのQA書き込み0件。秘密・認可・公開mode・料金設定の変更なし。
