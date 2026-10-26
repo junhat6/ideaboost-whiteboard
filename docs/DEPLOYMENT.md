@@ -228,3 +228,14 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 最終本番両サイズでPage Down→Enter→閉じる、同位置/focus復帰、4枚完全表示、正本PBI担当、4assets hash一致を再確認。POST0/JSエラー0。各1回のboard表示4966/1498ms、詳細CodeMirror準備312/189msで、cold/hit混在のため性能改善率には使わない。関連PR#823→#836 MERGEDもHTTP200で正常取得。
 - 最終同一SHA CI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40347654631 。checkと全186 browserが成功。先行40346620217も成功。残るブロッカーなし。
 - この後の文書追補はアプリを変更せず、再配信しない。最終配信source/Workerは上記2581799/dee2b10aのまま。
+
+### 中間scroll anchorの限定修正
+
+- 配信source: `d2ef8d8674a72a9fdeaec8b2fb82f633cd396b77`
+- Worker version: `972c8259-f5ea-4a1d-b9c6-b2015ba679f7`
+- 4枚pageの先頭IDではなく、実際に可視範囲と交差する付箋IDと相対Yを保存する。純挿入・純削除で中間位置が変わるP2を合成fixtureで再現して修正。resize前の有効な寸法を保持し、通知前に変わった旧DOMでanchorを上書きしない。部分表示からの詳細復帰でもpage先頭へsnapしない。
+- check成功（78 unit/integration）、全188 browser成功（48.1秒）。中間位置・挿入削除・resize/詳細復帰とdrag後操作を含む14ケースは3反復42件成功。focus中live decoration同一行再利用/別行・本文変更再計算も単体で追加確認。
+- 実mouse drag後の誤クリックは再現しなかったため一律click抑制は加えていない。次の通常click/Enterは正常。
+- 本番両サイズの中間位置で開閉・高さ+80pxのresizeを行い、同じ付箋の相対Y誤差0.34px以内、POST0、JSエラー0を確認。変更app.js/styles.cssのHTTP200/SHA256一致。実IssueのQA変更なし。
+- 独立レビューはP0/P1なし、指摘されたanchor P2を対象にした限定追補。認証・秘密・権限・保存経路・料金は変更なし。
+- 最終同一SHA CI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40351693950 （78 unit/integration・188 browser）。ブロッカーなし。後続の文書追補でアプリは再配信しない。
