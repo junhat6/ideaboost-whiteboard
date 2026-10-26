@@ -186,3 +186,62 @@ test("changed or deleted comment media releases old video without eager replacem
   await expect(page.locator("#comments-list .media-shell")).toHaveCount(0);
   expect(requests).toBe(1);
 });
+
+test("live image completion during accepted close never starts queued transfers", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  s.board.tasks[0].body = Array.from(
+    { length: 6 },
+    (_, i) =>
+      `![live${i}](https://user-images.githubusercontent.com/1/closing-${i}.gif)`,
+  ).join("\n\n");
+  await page.evaluate(
+    (b) => (window as any).Whiteboard.applySnapshot(b),
+    s.board,
+  );
+  // Keep six real live widgets inside the viewport, so three transfers queue.
+  await page.addStyleTag({
+    content:
+      ".media-frame {height:40px!important;min-height:40px!important;aspect-ratio:auto!important} .media-shell {margin:0!important}",
+  });
+  let release;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route(
+    "https://user-images.githubusercontent.com/1/closing-*.gif",
+    async (r) => {
+      await gate;
+      await r.abort();
+    },
+  );
+  await page.locator(".task-title").first().click();
+  const images = page.locator(".cm-content .media-shell img");
+  await expect(images).toHaveCount(6);
+  await expect(page.locator(".cm-content .media-shell img[src]")).toHaveCount(
+    3,
+  );
+  await page.waitForTimeout(100);
+  const result = await page.evaluate(async () => {
+    const images = [
+      ...document.querySelectorAll<HTMLImageElement>(
+        ".cm-content .media-shell img",
+      ),
+    ];
+    const waiting = images.filter((i) => !i.hasAttribute("src"));
+    (document.querySelector("#close-detail") as HTMLButtonElement).click();
+    // A network completion queued just after close, before the 160ms teardown.
+    images.find((i) => i.hasAttribute("src"))!.dispatchEvent(new Event("load"));
+    await Promise.resolve();
+    return {
+      closing: document
+        .querySelector("#details")!
+        .classList.contains("closing"),
+      waiting: waiting.length,
+      newlyStarted: waiting.filter((i) => i.hasAttribute("src")).length,
+    };
+  });
+  release();
+  expect(result).toEqual({ closing: true, waiting: 3, newlyStarted: 0 });
+  await expect(page.locator("#details")).not.toBeVisible();
+  expect(s.posts()).toBe(0);
+});

@@ -39,6 +39,15 @@ function enqueue(job) {
   pump(job.manager);
 }
 function pump(manager) {
+  // Live widgets remain connected during the drawer's exit animation.
+  // Connection alone must never authorize more transfers after accepted close.
+  if (
+    manager.root &&
+    (!manager.root.open || manager.root.classList.contains("closing"))
+  ) {
+    for (const job of [...manager.jobs]) cancel(job);
+    return;
+  }
   while (manager.active < LIMIT && manager.queue.length) {
     const job = manager.queue.shift();
     if (job.state !== "queued") continue;
@@ -107,7 +116,9 @@ export function observeImages(target, images, eager = false) {
       (image) => target.contains(image) && image.dataset.mediaSrc,
     );
     if (!pending.length) return;
-    const manager = managerFor(target.closest("dialog"));
+    const root = target.closest("dialog");
+    if (root && (!root.open || root.classList.contains("closing"))) return;
+    const manager = managerFor(root);
     for (const image of pending) {
       if (jobs.has(image)) continue;
       const job = {
