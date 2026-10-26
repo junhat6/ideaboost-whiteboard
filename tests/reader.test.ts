@@ -229,3 +229,60 @@ test("shared reader integrates canonical GitHub scope metadata and complete boar
     2,
   );
 });
+
+for (const changed of ["view", "status"] as const) {
+  test(`${changed} mismatch detaches old inflight read and fences its late completion`, async () => {
+    let scope = { viewFilter: "old", statusOptions: ["作業中"] };
+    let calls = 0;
+    const releases = new Map<number, () => void>();
+    const reader = new BoardReader(
+      async () => {
+        const number = ++calls;
+        const captured = structuredClone(scope);
+        if (number > 1) await new Promise<void>((r) => releases.set(number, r));
+        return Response.json({
+          number,
+          scope: captured,
+          fetchedAt: new Date().toISOString(),
+        });
+      },
+      async () =>
+        Response.json({
+          scopeKey: JSON.stringify([scope.viewFilter, scope.statusOptions]),
+        }),
+    );
+    await reader.fetch(request());
+    const old = reader.fetch(request());
+    assert.equal(calls, 2);
+    scope =
+      changed === "view"
+        ? { ...scope, viewFilter: "new" }
+        : { ...scope, statusOptions: ["作業中", "レビュー中"] };
+    const next = reader.fetch(request(true));
+    await new Promise((r) => setImmediate(r));
+    try {
+      assert.equal(calls, 3, "known metadata change must start a new read");
+      releases.get(2)!();
+      assert.equal(((await (await old).json()) as any).number, 2);
+      const joined = reader.fetch(request());
+      assert.equal(
+        calls,
+        3,
+        "old finally must not delete the new inflight entry",
+      );
+      releases.get(3)!();
+      const current = (await (await next).json()) as any;
+      assert.deepEqual(current.scope, scope);
+      assert.equal(current.readState, undefined);
+      assert.equal(((await (await joined).json()) as any).number, 3);
+      const cached = (await (await reader.fetch(request(true))).json()) as any;
+      assert.equal(cached.number, 3);
+      assert.deepEqual(cached.scope, scope);
+      assert.equal(cached.readState.kind, "snapshot");
+    } finally {
+      releases.forEach((release) => release());
+      await old;
+      await next;
+    }
+  });
+}

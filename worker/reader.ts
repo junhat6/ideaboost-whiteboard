@@ -78,6 +78,7 @@ export class BoardReader {
         ) {
           this.snapshot = null;
           this.epoch++;
+          this.inflight.clear();
           break;
         }
       }
