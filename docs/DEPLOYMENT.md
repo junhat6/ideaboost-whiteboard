@@ -196,3 +196,14 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 同じ既存GitHub Appの本番GETで、#823→#836 MERGEDをHTTP200/1813ms、#737→関連なしをHTTP200/1348msで確認。PR readの権限拡張・再認可は不要だった。固定repoの公開PRだけを返し、本文のmentionsを正式リンクと推測しない。
 - 追補はライブリンクのCmd/Ctrlクリック・開くaffordance、live単一面＋その他/F8原文確認、Floating UIの即時tooltip。深いHTML3000段によるdetails再帰を反復走査/上限で安全fallbackへ変更。
 - source/liveは原文文字列と履歴を維持。previewは通常UIから外し、共有rendererの安全試験はtest-only harnessで実施。runtimeの任意HTML許可や権限/secret/課金変更はない。
+
+#### 最終配信・検証結果
+
+- 配信source: `b2aac899568c6c4971e96116be5824a0d7740f3d`
+- Worker version: `c8ba3089-7c27-4623-a6a0-e012bbd63cc7`
+- 同一SHAのCI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40338098502 （9分37秒）。先行37d406cのCI40337037289も成功。
+- ローカルcheck成功: lint/typecheck/build、75 backend。両解像度174 browser成功（58.7秒）。DESIGN validator errors0/warnings39。
+- 本番1920×1080/2560×1440で#737のnative details展開/原文不変、#823→#836 merged PR、右88%、8px flat進捗、共通Status chip、作者/担当avatar、即時tooltipを確認。実リンクのCmdクリックとF8往復、原文不変、POST0、JSエラー0。最終の原文メニューは134×48px、トリガー右端と一致し、文字切れなし。
+- 5assetsのHTTP200/SHA256一致を確認。最終追補のapp.js/styles.cssも再確認。本文DOM準備は最初のIssue190/194ms、次Issue12/13ms（取得済みboardからのopen、GitHub取得待ちを含まない）。board表示5077/1515msは各1回の観測で、cold/hit混在のため速度改善率を主張しない。
+- 本番はread-only QAのみ。実Issue/PR/コメントを書き換えていない。ネイティブ日本語IME実機は未検証、composition合成試験は通過。関連PRは固定repoの公開PRのみ、detailsは限定構文と安全fallback。匿名公開モード・secret・権限・料金は変更なし。リポジトリPRIVATEを再確認。
+- この後の記録追補は文書のみであり、アプリ再配信は不要。上記CIは配信sourceに対応する。

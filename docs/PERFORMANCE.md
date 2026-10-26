@@ -157,3 +157,5 @@ Demo goalの長文可視高は実本番1920で133→151px、2560で152→216px�
 ### ライブ単一面・tooltip追補
 
 Floating UI DOM 1.8.0をnamed importでローカルbundle化（ui-tools.js約18KB minified）。全アイコンmapは配信せずOcticons12個のbuild時subset。本文用CodeMirror/parse5は従来同様Issueを開いた時のlazy bundleで、board初期取得へPR/comments/renderを直列追加しない。関連PR実読取は#823 1813ms、#737 1348ms（各1回、改善率の比較ではない）。この追補は操作の単純化と耐入力性が目的で、初回board速度改善を主張しない。
+
+最終本番確認（b2aac89）: 取得済みIssueの本文DOM準備は#737で194/190ms、続く#823で13/12ms（1920/2560、各1回）。実board表示5077/1515msはcold/hit混在の観測で、性能改善の比較値とはしない。PR/commentsは独立後読込。tooltipは白/#252C36で14.07:1、即時表示、遅延close120msだけを使う。原文メニューは両画面134×48px、文字切れなし。全POST遮断でQAし、原文は変更していない。
