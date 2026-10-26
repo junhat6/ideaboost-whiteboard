@@ -24,8 +24,9 @@ bootstrapでrepository/Projectの公開状態・meta・先頭の索引を1つの
 
 根拠: [GitHubのparent-issueフィルター](https://docs.github.com/en/issues/planning-and-tracking-with-projects/customizing-views-in-your-project/filtering-projects#filtering-by-parent-issue)、[IssueのsubIssuesSummary](https://docs.github.com/en/graphql/reference/issues)。
 
-## 固定ビューの初回往復削減
 
-固定ビューが既定の `repo:engineer-first/idea-boost is:issue type:PBI is:open` と完全一致する場合、PBI先頭ページもbootstrapに含める。返された実際の保存済みfilterと比較し、一致しなければこの先読み結果を使わず実filterで取り直す。続きのcursorは従来通り全件取得する。mutationのbootstrapは先読みを無効にする。公開判定前の応答内容をクライアントへ返すことはない。healthと初回boardも並列取得し、二重board要求はしない。
+## 追加最適化の実測判断
 
-永続スナップショットや公開状態のキャッシュは追加しない。鮮度の異なる応答や公開設定変更後のキャッシュ露出を持ち込まず、GitHub往復そのものを減らす範囲に留める。
+PBI先頭ページをbootstrapに統合する案を実装・検証したが、本番でbootstrapが重くなり、全体索引の並列取得開始も遅れた。新規ブラウザ3回平均で表示3.678→4.945秒、API3.168→4.023秒となったため取り下げた。GitHub側の変動を含む少数測定だが、採用を正当化する改善は確認できなかった。healthと初回boardの並列化のみ維持し、二重board要求を避ける。
+
+永続スナップショットや公開状態のキャッシュは追加しない。公開範囲と最新の完全な本文を維持するため、残る全体索引・正式な子孫の問い合わせ・最終公開確認を省かない。

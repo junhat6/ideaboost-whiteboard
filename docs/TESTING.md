@@ -51,7 +51,7 @@ PBI起点と全走査の同値性、子・孫の各ページ、元のProject順�
 
 ## 自動同期と初回問い合わせの追加検証
 
-29件GitHub mock + 16件auth/coordinator/public = 45件、32シナリオ×2サイズ = 64件が成功。既定view先読みの利用・続きcursor・実filter不一致の破棄・mutation先読み無効を確認。
+27件GitHub mock + 16件auth/coordinator/public = 43件、32シナリオ×2サイズ = 64件。PBI先読み統合は性能が悪化したため取り下げ、既存の取得・公開境界試験を維持。
 
 45秒タイマーでtitle/body/assignees/Status、新しい正式子Issue、閉じたPBIの表示範囲変更を反映する試験を追加。担当者filter、overflow/見送り/未分類一覧、開いたreadonly詳細も追従する。初回失敗からonline復帰、複数wake-upの集約、遅いGETの直列化、編集保持とキャンセル直後の保留同期再開、resizeで中断したdragからの再開を確認。テストは制御したmockの上流変更であり、実Issueを書き換えた伝播試験ではない。
 

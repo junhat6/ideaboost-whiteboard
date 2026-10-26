@@ -219,22 +219,6 @@ export function fixture({
             url: "https://github.com/orgs/engineer-first/projects/3",
             field: { id: "STATUS", options: [{ id: "WORK", name: "作業中" }] },
             view: { filter: viewFilter },
-            initialRows:
-              body.variables?.prefetch &&
-              viewFilter ===
-                "repo:engineer-first/idea-boost is:issue type:PBI is:open"
-                ? {
-                    nodes: [
-                      {
-                        id: "ITEM1",
-                        isArchived: false,
-                        content: { ...parent, subIssuesSummary: { total: 1 } },
-                        fieldValueByName: { name: "レビュー中" },
-                      },
-                    ],
-                    pageInfo: { hasNextPage: false },
-                  }
-                : undefined,
             items: {
               nodes:
                 paginate && !body.variables?.after
