@@ -43,10 +43,27 @@ test("linked PR malformed response and unsafe URLs fail closed", () => {
   for (const connection of [
     null,
     { nodes: [], pageInfo: { hasNextPage: true } },
+    { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } },
+    { nodes: [null], pageInfo: { hasNextPage: false } },
+    { nodes: [pr(), null], pageInfo: { hasNextPage: false } },
+    {
+      nodes: [{ ...pr(), repository: null }],
+      pageInfo: { hasNextPage: false },
+    },
     {
       nodes: [{ ...pr(), url: "https://github.com.evil/pull/836" }],
       pageInfo: { hasNextPage: false },
     },
   ])
     assert.throws(() => normalizeLinkedPrs(connection));
+});
+
+test("genuinely empty PR connection remains distinct from unavailable pages", () => {
+  assert.deepEqual(
+    normalizeLinkedPrs({
+      nodes: [],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    }),
+    { prs: [], nextCursor: null },
+  );
 });

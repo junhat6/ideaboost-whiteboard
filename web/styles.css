@@ -958,18 +958,21 @@ dialog dd {
   gap: 3px;
   padding-top: 2px;
 }
-.task-grid .person {
+.task-grid .person,
+.pbi-assignees {
   min-width: 0;
   overflow: hidden;
   gap: 3px;
 }
-.task-grid .person-name {
+.task-grid .person-name,
+.pbi-assignees .person-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.task-grid .avatar {
+.task-grid .avatar,
+.pbi-assignees .avatar {
   position: relative;
   flex-shrink: 0;
   width: 16px;
@@ -2521,7 +2524,104 @@ input[type="checkbox"] {
 }
 
 /* Live is the default; source is an exceptional helper, not a third mode. */
-#editor-tools { width: max-content; margin: 0; inset: auto 20px auto auto; top: 140px; padding: 6px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--surface); color: var(--ink); box-shadow: 0 8px 24px #182b4926; }
-#editor-tools button { width: auto; height: auto; min-height: 32px; white-space: nowrap; display: flex; align-items: center; gap: 24px; background: transparent; border: 0; color: var(--ink); padding: 8px 12px; }
-#editor-tools button[aria-pressed="true"] { background: var(--selected); }
-.instant-tooltip { position: fixed; visibility: hidden; z-index: 10000; width: max-content; max-width: min(360px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px; color: #fff; background: #252c36; font: 12px/1.5 system-ui, sans-serif; overflow-wrap: anywhere; box-shadow: 0 2px 6px #0002; pointer-events: auto; }
+#editor-tools {
+  width: max-content;
+  margin: 0;
+  inset: auto 20px auto auto;
+  top: 140px;
+  padding: 6px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 8px 24px #182b4926;
+}
+#editor-tools button {
+  width: auto;
+  height: auto;
+  min-height: 32px;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  padding: 8px 12px;
+}
+#editor-tools button[aria-pressed="true"] {
+  background: var(--selected);
+}
+.instant-tooltip {
+  position: fixed;
+  visibility: hidden;
+  z-index: 10000;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 6px 9px;
+  border-radius: 6px;
+  color: #fff;
+  background: #252c36;
+  font:
+    12px/1.5 system-ui,
+    sans-serif;
+  overflow-wrap: anywhere;
+  box-shadow: 0 2px 6px #0002;
+  pointer-events: auto;
+}
+
+/* Same sticky notes continue inside their cell; the six-row board stays fixed. */
+.cell-viewport {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--input-border) transparent;
+}
+#board .cell-page {
+  height: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  padding-bottom: 2px;
+}
+.cell-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex: 0 0 24px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.cell-range {
+  margin-right: auto;
+}
+.cell-navigation button {
+  width: 28px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.cell-navigation button:disabled {
+  opacity: 0.35;
+}
+.pbi-assignees {
+  flex: 0 0 20px;
+  max-width: 100%;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+#board .pbi-cell .lane-progress {
+  margin-top: 8px;
+}

@@ -79,6 +79,11 @@ test("rapid-scroll images share dialog observer and bound transfers; close cance
     };
   });
   await setup(page);
+  // Keep this fixture explicitly outside the 200px near-view margin.
+  // Natural comment position depends on live-editor hydration timing.
+  await page.addStyleTag({
+    content: ".issue-comments { margin-top: 2000px !important; }",
+  });
   let active = 0,
     maxActive = 0,
     requests = 0;

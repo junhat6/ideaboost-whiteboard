@@ -4,9 +4,24 @@ test("six rows, four cards per cell, whole title lines, no page scroll", async (
   page,
 }) => {
   await setup(page);
-  await expect(page.locator(".task")).toHaveCount(96);
-  await expect(page.locator(".overflow-button")).toHaveCount(6);
+  await expect(page.locator(".task")).toHaveCount(102);
+  await expect(page.locator(".cell-viewport")).toHaveCount(6);
   const layout = await page.evaluate(() => ({
+    firstFourContained: [...document.querySelectorAll(".task-cell")].every(
+      (cell) => {
+        const port = cell.querySelector(".cell-viewport") || cell;
+        const bounds = port.getBoundingClientRect();
+        return [...cell.querySelectorAll(".task")].slice(0, 4).every((card) => {
+          const rect = card.getBoundingClientRect();
+          return (
+            rect.top >= bounds.top - 1 &&
+            rect.bottom <= bounds.bottom + 1 &&
+            rect.left >= bounds.left - 1 &&
+            rect.right <= bounds.right + 1
+          );
+        });
+      },
+    ),
     height: document.documentElement.scrollHeight,
     viewport: innerHeight,
     bottom: document.querySelector("#board")!.getBoundingClientRect().bottom,
@@ -24,6 +39,7 @@ test("six rows, four cards per cell, whole title lines, no page scroll", async (
       );
     }),
   }));
+  expect(layout.firstFourContained).toBe(true);
   expect(layout.height).toBe(layout.viewport);
   expect(layout.bottom).toBeLessThanOrEqual(layout.viewport);
   expect(layout.partial).toBe(false);
@@ -435,7 +451,7 @@ test("first load has six-row skeleton, honest slow state, reduced motion and no 
   await expect(page.locator("#empty")).toContainText("通常より時間");
   await expect(page.locator("#retry-load")).toBeHidden();
   release();
-  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator(".task")).toHaveCount(102);
   await expect(page.locator(".skeleton-row")).toHaveCount(0);
   await expect(page.locator("#board")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator("#empty")).toBeHidden();
@@ -474,7 +490,7 @@ test("failed background sync preserves cards with an actionable error and last s
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.locator("#sync-warning")).toBeVisible();
   await expect(page.locator("#sync-warning")).toContainText("前回の表示を保持");
-  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator(".task")).toHaveCount(102);
   await expect(page.locator("#connection")).toContainText("最終取得");
   await page.route("**/api/board", (r) => r.fulfill({ json: s.board }));
   await page.locator("#retry-sync").click();
@@ -501,7 +517,7 @@ test("hanging initial read reaches timeout reason and can retry without a reload
   await expect(page.locator("#retry-load")).toBeVisible();
   await page.route("**/api/board", (r) => r.fulfill({ json: snapshot() }));
   await page.locator("#retry-load").click();
-  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator(".task")).toHaveCount(102);
   await expect(page.locator("#empty")).toBeHidden();
 });
 
@@ -567,30 +583,28 @@ test("polling applies upstream fields, a new child and closed PBI without naviga
   expect(s.posts()).toBe(0);
 });
 
-test("open overflow list reconciles title, membership and removed PBI on polling", async ({
+test("inline overflow reconciles title, membership and removed PBI on polling", async ({
   page,
 }) => {
   await page.clock.install();
   const s = await setup(page);
-  await page.locator(".overflow-button").first().click();
-  await expect(page.locator("#issue-list .list-item")).toHaveCount(5);
+  const cell = page.locator('[data-lane="p0"][data-status="ToDo"]');
+  await cell.locator('[data-cell-step="1"]').click();
+  await expect(cell.locator(".cell-range")).toHaveText("5–5 / 5");
+  await expect(page.locator("#list-dialog")).not.toBeVisible();
   s.board.tasks.find((t) => t.id === "t0-0-0")!.status = "完了";
-  s.board.tasks.find((t) => t.id === "t0-0-1")!.title = "一覧も自動更新";
+  s.board.tasks.find((t) => t.id === "t0-0-1")!.title = "付箋も自動更新";
   s.board.tasks = s.board.tasks.filter((t) => t.id !== "t0-0-2");
   await page.clock.fastForward(46000);
-  await expect(page.locator("#issue-list .list-item")).toHaveCount(3);
-  await expect(page.locator("#list-heading")).toContainText("3 件");
-  await expect(page.locator('[data-list-task="t0-0-1"]')).toContainText(
-    "一覧も自動更新",
+  await expect(cell.locator(".task")).toHaveCount(3);
+  await expect(cell.locator('[data-open="t0-0-1"]')).toHaveText(
+    "付箋も自動更新",
   );
-  await expect(page.locator('[data-list-task="t0-0-0"]')).toHaveCount(0);
+  await expect(cell.locator(".cell-viewport")).toHaveCount(0);
   s.board.lanes = s.board.lanes.filter((i) => i.id !== "p0");
   s.board.tasks = s.board.tasks.filter((i) => i.lane !== "p0");
   await page.clock.fastForward(46000);
-  await expect(page.locator("#list-heading")).toContainText(
-    "表示範囲から外れました",
-  );
-  await expect(page.locator("#issue-list .list-item")).toHaveCount(0);
+  await expect(cell).toHaveCount(0);
   expect(s.posts()).toBe(0);
 });
 
@@ -666,7 +680,7 @@ test("online recovers initial failure and later offline updates without reload o
   await expect(page.locator("#retry-load")).toBeVisible();
   fail = false;
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
-  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator(".task")).toHaveCount(102);
   await page.evaluate(() => {
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
@@ -777,7 +791,7 @@ test("shared snapshot paints actual cards then refreshes immediately, with age a
     return route.fulfill({ json: fresh });
   });
   await page.goto("/");
-  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator(".task")).toHaveCount(102);
   await expect(page.locator("#connection")).toBeHidden();
   await expect.poll(() => freshReads).toBe(1);
   await page.locator(".task-title").first().click();

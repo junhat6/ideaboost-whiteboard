@@ -11,7 +11,13 @@ export function normalizeLinkedPrs(connection) {
   for (const p of connection.nodes) {
     if (
       !p ||
-      p.repository?.isPrivate !== false ||
+      typeof p !== "object" ||
+      typeof p.repository?.isPrivate !== "boolean" ||
+      typeof p.repository?.nameWithOwner !== "string"
+    )
+      throw Error("invalid_linked_pr_response");
+    if (
+      p.repository.isPrivate !== false ||
       p.repository?.nameWithOwner !== REPOSITORY
     )
       continue;
@@ -36,7 +42,7 @@ export function normalizeLinkedPrs(connection) {
     ? connection.pageInfo.endCursor
     : null;
   if (
-    next !== null &&
+    connection.pageInfo.hasNextPage &&
     (typeof next !== "string" || !/^[A-Za-z0-9_+/=-]{1,500}$/.test(next))
   )
     throw Error("invalid_linked_pr_response");

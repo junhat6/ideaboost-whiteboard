@@ -4,9 +4,9 @@
 
 `npm run check`: ESLint、Worker TypeScript、Node unit/integration mock、Wrangler dry-run。
 
-`npm run test:e2e`: Chromium実ブラウザー、1920×1080と2560×1440。合成7 PBIを使い最初の6 PBI、1行17 tasks、最大96枚を同時表示。
+`npm run test:e2e`: Chromium実ブラウザー、1920×1080と2560×1440。合成7 PBIを使い最初の6 PBI、1行17 tasks、初期位置で最大96枚を同時表示。5枚目以降のDOMはセル内scrollで続けて読む。
 
-- ページ縦スクロールなし、セル4枚、overflow件数、完全行のタイトル。
+- ページ縦スクロールなし、各セル先頭4枚の矩形がscrollport内に完全包含、続きの範囲/総数、完全行のタイトル。
 - 選択上限6、キャンセル、検索と取得順。
 - 繰り返し編集、canonical refetch、未保存の破棄確認。
 - 保存中の閉じる操作と重複保存、部分保存後の再送禁止と回復。
@@ -132,3 +132,7 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 - Cmd/Ctrlリンク、通常クリック編集、noopener/noreferrer、参照リンク、危険URL/code除外、原文不変。
 - tooltipは即時hover/focus・hover保持・Escape・modal内viewport包含・native titleなし。F8はIME中無効。
 - 3000層divのdetails/summaryを単体・browserで安全fallback確認。ネイティブ日本語IME実機は未検証で、composition合成試験と区別。
+
+### セル内の続き・PBI担当者・夜間性能
+
+`cell-viewport.spec.ts` は0/1/4/5/9/20件の実矩形、詳細復帰/同期/resize/filter/anchor削除、実wheel・5枚目drag・同列/別PBI境界、drag auto-scroll取消を検証。PBI正本担当の独立表示、複数/未割当/長い名前/画像失敗も両解像度で確認する。DOM全件数と画面内枚数を区別し、toBeVisibleだけでviewport内と判断しない。測定条件とbefore/afterはOVERNIGHT-2026-10-27.md。

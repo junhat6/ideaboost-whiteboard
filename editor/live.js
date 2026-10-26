@@ -60,6 +60,14 @@ class Block extends WidgetType {
 export function livePreview(render, clear) {
   let disclosureDoc = null,
     disclosureRanges = [];
+  const selectedLines = (state) =>
+    state.selection.ranges.map((r) => [
+      state.doc.lineAt(r.from).from,
+      state.doc.lineAt(r.to).to,
+    ]);
+  const sameLines = (a, b) =>
+    a.length === b.length &&
+    a.every((r, i) => r[0] === b[i][0] && r[1] === b[i][1]);
   const field = StateField.define({
     create(state) {
       return {
@@ -75,6 +83,21 @@ export function livePreview(render, clear) {
         if (e.is(activity)) ({ focused, composing } = e.value);
         if (e.is(sourceMode)) source = e.value;
       }
+      // Selection/focus effects unrelated to rendering should not rescan the whole document.
+      // A background parser transaction can change the tree without changing the text.
+      if (
+        !tr.docChanged &&
+        syntaxTree(tr.startState) === syntaxTree(tr.state) &&
+        focused === value.focused &&
+        composing === value.composing &&
+        source === value.source &&
+        (!focused ||
+          composing ||
+          source ||
+          tr.startState.selection.eq(tr.state.selection) ||
+          sameLines(selectedLines(tr.startState), selectedLines(tr.state)))
+      )
+        return value;
       return {
         focused,
         composing,
@@ -87,13 +110,9 @@ export function livePreview(render, clear) {
   function build(state, focused, composing, source) {
     if (source || composing) return Decoration.none;
     const ranges = [];
+    const activeLines = focused ? selectedLines(state) : [];
     const active = (from, to) =>
-      focused &&
-      state.selection.ranges.some((r) => {
-        const first = state.doc.lineAt(r.from).from,
-          last = state.doc.lineAt(r.to).to;
-        return from <= last && to >= first;
-      });
+      activeLines.some(([first, last]) => from <= last && to >= first);
     const hide = (from, to, widget) => {
       if (to > from)
         ranges.push(
@@ -116,8 +135,18 @@ export function livePreview(render, clear) {
       enter(n) {
         if (disclosureRanges.some((d) => n.from >= d.from && n.to <= d.to))
           return false;
-        const name = n.name,
-          text = state.sliceDoc(n.from, n.to);
+        const name = n.name;
+        const needsText = [
+          "HTMLBlock",
+          "Table",
+          "FencedCode",
+          "CodeBlock",
+          "Paragraph",
+          "ListMark",
+          "TaskMarker",
+          "Link",
+        ].includes(name);
+        const text = needsText ? state.sliceDoc(n.from, n.to) : "";
         if (name === "HTMLBlock" && !/^<img\s/i.test(text.trim())) return false;
         if (
           ["Table", "FencedCode", "CodeBlock"].includes(name) ||

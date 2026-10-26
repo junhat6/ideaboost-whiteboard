@@ -370,25 +370,46 @@ function fitCardTitles() {
       parseFloat(css.paddingBottom);
     text.style.maxHeight = `${Math.max(0, Math.floor((available + 0.05) / line)) * line}px`;
   }
-  for (const button of document.querySelectorAll(".task-title")) {
-    const text = button.querySelector(".task-title-text");
-    if (!text || !button.clientHeight || !button.clientWidth) continue;
-    text.style.maxHeight = "none";
-    let size = window.innerWidth >= 2300 ? 14 : 12;
-    for (; size > 10.5; size -= 0.5) {
-      button.style.fontSize = `${size}px`;
-      if (text.scrollHeight <= button.clientHeight + 0.5) break;
-    }
-    button.style.fontSize = `${size}px`;
-    const lineHeight = parseFloat(getComputedStyle(button).lineHeight),
-      lines = Math.floor((button.clientHeight + 0.01) / lineHeight);
-    // A complete-line viewport avoids the old half-glyph clipping at the footer.
-    text.style.maxHeight = `${Math.max(0, lines) * lineHeight}px`;
-    button.classList.toggle(
-      "title-overflow",
-      text.scrollHeight > lines * lineHeight + 1,
+  // Batch geometry reads and font writes: one layout per size, not per card.
+  const entries = [...document.querySelectorAll(".task-title")]
+    .map((button) => ({
+      button,
+      text: button.querySelector(".task-title-text"),
+    }))
+    .filter(
+      ({ button, text }) => text && button.clientHeight && button.clientWidth,
     );
+  let size = window.innerWidth >= 2300 ? 14 : 12;
+  for (const { button, text } of entries) {
+    text.style.maxHeight = "none";
+    button.style.fontSize = `${size}px`;
   }
+  let shrinking = entries;
+  while (size > 10.5 && shrinking.length) {
+    shrinking = shrinking.filter(
+      ({ button, text }) => text.scrollHeight > button.clientHeight + 0.5,
+    );
+    size -= 0.5;
+    for (const { button } of shrinking) button.style.fontSize = `${size}px`;
+  }
+  const dimensions = entries.map(({ button, text }) => {
+    const lineHeight = parseFloat(getComputedStyle(button).lineHeight);
+    return {
+      button,
+      text,
+      height:
+        Math.max(0, Math.floor((button.clientHeight + 0.01) / lineHeight)) *
+        lineHeight,
+    };
+  });
+  for (const { text, height } of dimensions)
+    text.style.maxHeight = `${height}px`;
+  const overflow = dimensions.map(({ button, text, height }) => ({
+    button,
+    overflow: text.scrollHeight > height + 1,
+  }));
+  for (const item of overflow)
+    item.button.classList.toggle("title-overflow", item.overflow);
 }
 function matching() {
   const q = $("#search").value.trim().toLocaleLowerCase(),
@@ -416,7 +437,12 @@ function markFresh() {
   lastReceivedAt = new Date().toISOString();
 }
 function focusSelector(element) {
-  for (const key of ["data-open", "data-pbi"]) {
+  if (element?.matches?.("[data-cell-step]")) {
+    const key = element.closest(".task-cell").querySelector(".cell-viewport")
+      .dataset.cellKey;
+    return `[data-cell-key="${CSS.escape(key)}"] + .cell-navigation [data-cell-step="${element.dataset.cellStep}"]`;
+  }
+  for (const key of ["data-open", "data-pbi", "data-cell-key"]) {
     const value = element?.getAttribute?.(key);
     if (value) return `[${key}="${CSS.escape(value)}"]`;
   }
@@ -484,6 +510,102 @@ function syncAssigneeFilter() {
     select.value = chosen;
   }
 }
+// Session-only viewport state. Keys are stamped on rendered DOM, so a scope
+// change cannot accidentally save the old cell position under the new scope.
+const cellPositions = new Map();
+function cellKey(lane, column) {
+  return JSON.stringify([
+    displayScope(),
+    $("#search").value.trim(),
+    $("#assignee-filter").value,
+    lane,
+    column,
+  ]);
+}
+function rememberCell(port) {
+  if (!port.isConnected || !port.clientHeight) return;
+  const pages = [...port.children];
+  const index = Math.min(
+    pages.length - 1,
+    Math.floor((port.scrollTop + 1) / port.clientHeight),
+  );
+  const ids = pages
+    .slice(index)
+    .flatMap((p) =>
+      [...p.querySelectorAll("[data-task]")].map((n) => n.dataset.task),
+    );
+  cellPositions.delete(port.dataset.cellKey);
+  cellPositions.set(port.dataset.cellKey, {
+    ids,
+    index,
+    fraction: port.scrollTop / port.clientHeight - index,
+  });
+  if (cellPositions.size > 200)
+    cellPositions.delete(cellPositions.keys().next().value);
+}
+function updateCellRange(port) {
+  const cell = port.closest(".task-cell"),
+    total = Number(port.dataset.total);
+  const half = port.clientHeight / 2;
+  const first = Math.min(
+    total,
+    Math.floor((port.scrollTop + 1) / half) * 2 + 1,
+  );
+  const last = Math.min(
+    total,
+    Math.ceil((port.scrollTop + port.clientHeight - 1) / half) * 2,
+  );
+  cell.querySelector(".cell-range").textContent = `${first}–${last} / ${total}`;
+  cell.querySelector('[data-cell-step="-1"]').disabled = port.scrollTop < 1;
+  cell.querySelector('[data-cell-step="1"]').disabled =
+    port.scrollTop + port.clientHeight >= port.scrollHeight - 1;
+}
+function restoreCells() {
+  for (const port of document.querySelectorAll(".cell-viewport")) {
+    const saved = cellPositions.get(port.dataset.cellKey);
+    if (saved) {
+      const pages = [...port.children];
+      let index = -1;
+      for (const id of saved.ids) {
+        index = pages.findIndex((p) =>
+          p.querySelector(`[data-task="${CSS.escape(id)}"]`),
+        );
+        if (index >= 0) break;
+      }
+      port.scrollTop =
+        (index >= 0 ? index + saved.fraction : saved.index + saved.fraction) *
+        port.clientHeight;
+    }
+    updateCellRange(port);
+    port.addEventListener(
+      "scroll",
+      () => {
+        rememberCell(port);
+        updateCellRange(port);
+      },
+      { passive: true },
+    );
+  }
+}
+function stepCell(port, step) {
+  if (!port) return;
+  port.scrollTop =
+    (Math.round(port.scrollTop / port.clientHeight) + step) * port.clientHeight;
+  rememberCell(port);
+  updateCellRange(port);
+}
+function revealCard(target) {
+  const port = target?.closest(".cell-viewport");
+  if (!port) return;
+  const page = target.closest(".cell-page");
+  const index = [...port.children].indexOf(page);
+  const bounds = port.getBoundingClientRect(),
+    rect = target.getBoundingClientRect();
+  if (rect.top >= bounds.top && rect.bottom <= bounds.bottom) return;
+  port.scrollTop = index * port.clientHeight;
+  rememberCell(port);
+  updateCellRange(port);
+}
 function render() {
   if (dragged) clearDrag();
   if (!adapter) {
@@ -500,6 +622,7 @@ function render() {
   $("#board").classList.remove("is-loading");
   $("#retry-load").hidden = true;
   const focused = focusSelector(document.activeElement);
+  document.querySelectorAll(".cell-viewport").forEach(rememberCell);
   const milestones = state.scope?.milestones || [];
   $("#milestone-filter").hidden = !adapter || !milestones.length;
   const milestoneOptions =
@@ -571,17 +694,24 @@ function render() {
             (t) => t.lane === l.id && t.status !== "見送り",
           ),
           done = all.filter((t) => t.status === "完了").length;
-        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button>${progressMarkup(done, all.length)}</div>${columns
+        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="pbi-assignees person" aria-label="PBI担当者: ${esc(person(l))}" title="${esc(person(l))}">${assigneeAvatars(l)}<span class="person-name">${esc(person(l))}</span></div>${progressMarkup(done, all.length)}</div>${columns
           .map((s) => {
-            const list = own.filter((t) => statusColumn(t.status) === s),
-              show = list.slice(0, capacity);
-            return `<div class="cell task-cell" role="cell" data-lane="${esc(l.id)}" data-status="${s}"><div class="task-grid" data-count="${show.length}">${show.map(card).join("")}</div>${list.length > capacity ? `<button class="overflow-button" data-overflow="${esc(l.id)}" data-column="${s}">ほか ${list.length - capacity} 件 · 全 ${list.length} 件を開く</button>` : ""}</div>`;
+            const list = own.filter((t) => statusColumn(t.status) === s);
+            const overflow = list.length > capacity;
+            const pages = [];
+            for (let i = 0; i < list.length; i += capacity)
+              pages.push(list.slice(i, i + capacity));
+            const content = overflow
+              ? `<div class="cell-viewport" tabindex="0" aria-label="${esc(l.title)} / ${s} の付箋" data-cell-key="${esc(cellKey(l.id, s))}" data-total="${list.length}">${pages.map((items) => `<div class="task-grid cell-page" data-count="4">${items.map(card).join("")}</div>`).join("")}</div><div class="cell-navigation"><span class="cell-range"></span><button data-cell-step="-1" aria-label="前の4件" data-tooltip="前の4件 · Page Up">↑</button><button data-cell-step="1" aria-label="次の4件" data-tooltip="次の4件 · Page Down">↓</button></div>`
+              : `<div class="task-grid" data-count="${list.length}">${list.map(card).join("")}</div>`;
+            return `<div class="cell task-cell" role="cell" data-lane="${esc(l.id)}" data-status="${s}">${content}</div>`;
           })
           .join(
             "",
           )}<div class="cell goal-cell" role="cell"><button class="goal-text" data-pbi="${esc(l.id)}">${esc(goal(l.body))}</button></div></div>`;
       })
       .join("");
+  restoreCells();
   fitCardTitles();
   if (focused) document.querySelector(focused)?.focus({ preventScroll: true });
   $("#empty").hidden = !connectionError && tasks.length !== 0;
@@ -1440,6 +1570,7 @@ function renderComments() {
     }
 }
 function stopPrivateScope(message) {
+  cellPositions.clear();
   state = clone(initial);
   adapter = null;
   connectionError = message;
@@ -1607,7 +1738,8 @@ $("#comment-form").onsubmit = async (e) => {
     if (session === editorSession) syncCommentControls();
   }
 };
-let returnFocusSelector = null;
+let returnFocusSelector = null,
+  returnCell = null;
 function openIssue(kind, id) {
   if (commentPosting()) return;
   if ((pending && !loading) || !adapter || !issue(kind, id)) return;
@@ -1629,8 +1761,15 @@ function openIssue(kind, id) {
   composing = false;
   detailUnavailable = false;
   editing = { kind, id };
-  returnFocus = document.activeElement;
-  returnFocusSelector = focusSelector(returnFocus);
+  returnFocusSelector = `[${kind === "PBI" ? "data-pbi" : "data-open"}="${CSS.escape(id)}"]`;
+  returnFocus =
+    document.querySelector(returnFocusSelector) || document.activeElement;
+  returnCell = returnFocus.closest(".task-cell")
+    ? {
+        lane: returnFocus.closest(".task-cell").dataset.lane,
+        column: returnFocus.closest(".task-cell").dataset.status,
+      }
+    : null;
   fillDetail();
   setupComments();
   setEdit(false);
@@ -1677,7 +1816,17 @@ function closeDetail() {
     const target = returnFocus?.isConnected
       ? returnFocus
       : returnFocusSelector && document.querySelector(returnFocusSelector);
-    (target || $("#operations")).focus({ preventScroll: true });
+    const originCell =
+      returnCell &&
+      document.querySelector(
+        `[data-lane="${CSS.escape(returnCell.lane)}"][data-status="${returnCell.column}"]`,
+      );
+    const fallback =
+      originCell?.querySelector(".cell-viewport, [data-open]") ||
+      (returnCell &&
+        document.querySelector(`[data-pbi="${CSS.escape(returnCell.lane)}"]`));
+    revealCard(target);
+    (target || fallback || $("#operations")).focus({ preventScroll: true });
   }, 160);
 }
 function openList(lane, column) {
@@ -1727,10 +1876,29 @@ $("#board").addEventListener("click", (e) => {
   const task =
       e.target.closest("[data-open]") || e.target.closest("[data-task]"),
     pbi = e.target.closest("[data-pbi]") || e.target.closest("[data-pbi-row]"),
-    more = e.target.closest("[data-overflow]");
+    more = e.target.closest("[data-cell-step]");
   if (task) openIssue("Task", task.dataset.open || task.dataset.task);
   if (pbi) openIssue("PBI", pbi.dataset.pbi || pbi.dataset.pbiRow);
-  if (more) openList(more.dataset.overflow, more.dataset.column);
+  if (more)
+    stepCell(
+      more.closest(".task-cell").querySelector(".cell-viewport"),
+      Number(more.dataset.cellStep),
+    );
+});
+$("#board").addEventListener("keydown", (e) => {
+  const port = e.target.closest(".task-cell")?.querySelector(".cell-viewport");
+  if (!port || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  if (["PageDown", "PageUp", "Home", "End"].includes(e.key)) {
+    e.preventDefault();
+    if (e.key === "PageDown" || e.key === "PageUp")
+      stepCell(port, e.key === "PageDown" ? 1 : -1);
+    if (e.key === "Home" || e.key === "End") {
+      port.scrollTop = e.key === "Home" ? 0 : port.scrollHeight;
+      rememberCell(port);
+      updateCellRange(port);
+    }
+    port.focus({ preventScroll: true });
+  }
 });
 // Image errors do not bubble, so listen in capture phase across board rerenders.
 $("#board").addEventListener("error", handleAvatarError, true);
@@ -1757,6 +1925,19 @@ $("#board").addEventListener("dragstart", (e) => {
   e.dataTransfer.setData("text/plain", dragged);
   c.classList.add("dragging");
 });
+let dragScrollFrame = 0,
+  dragScrollPort = null,
+  dragScrollSpeed = 0;
+function stopDragScroll() {
+  cancelAnimationFrame(dragScrollFrame);
+  dragScrollFrame = 0;
+  dragScrollPort = null;
+}
+function tickDragScroll() {
+  if (!dragged || !dragScrollPort?.isConnected) return stopDragScroll();
+  dragScrollPort.scrollTop += dragScrollSpeed;
+  dragScrollFrame = requestAnimationFrame(tickDragScroll);
+}
 $("#board").addEventListener("dragover", (e) => {
   const c = e.target.closest("[data-status]"),
     t = issue("Task", dragged);
@@ -1766,9 +1947,25 @@ $("#board").addEventListener("dragover", (e) => {
       .querySelectorAll(".drag-over")
       .forEach((c) => c.classList.remove("drag-over"));
     c.classList.add("drag-over");
-  }
+    const port = c.querySelector(".cell-viewport");
+    const rect = port?.getBoundingClientRect();
+    const speed = rect
+      ? e.clientY < rect.top + 22
+        ? -4
+        : e.clientY > rect.bottom - 22
+          ? 4
+          : 0
+      : 0;
+    if (speed) {
+      dragScrollPort = port;
+      dragScrollSpeed = speed;
+      if (!dragScrollFrame)
+        dragScrollFrame = requestAnimationFrame(tickDragScroll);
+    } else stopDragScroll();
+  } else stopDragScroll();
 });
 function clearDrag() {
+  stopDragScroll();
   dragged = null;
   resumeAutoRefresh();
   document
@@ -1777,7 +1974,10 @@ function clearDrag() {
 }
 $("#board").addEventListener("dragleave", (e) => {
   const c = e.target.closest("[data-status]");
-  if (c && !c.contains(e.relatedTarget)) c.classList.remove("drag-over");
+  if (c && !c.contains(e.relatedTarget)) {
+    c.classList.remove("drag-over");
+    stopDragScroll();
+  }
 });
 $("#board").addEventListener("drop", (e) => {
   e.preventDefault();
@@ -1786,7 +1986,10 @@ $("#board").addEventListener("drop", (e) => {
   if (c && t && c.dataset.lane === t.lane) move(t.id, c.dataset.status);
   clearDrag();
 });
-$("#board").addEventListener("dragend", clearDrag);
+window.addEventListener("dragend", clearDrag);
+window.addEventListener("blur", () => {
+  if (dragged) clearDrag();
+});
 function sizeTitle() {
   const input = $("#detail-title");
   input.style.height = "auto";
