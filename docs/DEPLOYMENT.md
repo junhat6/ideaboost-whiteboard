@@ -118,3 +118,16 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - Task黄/競合調査青/未知neutralの本文コントラストは11.14/8.70/12.06。type cueも併用。PBI左セルの最小表示・全体ドラッグは維持。
 - 実Issue823のコメントGETは200、既存1件とauthor/date/link構造を確認。実IssueのQA保存・コメント投稿は未実施。投稿・二重送信・結果不明・非公開遷移はmockで検証。日本語IMEは合成イベントでありOS実機IMEの完全検証ではない。
 - 承認済み匿名公開/App bot投稿モードを維持。新しい権限・鍵・有料サービスは追加していない。
+
+## 同一面ライブ編集とコメント高速化
+
+- 配信source: `cbb252c76be35d8332a73e2a3b3d3cc849214fbb`（主実装 `607df1b70a00b93fefc56e7c4d3f0d768f119cdf`、原文履歴と配置追補）
+- Active Worker version: `4a84b4b0-45a0-4a4b-8ca0-18bee468e715`
+- 配信CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40307132549
+- 主実装CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40306183896
+- ローカルcheck成功（67 backend、lint/typecheck/build）、114 browser成功。DESIGN validator errors0/warnings16（未参照token）。
+- コメントAPIの実測中央値12.35秒→1.42秒、約88.5%短縮。各3回の範囲12.00〜13.80秒→1.26〜1.93秒。権限cacheは追加せず、対象Issueの正式所属と前後公開確認を毎回実施。詳細はPERFORMANCE.md。
+- Markdownは既定で同一面ライブ表示。選択した行/表/コード/添付を原文へ戻し、非選択部分は整形する。単なるタブ名の変更ではなく構文木+Decorationを実装。原文とUndo/Redoを保持し、補助の原文/読み取り表示だけアイコンで用意。
+- 操作バーは高さ61pxの一行に整理。常設の長い説明はヘルプへ移し、同期/全画面/配色/ヘルプはtooltipとアクセシブル名を持つアイコン。保存・競合・失敗の意味は維持する。
+- 最終配信1920/2560で本文55/51ms、コメント1648/1513ms、媒体操作前通信0、POST0・JS error0を確認。4配信assetsのHTTP200/SHA256がローカル一致。実QuickTime再生は主実装の本番ライブ面でreadyState4/error nullを確認し、追補では追加動画取得を省いた。
+- コメント投稿/Issue保存の実QA書き込みは行わない。合成IME、制御した競合/結果不明/非公開化を試験。OS実機IME・全codecを保証しない。タスクリストはチェック記号を表示し、変更時は原文編集へ入る。新たな資格情報・権限・有料資源は追加なし。
