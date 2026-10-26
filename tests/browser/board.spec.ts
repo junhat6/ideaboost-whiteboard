@@ -329,7 +329,7 @@ test("long PBI stays within cell with complete lines and visible progress", asyn
   ).toBeLessThan(0.001);
 });
 
-test("right 80% viewer opens and closes immediately during background read, then reconciles", async ({
+test("right 88% viewer opens and closes immediately during background read, then reconciles", async ({
   page,
 }) => {
   const s = await setup(page);
@@ -354,8 +354,8 @@ test("right 80% viewer opens and closes immediately during background read, then
   await expect(page.locator("#detail-fields")).toBeEnabled();
   await page.waitForTimeout(250);
   const box = await page.locator("#details").boundingBox();
-  expect(box!.x).toBeCloseTo(page.viewportSize()!.width * 0.2, 0);
-  expect(box!.width).toBeCloseTo(page.viewportSize()!.width * 0.8, 0);
+  expect(box!.x).toBeCloseTo(page.viewportSize()!.width * 0.12, 0);
+  expect(box!.width).toBeCloseTo(page.viewportSize()!.width * 0.88, 0);
   await page.keyboard.press("Escape");
   await expect(page.locator("#details")).not.toBeVisible();
   await page.locator(".pbi-title").first().click();

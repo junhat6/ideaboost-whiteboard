@@ -165,9 +165,14 @@
         <fieldset id="detail-fields">
           <div class="body-label">
             <div
-              class="markdown-toolbar"
+              id="issue-author"
+              class="issue-author"
+              aria-label="Issue作成者"
+            ></div>
+            <div
+              class="editor-display-actions"
               role="toolbar"
-              aria-label="本文の表示と書式"
+              aria-label="本文の表示"
             >
               <div class="editor-view-actions">
                 <button
@@ -189,21 +194,6 @@
                   プレビュー
                 </button>
               </div>
-              <div class="format-actions">
-                <button type="button" data-format="bold" aria-label="太字">
-                  <b>B</b></button
-                ><button
-                  type="button"
-                  data-format="heading"
-                  aria-label="見出し"
-                >
-                  H</button
-                ><button type="button" data-format="list" aria-label="箇条書き">
-                  ≡</button
-                ><button type="button" data-format="code" aria-label="コード">
-                  &lt;/&gt;
-                </button>
-              </div>
             </div>
             <div id="markdown-editor"></div>
             <textarea
@@ -218,13 +208,31 @@
             <label
               >担当者<select
                 id="detail-assignee"
+                hidden
+                aria-hidden="true"
+                tabindex="-1"
                 aria-label="担当者"
-              ></select></label
+              ></select>
+              <div
+                id="assignee-tiles"
+                class="assignee-tiles"
+                role="group"
+                aria-label="担当者を選択"
+              ></div></label
             ><label
               >ステータス<select
                 id="detail-status"
+                hidden
+                aria-hidden="true"
+                tabindex="-1"
                 aria-label="ステータス"
-              ></select
+              ></select>
+              <div
+                id="status-choices"
+                class="status-choices"
+                role="group"
+                aria-label="ステータスを選択"
+              ></div
             ></label>
             <p id="body-hint" class="body-hint" hidden>
               Demo goalは本文の「ユーザーに提供する体験」から表示します。

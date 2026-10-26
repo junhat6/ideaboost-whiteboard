@@ -95,9 +95,17 @@ compositionstart直後（本文変更なし）から非選択行の記法も露�
 
 原文表示中に未編集本文へremote更新が届いても、setState後に表示フラグを再適用し、アイコンのaria-pressedと記法表示が一致することを追加。67 backendと118 browser（59シナリオ×2サイズ）を対象とする。
 
-CIの媒体回帰は、ライブ面から読み取り面へ明示切替した際に画像要求が各面で1回（合計1〜2回）となるタイミングを許容する。動画は操作前0件を維持し、遅い画像が本文を妨げないこととclose cleanupを検証する。
+CIの媒体回帰は、ライブ面から読み取り面へ明示切替した際に画像要求が各面で1回（合計1〜2回）となるタイミングを許容する。当時の契約では動画は操作前0件を維持し（現在は下記自動previewへ変更）、遅い画像が本文を妨げないこととclose cleanupを検証する。
 
 
-媒体追加回帰: 両解像度で同じコメント本文/作者変更後もvideo DOMを保持、本文URL変更・削除で旧video停止、14遅延画像の同時要求上限3とdialog共有observer、閉じる際の待機要求破棄を検証する。既存の再生前通信ゼロ、悪意Markdown、scope非公開化、IME/source/undo、投稿receipt/結果不明も全体試験に含める。実添付は読み取りのみであり、実IssueへのQA書き込みは行わない。
+媒体追加回帰: 両解像度で同じコメント本文/作者変更後もvideo DOMを保持、本文URL変更・削除で旧video停止、14遅延画像の同時要求上限3とdialog共有observer、閉じる際の待機要求破棄を検証する。当時の再生前通信ゼロ（現在は近傍previewを許可）、悪意Markdown、scope非公開化、IME/source/undo、投稿receipt/結果不明も全体試験に含める。実添付は読み取りのみであり、実IssueへのQA書き込みは行わない。
 
 閉じるアニメーション境界: live媒体6画像の3件を保留し、閉じる承認直後・160ms破棄前にactive画像のloadを合成する。改善前は両サイズで待機1件へsrc設定、追補後は0。closing/非open dialogではqueueを取消し、接続が残るlive widgetでも新規取得しない。実ネットワーク完了を保証するテストではなく、完了イベントの競合順を決定的に検証する。
+
+## 自動preview・作者・選択UI・図・88%詳細
+
+68 backend（36 server + 32 worker）と138 browser（69ケース×両解像度）がローカルで成功。near画像自動表示、未知添付の画像→paused video、動画preview同時1件、画面外未取得、手動再生後の遅延metadata/timeout競合、close取消を検証。作者と担当者の区別、Bot/null、候補外担当者・再open後の選択、Status固有色と列代表色、色変更時snapshot無効化、0/1/6/多数タスク進捗、88%幅、書式ツールバー非表示を確認。
+
+Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoom/fit、危険な画像/リンクから外部要求なし、3秒worker終了とsource fallbackを試験。既存IME・undo・同期/保存/コメントの安全性も全回帰に含む。OSネイティブIMEやすべての動画codecの保証ではない。
+
+動画はユーザーの最新指示により『クリック前通信ゼロ』から『近傍で限定preview取得、自動再生なし』へ変更。preloadは転送量の上限ではない。実公開添付の読み取り測定と合成scheduler試験を区別し、実Issue/コメントへのQA書き込みは行わない。

@@ -14,6 +14,8 @@ POSTはIssue本文保存と同じper-issue DO queueを通す。route+Issue+body 
 
 ## メディア境界
 
+**追補:** 以下は初期契約の記録。最新の利用者指示により、操作前取得ゼロと手動媒体選択は[ADR 008](008-rich-issue-reading.md)の近傍自動previewへ置き換えた。自動再生禁止、許可URL、公開境界とcleanupは継続する。
+
 CodeMirrorは原文を保持。previewはDOMPurifyのinert fragmentから許可したGitHub添付URLだけを新DOMへ変換する。raw imgのイベント属性や任意iframe/video HTMLは通さない。画像はIntersectionObserver(dialog root、200px)でsrcを設定、動画は明示操作まで要素/srcなし。拡張子なし添付を動画と断定せず「動画として再生」「画像として表示」を用意。コードフェンス内URLは変換しない。
 
 HTTPS、正確なhost/path、userinfo/nondefault port/query/hashなしを検証。github.com/user-attachments/assetsとuser-images.githubusercontent.comの添付だけを自動媒体候補にする。CSPも観測したGitHub添付と `github-production-user-asset-6210df.s3.amazonaws.com` のみに限定。任意S3/https全域や認証付きproxyは導入しない。元リンクは常に表示し、403・期限・未対応codecはブラウザー依存の制約として扱う。閉じる/切替でvideo pause、src除去、observer disconnect。

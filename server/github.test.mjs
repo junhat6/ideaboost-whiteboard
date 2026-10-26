@@ -58,6 +58,9 @@ test("paginates, preserves null status and formal parent outside project; filter
   assert.equal(r.status, 200);
   const b = await r.json();
   assert.equal(b.tasks[0].status, null);
+  assert.equal(b.tasks[0].author.login, "creator");
+  assert.equal(b.lanes[0].author.login, "creator");
+  assert.equal(b.scope.statusColors[0].color, "YELLOW");
   assert.equal(b.tasks[0].lane, "I1");
   assert.equal(b.lanes[0].type, "PBI");
   assert.equal(b.lanes[0].projectItemId, null);

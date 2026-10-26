@@ -74,6 +74,7 @@ export class BoardReader {
           JSON.stringify([
             data.scope?.viewFilter ?? null,
             data.scope?.statusOptions ?? [],
+            data.scope?.statusColors ?? [],
           ])
         ) {
           this.snapshot = null;

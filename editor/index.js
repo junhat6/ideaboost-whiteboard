@@ -1,3 +1,5 @@
+import { prepareDiagrams, releaseDiagrams } from "./diagrams.js";
+import { observeThumbnails, releaseThumbnails } from "./thumbnail-loader.js";
 import { observeImages, releaseImages } from "./media-loader.js";
 import { patchRaw } from "./raw.js";
 import { livePreview, sourceMode } from "./live.js";
@@ -55,6 +57,7 @@ export function preview(source, target) {
       ],
       RETURN_DOM_FRAGMENT: true,
       ALLOWED_ATTR: [
+        "class",
         "href",
         "title",
         "start",
@@ -66,7 +69,9 @@ export function preview(source, target) {
       ],
     },
   );
+  fragment.querySelectorAll("[class]").forEach(el=>{if(el.tagName!=="CODE"||el.className!=="language-mermaid")el.removeAttribute("class");});
   const images = [];
+  const thumbnails = [];
   fragment.querySelectorAll("img").forEach((img) => {
     const url = safeMediaUrl(img.getAttribute("src"));
     const alt = img.getAttribute("alt") || "添付画像";
@@ -84,7 +89,7 @@ export function preview(source, target) {
       img.replaceWith(fallback);
       return;
     }
-    const media = mediaFigure(url, alt, "image", images);
+    const media = mediaFigure(url, alt, "image", images, thumbnails);
     img.replaceWith(media);
   });
   fragment.querySelectorAll("a").forEach((a) => {
@@ -107,7 +112,7 @@ export function preview(source, target) {
       parent.textContent.trim() === a.textContent.trim()
     )
       parent.replaceWith(
-        mediaFigure(url, "GitHubの添付ファイル", "unknown", images),
+        mediaFigure(url, "GitHubの添付ファイル", "unknown", images, thumbnails),
       );
   });
   fragment.querySelectorAll("input").forEach((i) => {
@@ -115,10 +120,14 @@ export function preview(source, target) {
     i.disabled = true;
   });
   target.replaceChildren(fragment);
+  prepareDiagrams(target);
   observeImages(target, images);
+  observeThumbnails(target, thumbnails);
 }
 export function clearPreview(target) {
   renderedSources.delete(target);
+  releaseDiagrams(target);
+  releaseThumbnails(target);
   releaseImages(target);
   target.querySelectorAll("video").forEach((video) => {
     video.onerror = null;
@@ -153,7 +162,14 @@ export function safeMediaUrl(value) {
   } catch {}
   return null;
 }
-function mediaFigure(url, alt, kind, images) {
+const detectedKinds = new Map();
+function rememberKind(url, kind) {
+  detectedKinds.delete(url);
+  detectedKinds.set(url, { kind, at: Date.now() });
+  if (detectedKinds.size > 64)
+    detectedKinds.delete(detectedKinds.keys().next().value);
+}
+function mediaFigure(url, alt, kind, images, thumbnails) {
   const figure = document.createElement("figure"),
     frame = document.createElement("div"),
     link = document.createElement("a"),
@@ -161,27 +177,22 @@ function mediaFigure(url, alt, kind, images) {
   figure.className = "media-shell";
   frame.className = "media-frame";
   status.className = "media-status";
-  status.textContent =
-    kind === "image"
-      ? "画像は表示位置に近づくと読み込みます"
-      : "添付ファイルは操作後に読み込みます";
+  status.textContent = "近づくとプレビューを読み込みます";
   link.href = url;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.textContent = "元の添付を開く ↗";
   figure.append(frame, link);
   frame.append(status);
-  const addImage = (lazy) => {
-    frame.replaceChildren(status);
-    status.textContent = "画像を読み込み中…";
+  const known = detectedKinds.get(url);
+  if (known && Date.now() - known.at < 300000) kind = known.kind;
+  if (kind === "image") {
     const img = document.createElement("img");
     img.alt = alt;
     img.decoding = "async";
     img.loading = "lazy";
     img.referrerPolicy = "no-referrer";
-    img.onload = () => {
-      status.hidden = true;
-    };
+    img.onload = () => (status.hidden = true);
     img.onerror = () => {
       status.hidden = false;
       status.textContent = "画像を表示できません。元の添付をご確認ください。";
@@ -189,40 +200,128 @@ function mediaFigure(url, alt, kind, images) {
     };
     img.dataset.mediaSrc = url;
     frame.append(img);
-    if (lazy) images.push(img);
-    else observeImages(figure, [img], true);
-  };
-  if (kind === "image") addImage(true);
-  else {
-    const controls = document.createElement("div");
-    controls.className = "media-choices";
-    const videoButton = document.createElement("button"),
-      imageButton = document.createElement("button");
-    videoButton.type = imageButton.type = "button";
-    videoButton.textContent = "動画として再生";
-    imageButton.textContent = "画像として表示";
-    imageButton.onclick = () => addImage(false);
-    videoButton.onclick = () => {
-      const video = document.createElement("video");
-      video.controls = true;
-      video.preload = "none";
-      video.playsInline = true;
-      video.setAttribute("aria-label", alt);
-      video.src = url;
-      video.onerror = () => {
-        status.hidden = false;
-        status.textContent =
-          "このブラウザで再生できません。元の添付をご確認ください。";
-      };
-      status.hidden = true;
-      frame.replaceChildren(status, video);
-      video.play().catch(() => {
-        status.hidden = false;
-        status.textContent = "プレーヤーの再生ボタンを押してください。";
-      });
-    };
-    controls.append(videoButton, imageButton);
-    frame.append(controls);
+    images.push(img);
+  } else {
+    thumbnails.push({
+      figure,
+      start: (signal) =>
+        new Promise((resolve) => {
+          let media = null,
+            manual = false,
+            settled = false;
+          const done = () => {
+            if (!settled) {
+              settled = true;
+              resolve();
+            }
+          };
+          const valid = () =>
+            !signal.aborted &&
+            figure.isConnected &&
+            !figure.closest("dialog")?.classList.contains("closing");
+          const fail = () => {
+            if (!valid()) return;
+            status.hidden = false;
+            status.textContent =
+              "プレビューを表示できません。形式・アクセス権をご確認ください。";
+            done();
+          };
+          signal.addEventListener(
+            "abort",
+            () => {
+              if (media) {
+                media.onload =
+                  media.onerror =
+                  media.onloadedmetadata =
+                  media.onloadeddata =
+                  media.onplay =
+                    null;
+                if (media.tagName === "VIDEO") {
+                  media.pause();
+                  media.removeAttribute("src");
+                  media.load();
+                } else media.removeAttribute("src");
+                media.remove();
+              }
+              if (signal.reason === "timeout") {
+                status.hidden = false;
+                status.textContent =
+                  "プレビューが時間内に取得できませんでした。元の添付から確認できます。";
+              }
+              done();
+            },
+            { once: true },
+          );
+          const videoPreview = () => {
+            if (!valid()) {
+              done();
+              return;
+            }
+            const video = document.createElement("video");
+            media = video;
+            video.controls = true;
+            video.preload = "metadata";
+            video.playsInline = true;
+            video.setAttribute("aria-label", alt || "添付動画");
+            status.hidden = false;
+            status.textContent = "動画の先頭画面を読み込み中…";
+            frame.replaceChildren(status, video);
+            video.onplay = () => {
+              manual = true;
+              status.hidden = true;
+              done();
+            };
+            video.onloadedmetadata = () => {
+              if (!valid() || manual) return;
+              rememberKind(url, "video");
+              if (
+                video.readyState < 2 &&
+                Number.isFinite(video.duration) &&
+                video.duration > 0
+              )
+                video.currentTime = Math.min(0.001, video.duration / 2);
+            };
+            video.onloadeddata = () => {
+              if (!valid() || manual) return;
+              video.preload = "none";
+              status.hidden = true;
+              figure.dataset.preview = "video";
+              done();
+            };
+            video.onerror = fail;
+            video.src = url;
+          };
+          if (!valid()) {
+            done();
+            return;
+          }
+          if (kind === "video") {
+            videoPreview();
+            return;
+          }
+          const image = new Image();
+          media = image;
+          image.alt = alt;
+          image.decoding = "async";
+          image.referrerPolicy = "no-referrer";
+          status.textContent = "添付のプレビューを読み込み中…";
+          frame.append(image);
+          image.onload = () => {
+            if (!valid()) return;
+            rememberKind(url, "image");
+            status.hidden = true;
+            figure.dataset.preview = "image";
+            done();
+          };
+          image.onerror = () => {
+            image.onload = image.onerror = null;
+            image.removeAttribute("src");
+            image.remove();
+            videoPreview();
+          };
+          image.src = url;
+        }),
+    });
   }
   return figure;
 }
@@ -232,6 +331,20 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
   let raw = initial;
   let isDisabled = false;
   let isSource = false;
+  function format(before, after = before) {
+    if (isDisabled || view.composing) return;
+    const { from, to } = view.state.selection.main;
+    view.dispatch({
+      changes: {
+        from,
+        to,
+        insert: before + view.state.sliceDoc(from, to) + after,
+      },
+      selection: { anchor: from + before.length, head: to + before.length },
+      userEvent: "input",
+    });
+    view.focus();
+  }
   const extensions = [
     history(),
     invertedEffects.of((tr) => (tr.docChanged ? [restoreRaw.of(raw)] : [])),
@@ -245,6 +358,19 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
           return true;
         },
       },
+      ...[
+        ["Mod-b", "**", "**"],
+        ["Mod-i", "*", "*"],
+        ["Mod-Shift-h", "## ", ""],
+        ["Mod-Shift-l", "- ", ""],
+        ["Mod-e", "`", "`"],
+      ].map(([key, before, after]) => ({
+        key,
+        run: () => {
+          format(before, after);
+          return true;
+        },
+      })),
       ...defaultKeymap,
       ...historyKeymap,
     ]),
@@ -356,19 +482,6 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
     destroy() {
       view.destroy();
     },
-    format(before, after = before) {
-      if (isDisabled || view.composing) return;
-      const { from, to } = view.state.selection.main;
-      view.dispatch({
-        changes: {
-          from,
-          to,
-          insert: before + view.state.sliceDoc(from, to) + after,
-        },
-        selection: { anchor: from + before.length, head: to + before.length },
-        userEvent: "input",
-      });
-      view.focus();
-    },
+    format,
   };
 }

@@ -17,6 +17,13 @@ export const makeIssue = (n, type = null, parent = null) => ({
   body: "original",
   url: "https://github.com/engineer-first/idea-boost/issues/" + n,
   updatedAt: revision,
+  author: {
+    login: "creator",
+    name: "作成者",
+    avatarUrl: "https://avatars.githubusercontent.com/u/2",
+    url: "https://github.com/creator",
+    __typename: "User",
+  },
   state: "OPEN",
   repository: { nameWithOwner: "engineer-first/idea-boost" },
   issueType: type ? { name: type } : null,
@@ -264,7 +271,7 @@ export function fixture({
               url: "https://github.com/orgs/engineer-first/projects/3",
               field: {
                 id: "STATUS",
-                options: [{ id: "WORK", name: "作業中" }],
+                options: [{ id: "WORK", name: "作業中", color: "YELLOW" }],
               },
               view: { filter: viewFilter },
             },
@@ -285,7 +292,10 @@ export function fixture({
             id: "P3",
             public: true,
             url: "https://github.com/orgs/engineer-first/projects/3",
-            field: { id: "STATUS", options: [{ id: "WORK", name: "作業中" }] },
+            field: {
+              id: "STATUS",
+              options: [{ id: "WORK", name: "作業中", color: "YELLOW" }],
+            },
             view: { filter: viewFilter },
             items: {
               nodes:

@@ -12,11 +12,11 @@ const STATUSES = [
   "見送り",
 ];
 const BASE = "https://api.github.com";
-const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:10) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
+const CORE = `id number url title body updatedAt state author { login avatarUrl url __typename ... on User { name } } repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:10) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
 const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state } } } } pageInfo { hasNextPage endCursor }`;
-const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter }`;
+const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name color } } } view(number:16) { filter }`;
 const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100) { ${INDEX} } } } }`;
 const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after) { ${INDEX} } } } }`;
 class ApiError extends Error {
@@ -115,6 +115,7 @@ export function validateMutation(v) {
         ![
           "title",
           "body",
+          "author",
           "assignees",
           "status",
           "expectedRevision",
@@ -334,6 +335,15 @@ export function createHandler({
       url: i.url,
       title: i.title,
       body: i.body,
+      author: i.author
+        ? {
+            login: i.author.login,
+            name: i.author.name ?? null,
+            avatarUrl: i.author.avatarUrl,
+            url: i.author.url,
+            type: i.author.__typename,
+          }
+        : null,
       type: i.issueType?.name ?? null,
       assignees: i.assignees?.nodes,
       status: item?.fieldValueByName?.name ?? null,
@@ -645,6 +655,7 @@ export function createHandler({
           "number",
           "title",
           "body",
+          "author",
           "assignees",
           "revision",
           "state",
@@ -676,6 +687,11 @@ export function createHandler({
         selectedMilestone: milestone,
         milestones,
         statusOptions: meta.field?.options?.map((o) => o.name) ?? [],
+        statusColors:
+          meta.field?.options?.map((o) => ({
+            name: o.name,
+            color: o.color ?? null,
+          })) ?? [],
         concurrency:
           "per-issue durable coordinator; optimistic GitHub preflight",
       },
@@ -855,6 +871,11 @@ export function createHandler({
           selectedMilestone: milestone,
           milestones,
           statusOptions: meta.field?.options?.map((o) => o.name) ?? [],
+          statusColors:
+            meta.field?.options?.map((o) => ({
+              name: o.name,
+              color: o.color ?? null,
+            })) ?? [],
           concurrency:
             "per-issue durable coordinator; optimistic GitHub preflight",
         },
@@ -1159,6 +1180,10 @@ export function createHandler({
           scopeKey: JSON.stringify([
             meta.view?.filter ?? null,
             meta.field?.options?.map((o) => o.name) ?? [],
+            meta.field?.options?.map((o) => ({
+              name: o.name,
+              color: o.color ?? null,
+            })) ?? [],
           ]),
         });
       }

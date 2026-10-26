@@ -569,7 +569,7 @@ function render() {
   $("#visible-count").textContent =
     `${tasks.filter((t) => statusColumn(t.status)).length} タスク · 見送り ${tasks.filter((t) => t.status === "見送り").length}`;
   $("#board").innerHTML =
-    `<div class="board-row board-head" role="row"><div class="cell" role="columnheader">PBI <span>${displayed.length}</span></div>${columns.map((s) => `<div class="cell" role="columnheader"><i class="status-dot ${s.toLowerCase()}"></i>${s}<span>${tasks.filter((t) => statusColumn(t.status) === s).length}</span></div>`).join("")}<div class="cell" role="columnheader">Demo goal</div></div>` +
+    `<div class="board-row board-head" role="row"><div class="cell" role="columnheader">PBI <span>${displayed.length}</span></div>${columns.map((s) => `<div class="cell" role="columnheader"><i class="status-dot ${s.toLowerCase()}" style="background-color:${statusColor(targetStatus[s])}"></i>${s}<span>${tasks.filter((t) => statusColumn(t.status) === s).length}</span></div>`).join("")}<div class="cell" role="columnheader">Demo goal</div></div>` +
     lanes
       .map((l) => {
         const own = tasks.filter((t) => t.lane === l.id),
@@ -577,7 +577,7 @@ function render() {
             (t) => t.lane === l.id && t.status !== "見送り",
           ),
           done = all.filter((t) => t.status === "完了").length;
-        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="lane-progress"><i><b style="width:${all.length ? (done / all.length) * 100 : 0}%"></b></i>${done}/${all.length}</div></div>${columns
+        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button>${progressMarkup(done, all.length)}</div>${columns
           .map((s) => {
             const list = own.filter((t) => statusColumn(t.status) === s),
               show = list.slice(0, capacity);
@@ -803,6 +803,7 @@ function syncEditorControls() {
   if (editorOutcome?.durable) $("#recover-edit").disabled = true;
   updateDetailSync();
   syncCommentControls();
+  renderDetailChoices();
 }
 function setComposition(value) {
   composing = value;
@@ -828,7 +829,6 @@ function setPreview(value) {
   $("#detail-body-view").hidden = !value;
   $("#markdown-write").setAttribute("aria-pressed", String(!value));
   $("#markdown-preview").setAttribute("aria-pressed", String(value));
-  $(".format-actions").hidden = value || !composer;
   renderPreview();
 }
 async function ensureComposer() {
@@ -871,12 +871,178 @@ function canonicalIssueUrl(t) {
     return null;
   }
 }
+const statusPalette = {
+  GRAY: "#57606a",
+  BLUE: "#0969da",
+  GREEN: "#1a7f37",
+  YELLOW: "#9a6700",
+  ORANGE: "#bc4c00",
+  RED: "#cf222e",
+  PURPLE: "#8250df",
+  PINK: "#bf3989",
+};
+function statusColor(name) {
+  const color = state.scope?.statusColors?.find((o) => o.name === name)?.color;
+  return statusPalette[color] || statusPalette.GRAY;
+}
+function avatarNode(person) {
+  const fallback = document.createElement("span");
+  fallback.className = "person-avatar";
+  fallback.textContent = (person?.login || "?").slice(0, 1).toUpperCase();
+  try {
+    const u = new URL(person?.avatarUrl);
+    if (
+      u.protocol === "https:" &&
+      u.hostname === "avatars.githubusercontent.com" &&
+      !u.username &&
+      !u.password &&
+      !u.port
+    ) {
+      const image = document.createElement("img");
+      image.src = u.href;
+      image.alt = "";
+      image.decoding = "async";
+      image.referrerPolicy = "no-referrer";
+      image.onerror = () => image.remove();
+      fallback.append(image);
+    }
+  } catch {}
+  return fallback;
+}
+function renderAuthor(t) {
+  const root = $("#issue-author"),
+    a = t?.author;
+  root.replaceChildren(avatarNode(a));
+  const text = document.createElement("span");
+  text.textContent = "作成者";
+  root.append(text);
+  const label = a?.name
+    ? `${a.name} (@${a.login})`
+    : a?.login || "削除済み・不明";
+  let name = document.createElement("span");
+  try {
+    const u = new URL(a?.url);
+    if (
+      u.origin === "https://github.com" &&
+      !u.username &&
+      !u.password &&
+      /^\/(?:apps\/)?[a-z\d-]+\/?$/i.test(u.pathname) &&
+      !u.search &&
+      !u.hash
+    ) {
+      name = document.createElement("a");
+      name.href = u.href;
+      name.target = "_blank";
+      name.rel = "noopener noreferrer";
+    }
+  } catch {}
+  name.textContent = label;
+  name.title = label;
+  root.append(name);
+  if (a?.type === "Bot") {
+    const bot = document.createElement("span");
+    bot.textContent = "Bot";
+    root.append(bot);
+  }
+}
+function renderDetailChoices() {
+  const select = $("#detail-assignee"),
+    root = $("#assignee-tiles");
+  const people = new Map(
+    [
+      ...(state.assigneeOptions || []),
+      ...(editorLatest?.assignees || []),
+      ...(editorBaseline?.assignees || []),
+    ].map((a) => [a.login, a]),
+  );
+  const existing = new Map([...root.children].map((b) => [b.dataset.login, b]));
+  const wanted = new Set();
+  for (const option of select.options) {
+    const login = option.value,
+      person = people.get(login) || { login },
+      key = JSON.stringify(person);
+    wanted.add(login);
+    let button = existing.get(login);
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.dataset.login = login;
+      button.className = "assignee-tile";
+      root.append(button);
+    }
+    button.onclick = () => {
+      if (editorPosting) return;
+      option.selected = !option.selected;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    if (button.dataset.person !== key) {
+      const label = document.createElement("span");
+      label.textContent = person.name || login;
+      button.replaceChildren(avatarNode(person), label);
+      button.dataset.person = key;
+    }
+    button.title = person.name ? `${person.name} (@${login})` : login;
+    button.setAttribute("aria-label", `担当者 ${button.title}`);
+    button.setAttribute("aria-pressed", String(option.selected));
+  }
+  for (const [login, button] of existing)
+    if (!wanted.has(login)) button.remove();
+  const status = $("#detail-status"),
+    choices = $("#status-choices");
+  const old = new Map([...choices.children].map((b) => [b.dataset.status, b]));
+  const names = new Set();
+  for (const option of status.options) {
+    const value = option.value;
+    names.add(value);
+    let button = old.get(value);
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.dataset.status = value;
+      button.className = "status-choice";
+      const dot = document.createElement("i"),
+        label = document.createElement("span");
+      dot.className = "status-dot";
+      label.textContent = option.textContent;
+      button.append(dot, label);
+      choices.append(button);
+      button.onclick = () => {
+        if (editorPosting || status.disabled) return;
+        status.value = value;
+        status.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+    }
+    button.querySelector("i").style.backgroundColor = statusColor(value);
+    button.setAttribute("aria-pressed", String(value === status.value));
+    button.disabled = status.disabled;
+  }
+  for (const [value, b] of old) if (!names.has(value)) b.remove();
+}
+function progressMarkup(done, total) {
+  const dense = total > 40;
+  const explanation = dense
+    ? `${done}/${total}件完了（多数のため連続表示）`
+    : `${done}/${total}件完了`;
+  const marks =
+    total === 0
+      ? ""
+      : dense
+        ? `<b style="width:${(done / total) * 100}%"></b>`
+        : Array.from(
+            { length: total },
+            (_, i) =>
+              `<span class="progress-segment${i < done ? " complete" : ""}"></span>`,
+          ).join("");
+  return `<div class="lane-progress"><div class="progress-track${dense ? " dense-progress" : ""}" role="progressbar" aria-label="タスク完了数" aria-valuemin="0" aria-valuemax="${total || 1}" aria-valuenow="${done}" aria-valuetext="${explanation}" title="${explanation}" style="--progress-color:${statusColor("完了")}">${marks}</div>${done}/${total}</div>`;
+}
+
 function fillDetail() {
   sourceVisible = false;
   $("#markdown-source").setAttribute("aria-pressed", "false");
   composer?.source(false);
   const t = issue(editing.kind, editing.id);
   if (!t) return;
+  renderAuthor(t);
   editorBaseline = clone(t);
   editorLatest = clone(t);
   editorConflicts = {};
@@ -986,6 +1152,7 @@ function reconcileEditor(current) {
     return;
   }
   editorLatest = clone(current);
+  renderAuthor(current);
   for (const person of [
     ...(state.assigneeOptions || []),
     ...(current.assignees || []),
@@ -1626,17 +1793,6 @@ $("#markdown-write").onclick = () => {
   composer?.focus();
 };
 $("#markdown-preview").onclick = () => setPreview(true);
-$(".format-actions").onclick = (e) => {
-  const kind = e.target.closest("[data-format]")?.dataset.format;
-  if (!kind || !composer) return;
-  const formats = {
-    bold: ["**", "**"],
-    heading: ["## ", ""],
-    list: ["- ", ""],
-    code: ["`", "`"],
-  };
-  composer.format(...formats[kind]);
-};
 $("#cancel-edit").onclick = () => {
   if (!confirm("未保存の変更を破棄しますか？")) return;
   const outcome = editorOutcome;

@@ -23,7 +23,7 @@ function secure(response: Response) {
   );
   r.headers.set(
     "Content-Security-Policy",
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com https://github.com/user-attachments/ https://user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com; media-src https://github.com/user-attachments/ https://user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com https://github.com/user-attachments/ https://user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com; media-src https://github.com/user-attachments/ https://user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com; connect-src 'self'; worker-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   );
   return r;
 }

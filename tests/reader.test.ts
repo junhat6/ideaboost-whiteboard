@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BoardReader } from "../worker/reader.ts";
-const guard = () => Response.json({ scopeKey: JSON.stringify([null, []]) });
+const guard = () => Response.json({ scopeKey: JSON.stringify([null, [], []]) });
 const request = (snapshot = false, suffix = "") =>
   new Request("https://board.test/api/board" + suffix, {
     headers: snapshot ? { "X-Board-Snapshot": "1" } : {},
@@ -23,7 +23,7 @@ function fixture() {
     async () => {
       guards++;
       return Response.json(
-        { ok: status === 200, scopeKey: JSON.stringify([null, []]) },
+        { ok: status === 200, scopeKey: JSON.stringify([null, [], []]) },
         { status },
       );
     },
@@ -73,7 +73,7 @@ test("private transition denies and purges snapshot; second guard also fails clo
       },
       async () =>
         Response.json(
-          { scopeKey: JSON.stringify([null, []]) },
+          { scopeKey: JSON.stringify([null, [], []]) },
           { status: ++guards === failAt ? 403 : 200 },
         ),
     );
@@ -163,7 +163,7 @@ test("changed saved view/status schema invalidates snapshot before exposure", as
         fetchedAt: new Date().toISOString(),
         scope: { viewFilter: "old", statusOptions: [] },
       }),
-    async () => Response.json({ scopeKey: JSON.stringify(["new", []]) }),
+    async () => Response.json({ scopeKey: JSON.stringify(["new", [], []]) }),
   );
   await reader.fetch(request());
   const next = (await (await reader.fetch(request(true))).json()) as any;
@@ -230,9 +230,13 @@ test("shared reader integrates canonical GitHub scope metadata and complete boar
   );
 });
 
-for (const changed of ["view", "status"] as const) {
+for (const changed of ["view", "status", "color"] as const) {
   test(`${changed} mismatch detaches old inflight read and fences its late completion`, async () => {
-    let scope = { viewFilter: "old", statusOptions: ["作業中"] };
+    let scope = {
+      viewFilter: "old",
+      statusOptions: ["作業中"],
+      statusColors: [{ name: "作業中", color: "YELLOW" }],
+    };
     let calls = 0;
     const releases = new Map<number, () => void>();
     const reader = new BoardReader(
@@ -248,7 +252,11 @@ for (const changed of ["view", "status"] as const) {
       },
       async () =>
         Response.json({
-          scopeKey: JSON.stringify([scope.viewFilter, scope.statusOptions]),
+          scopeKey: JSON.stringify([
+            scope.viewFilter,
+            scope.statusOptions,
+            scope.statusColors,
+          ]),
         }),
     );
     await reader.fetch(request());
@@ -257,7 +265,9 @@ for (const changed of ["view", "status"] as const) {
     scope =
       changed === "view"
         ? { ...scope, viewFilter: "new" }
-        : { ...scope, statusOptions: ["作業中", "レビュー中"] };
+        : changed === "color"
+          ? { ...scope, statusColors: [{ name: "作業中", color: "GREEN" }] }
+          : { ...scope, statusOptions: ["作業中", "レビュー中"] };
     const next = reader.fetch(request(true));
     await new Promise((r) => setImmediate(r));
     try {

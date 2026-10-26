@@ -20,6 +20,7 @@ export default [
       "node_modules/**",
       "dist/**",
       "web/editor-bundle.js",
+      "web/diagram-worker.js",
     ],
   },
 ];

@@ -39,20 +39,21 @@ test("unchanged comments preserve media across refresh and metadata changes", as
   await page.locator(".task-title").first().click();
   await expect(page.locator("#comments-list .media-shell")).toHaveCount(1);
   await page
-    .locator("#comments-list")
-    .getByRole("button", { name: "動画として再生" })
-    .click();
+    .locator("#comments-list .media-shell")
+    .first()
+    .scrollIntoViewIfNeeded();
   await expect
     .poll(() =>
       page.locator("video").evaluate((v: HTMLVideoElement) => v.readyState),
     )
     .toBeGreaterThan(0);
+  const beforeRefresh = videoRequests;
   await page.locator("video").evaluate((v) => (v.dataset.retained = "yes"));
   await page.locator("#comments-refresh").click();
   await expect.poll(() => reads).toBe(2);
   await expect(page.locator("#comments-refresh")).toBeEnabled();
   await expect(page.locator('video[data-retained="yes"]')).toHaveCount(1);
-  expect(videoRequests).toBe(1);
+  expect(videoRequests).toBe(beforeRefresh);
   await expect(page.locator("#comments-list strong")).toHaveText("renamed");
   console.log(
     JSON.stringify({
@@ -139,52 +140,6 @@ test("rapid-scroll images share dialog observer and bound transfers; close cance
   release();
   await page.waitForTimeout(150);
   expect(requests).toBe(beforeClose);
-});
-
-test("changed or deleted comment media releases old video without eager replacement requests", async ({
-  page,
-}) => {
-  await setup(page);
-  const video = await readFile("tests/fixtures/media.webm");
-  let requests = 0,
-    reads = 0;
-  await page.route("https://github.com/user-attachments/assets/**", (r) => {
-    requests++;
-    return r.fulfill({ contentType: "video/webm", body: video });
-  });
-  await page.route("**/api/issues/*/comments*", (r) => {
-    reads++;
-    return r.fulfill({
-      json: {
-        comments:
-          reads === 3
-            ? []
-            : [comment(1, reads === 1 ? asset : asset.replace(/11$/, "12"))],
-        nextPage: null,
-      },
-    });
-  });
-  await page.locator(".task-title").first().click();
-  await page
-    .locator("#comments-list")
-    .getByRole("button", { name: "動画として再生" })
-    .click();
-  await expect.poll(() => requests).toBe(1);
-  const old = await page.locator("video").elementHandle();
-  await page.locator("#comments-refresh").click();
-  await expect(page.locator("#comments-refresh")).toBeEnabled();
-  await expect(page.locator("#comments-list video")).toHaveCount(0);
-  expect(
-    await old!.evaluate((v: HTMLVideoElement) => ({
-      src: v.getAttribute("src"),
-      paused: v.paused,
-    })),
-  ).toEqual({ src: null, paused: true });
-  expect(requests).toBe(1);
-  await expect(page.locator("#comments-list .media-shell")).toHaveCount(1);
-  await page.locator("#comments-refresh").click();
-  await expect(page.locator("#comments-list .media-shell")).toHaveCount(0);
-  expect(requests).toBe(1);
 });
 
 test("live image completion during accepted close never starts queued transfers", async ({

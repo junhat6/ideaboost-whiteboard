@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import { setup } from "./fixtures";
 test("live surface hides syntax until selected, preserves original CRLF, undo and source mode", async ({
@@ -37,16 +38,17 @@ test("live surface hides syntax until selected, preserves original CRLF, undo an
     path: `.wrangler/live-${page.viewportSize()!.width}.png`,
   });
 });
-test("live attachment defers video requests and remains stable while unrelated text is edited", async ({
+test("live attachment previews paused video and remains stable while unrelated text is edited", async ({
   page,
 }) => {
   const s = await setup(page);
   const url =
     "https://github.com/user-attachments/assets/00000000-0000-4000-8000-000000000001";
   let requests = 0;
+  const media = await readFile("tests/fixtures/media.webm");
   await page.route("https://github.com/user-attachments/**", (r) => {
     requests++;
-    return r.abort();
+    return r.fulfill({ contentType: "video/webm", body: media });
   });
   s.board.tasks[0].body = `## 本文\n\n${url}\n\n最後の段落`;
   await page.evaluate(
@@ -55,21 +57,26 @@ test("live attachment defers video requests and remains stable while unrelated t
   );
   await page.locator(".task-title").first().click();
   await expect(page.locator(".cm-content .media-shell")).toHaveCount(1);
-  expect(requests).toBe(0);
-  await expect(page.locator("video")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.locator("video").evaluate((v: HTMLVideoElement) => v.readyState),
+    )
+    .toBeGreaterThan(1);
+  expect(
+    await page.locator("video").evaluate((v: HTMLVideoElement) => v.paused),
+  ).toBe(true);
+  const beforeEdit = requests;
   await page.locator(".cm-line").filter({ hasText: "最後の段落" }).click();
   await page.keyboard.press("End");
   await page.keyboard.type("追記");
   await expect(page.locator(".cm-content .media-shell")).toHaveCount(1);
-  expect(requests).toBe(0);
-  await page.getByRole("button", { name: "動画として再生" }).click();
-  await expect.poll(() => requests).toBe(1);
+  expect(requests).toBe(beforeEdit);
   await page.locator("video").evaluate((v) => (v.dataset.retained = "yes"));
   await page.locator(".cm-line").filter({ hasText: "最後の段落" }).click();
   await page.keyboard.press("End");
   await page.keyboard.type("さらに");
   await expect(page.locator("video")).toHaveAttribute("data-retained", "yes");
-  expect(requests).toBe(1);
+  expect(requests).toBe(beforeEdit);
   page.on("dialog", (d) => d.accept());
   await page.locator("#close-detail").click();
   await expect(page.locator("#details")).not.toBeVisible();

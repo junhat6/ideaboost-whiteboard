@@ -136,7 +136,7 @@ test("unknown comment result retains draft and blocks replay after GET and reope
   await expect(page.locator("#comment-error")).toContainText("再投稿を停止");
   expect(posts).toBe(1);
 });
-test("safe lazy media never delays text; video has no request before play and stops on close", async ({
+test("safe lazy media never delays text; video previews without autoplay and stops on close", async ({
   page,
 }) => {
   const s = await setup(page);
@@ -170,7 +170,6 @@ test("safe lazy media never delays text; video has no request before play and st
   await expect(page.locator("#detail-body-view")).toContainText(
     "本文は先に表示",
   );
-  expect(videoRequests).toBe(0);
   await expect(page.locator(".media-shell")).toHaveCount(2);
   await expect(page.locator('#detail-body-view img[src*="evil"]')).toHaveCount(
     0,
@@ -188,8 +187,16 @@ test("safe lazy media never delays text; video has no request before play and st
         .evaluate((i: HTMLImageElement) => i.naturalWidth),
     )
     .toBe(1);
-  await page.getByRole("button", { name: "動画として再生" }).click();
+  await page
+    .locator("#detail-body-view .media-shell")
+    .last()
+    .scrollIntoViewIfNeeded();
   await expect.poll(() => videoRequests).toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page.locator("video").evaluate((v: HTMLVideoElement) => v.paused),
+    )
+    .toBe(true);
   await expect
     .poll(() =>
       page.locator("video").evaluate((v: HTMLVideoElement) => v.readyState),
