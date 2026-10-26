@@ -7,6 +7,13 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["IssueCoordinator"] }],
   "compatibility_date": "2026-10-26",
+  "ratelimits": [
+    {
+      "name": "PUBLIC_LIMITER",
+      "namespace_id": "5473658",
+      "simple": { "limit": 30, "period": 60 },
+    },
+  ],
   "assets": {
     "directory": "./web",
     "binding": "ASSETS",

@@ -44,7 +44,11 @@ test("auth and origin reject before external requests; health has no secrets", a
     403,
   );
   const r = await f.handler(req("/api/health"), env);
-  assert.deepEqual(await r.json(), { configured: true, mode: "github" });
+  assert.deepEqual(await r.json(), {
+    configured: true,
+    mode: "github",
+    accessMode: "team",
+  });
   assert.equal(r.headers.get("cache-control"), "no-store");
   assert.equal(f.calls.length, 0);
 });

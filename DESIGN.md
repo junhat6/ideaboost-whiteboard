@@ -64,7 +64,7 @@ components:
     textColor: "{colors.on-primary}"
     typography: "{typography.label}"
     rounded: "{rounded.md}"
-    padding: 8px 12px
+    padding: 8px
   button-primary-hover:
     backgroundColor: "{colors.primary-hover}"
     textColor: "{colors.on-primary}"
@@ -73,7 +73,7 @@ components:
     textColor: "{colors.ink}"
     typography: "{typography.card}"
     rounded: "{rounded.sm}"
-    padding: 5px 7px
+    padding: 5px
   issue-drawer:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
@@ -85,7 +85,7 @@ components:
     textColor: "{colors.ink}"
     typography: "{typography.body}"
     rounded: "{rounded.md}"
-    padding: 8px 12px
+    padding: 8px
 ---
 
 ## Overview
@@ -127,6 +127,8 @@ Issue タイトルは原文。勝手な略称、要約、番号への置き換�
 付箋は `{rounded.sm}`、通常のボタンと入力は `{rounded.md}`、ドロワーの左隅は `{rounded.lg}`。ピル形状は小さなカウントとアバターに限定。装飾目的の有機形状やグラデーションを加えない。
 
 ## Components
+
+YAML padding は単一Dimension。横方向はボタン・入力12px、カード7pxを実装上の補正として用い、縦方向は各トークンの8px・5pxを基準にする。
 
 PBI 選択は検索・最大6件・適用・キャンセルの明示的なフロー。選択はブラウザー内、順序は取得元の順序。Priority を取得していないときに Priority 順と断言しない。
 

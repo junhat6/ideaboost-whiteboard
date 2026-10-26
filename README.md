@@ -2,7 +2,7 @@
 
 IdeaBoost チーム専用の GitHub Issue / Projects ホワイトボード。ライトモードを中心に、6 PBI × 4状態列の俯瞰と Issue の編集を提供します。
 
-**現在の段階:** ローカル実装・自動試験済み。本番 Cloudflare は未配信。一般公開への方針変更を準備中で、公開書き込みの確認は未完了です。Access新規設定は停止。本番用追加鍵の発行・Cloudflare保存は承認済みですが未実行。未設定のWorkerは503で拒否します。利用可能な本番サービスと誤認しないでください。
+**現在の段階:** 実装・mock試験済み、本番は未配信。ユーザー承認により複雑なパス配下で一時的な匿名閲覧・編集を提供する設定を準備しています。URLを知る全員が編集でき、長いパスは認証ではありません。Cloudflare本人ログインと本番鍵の登録が残っています。
 
 ## 開発
 
@@ -15,7 +15,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-`npm run dev` は認証境界を含むWorkerを起動します。認証バイパスはありません。UIのテストは `scripts/preview.mjs` に対して Playwright が合成データのAPIを差し込みます。テストサーバーはlocalhost限定、実GitHubへの通信・書き込み・秘密なし。
+`npm run dev` は設定されたアクセスモードを含むWorkerを起動します。public-temporaryを明示したときだけ匿名編集となります。UIのテストは `scripts/preview.mjs` に対して Playwright が合成データのAPIを差し込みます。テストサーバーはlocalhost限定、実GitHubへの通信・書き込み・秘密なし。
 
 ## 構成
 
@@ -35,7 +35,7 @@ GitHubが正本。localStorageに保存するのはPBI選択とテーマだけ�
 
 ## セキュリティ・同時更新
 
-Accessの署名、issuer、audience、iat/exp、subject、メールallowlistを毎リクエスト検証します。平文の認証済みメールヘッダーは信用しません。POSTは同一originとJSON、入力フィールド・サイズ制限を検証。App tokenと秘密鍵はサーバーだけです。
+既定のチームモードはAccessの署名、issuer、audience、iat/exp、subject、メールallowlistを毎リクエスト検証します。一時公開モードでは匿名編集を認め、固定パス・host・rate limitと公開repo/Project検証を適用します。平文の認証済みメールヘッダーは信用しません。POSTは同一originとJSON、入力フィールド・サイズ制限を検証。App tokenと秘密鍵はサーバーだけです。
 
 保存はIssue単位のDurable Objectを通して直列化し、変更フィールドだけを送信。updatedAt、内容のSHA-256、raw Statusを最新GitHubデータと比較します。IssueとProjectの変更は原子的ではなく、外部更新との最後の競合窓が残ります。部分反映・結果不明はエディターに残し、追加保存を停止します。永続pendingが残った場合は管理者の調査が必要です。自動再送はしません。詳細はADR 002。
 

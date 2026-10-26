@@ -54,15 +54,30 @@ function snapshot() {
 }
 async function setup(
   page: Page,
-  { failure = false, slow = false, abort = false, conflict = false } = {},
+  {
+    failure = false,
+    slow = false,
+    abort = false,
+    conflict = false,
+    prefix = "",
+    longPbi = false,
+  } = {},
 ) {
   const board = snapshot();
+  if (longPbi)
+    board.lanes[0].title =
+      "日本語の非常に長いPBIタイトルを読みながら進捗も確認する".repeat(8);
   let posts = 0;
   let reads = 0;
   await page.route("**/api/**", async (route) => {
-    const p = new URL(route.request().url()).pathname;
+    const p = new URL(route.request().url()).pathname.slice(prefix.length);
     if (p === "/api/health")
-      return route.fulfill({ json: { configured: true } });
+      return route.fulfill({
+        json: {
+          configured: true,
+          accessMode: prefix ? "public-temporary" : "team",
+        },
+      });
     if (p === "/api/board") {
       reads++;
       return route.fulfill({ json: board });
@@ -88,7 +103,7 @@ async function setup(
     Object.assign(issue, { ...patch, revision: "2026-10-26T00:00:01Z" });
     return route.fulfill({ json: { ok: true, issue } });
   });
-  await page.goto("/");
+  await page.goto(prefix + "/");
   await expect(page.locator(".pbi-title")).toHaveCount(6);
   return { board, posts: () => posts, reads: () => reads };
 }
@@ -362,3 +377,51 @@ for (const mode of ["partial", "network", "conflict"]) {
     await expect(page.locator("#detail-error")).not.toBeVisible();
   });
 }
+
+test("unpredictable public path preserves same-path API reads and saves", async ({
+  page,
+}) => {
+  const prefix = "/b/" + "a".repeat(48);
+  const s = await setup(page, { prefix });
+  await page.locator('[data-open="t0-0-0"]').click();
+  await page.locator("#edit-issue").click();
+  await page.locator("#detail-title").fill("公開パスで保存");
+  await page.locator("#save-issue").click();
+  await expect(page.locator("#edit-issue")).toBeVisible();
+  expect(s.posts()).toBe(1);
+  expect(s.board.tasks[0].title).toBe("公開パスで保存");
+});
+
+test("long PBI stays within cell with complete lines and visible progress", async ({
+  page,
+}) => {
+  await setup(page, { longPbi: true });
+  const result = await page
+    .locator(".pbi-cell")
+    .first()
+    .evaluate((cell) => {
+      const title = cell.querySelector(".pbi-title")!;
+      const progress = cell.querySelector(".lane-progress")!;
+      const c = cell.getBoundingClientRect(),
+        t = title.getBoundingClientRect(),
+        p = progress.getBoundingClientRect();
+      return {
+        top: t.top - c.top,
+        bottom: c.bottom - t.bottom,
+        progressBottom: c.bottom - p.bottom,
+        overlap: t.bottom - p.top,
+        wholeLines: (() => {
+          const text = title.querySelector(".pbi-title-text")!;
+          const line = parseFloat(getComputedStyle(title).lineHeight);
+          return parseFloat((text as HTMLElement).style.maxHeight) / line;
+        })(),
+      };
+    });
+  expect(result.top).toBeGreaterThanOrEqual(0);
+  expect(result.bottom).toBeGreaterThanOrEqual(0);
+  expect(result.progressBottom).toBeGreaterThanOrEqual(0);
+  expect(result.overlap).toBeLessThanOrEqual(0);
+  expect(
+    Math.abs(result.wholeLines - Math.round(result.wholeLines)),
+  ).toBeLessThan(0.001);
+});

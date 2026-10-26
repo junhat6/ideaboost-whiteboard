@@ -13,6 +13,7 @@ const STATUSES = [
 const BASE = "https://api.github.com";
 const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:100) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
 const ISSUE = `${CORE} parent { ${CORE} }`;
+const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const META = `query BoardMeta { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { id url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter } } } }`;
 const ITEMS = `query BoardItems($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { id isArchived content { ... on Issue { ${ISSUE} } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name optionId } } } pageInfo { hasNextPage endCursor } } } } }`;
 class ApiError extends Error {
@@ -100,6 +101,71 @@ export function pemToPkcs8(pem) {
       ...der(4, data),
     ]);
   return data;
+}
+export function validateMutation(v) {
+  if (
+    !v ||
+    typeof v !== "object" ||
+    Array.isArray(v) ||
+    Object.keys(v).some(
+      (k) =>
+        ![
+          "title",
+          "body",
+          "assignees",
+          "status",
+          "expectedRevision",
+          "expectedStatus",
+          "expectedFingerprint",
+          "requestId",
+        ].includes(k),
+    )
+  )
+    throw new ApiError(400, "invalid_fields");
+  if (
+    typeof v.expectedFingerprint !== "string" ||
+    !/^[a-f0-9]{64}$/.test(v.expectedFingerprint)
+  )
+    throw new ApiError(400, "invalid_precondition");
+  if (
+    typeof v.expectedRevision !== "string" ||
+    v.expectedRevision.length > 64 ||
+    !Number.isFinite(Date.parse(v.expectedRevision)) ||
+    !Object.hasOwn(v, "expectedStatus") ||
+    (v.expectedStatus !== null &&
+      (typeof v.expectedStatus !== "string" ||
+        v.expectedStatus.length > 100)) ||
+    typeof v.requestId !== "string" ||
+    !/^[A-Za-z0-9_-]{16,100}$/.test(v.requestId)
+  )
+    throw new ApiError(400, "invalid_precondition");
+  if (
+    "title" in v &&
+    (typeof v.title !== "string" || !v.title.trim() || v.title.length > 256)
+  )
+    throw new ApiError(400, "invalid_title");
+  if (
+    "body" in v &&
+    (typeof v.body !== "string" || bytes(v.body).length > 60000)
+  )
+    throw new ApiError(400, "invalid_body");
+  if (
+    "assignees" in v &&
+    (!Array.isArray(v.assignees) ||
+      v.assignees.length > 10 ||
+      v.assignees.some(
+        (a) =>
+          typeof a !== "string" ||
+          !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(a),
+      ) ||
+      new Set(v.assignees.map((a) => a.toLowerCase())).size !==
+        v.assignees.length)
+  )
+    throw new ApiError(400, "invalid_assignees");
+  if ("status" in v && v.status !== null && !STATUSES.includes(v.status))
+    throw new ApiError(400, "invalid_status");
+  if (!["title", "body", "assignees", "status"].some((k) => k in v))
+    throw new ApiError(400, "no_changes");
 }
 export function createHandler({
   fetch: fetcher = globalThis.fetch,
@@ -216,6 +282,15 @@ export function createHandler({
       });
     return r.data;
   }
+  async function assertPublic(env) {
+    if (env.AUTH_MODE !== "public-temporary") return;
+    const data = await gql(env, VISIBILITY);
+    if (
+      data?.repository?.isPrivate !== false ||
+      data?.organization?.projectV2?.public !== true
+    )
+      throw new ApiError(403, "scope_not_public");
+  }
   async function assignees(env) {
     let result = [];
     for (let page = 1; page <= 100; page++) {
@@ -257,6 +332,7 @@ export function createHandler({
     };
   }
   async function board(env, milestone = null, applyView = true) {
+    await assertPublic(env);
     const meta = (await gql(env, META))?.organization?.projectV2;
     if (!meta) throw new ApiError(502, "project_unavailable");
     const viewFilter = meta.view?.filter ?? null;
@@ -437,77 +513,14 @@ export function createHandler({
         selectedMilestone: milestone,
         milestones,
         statusOptions: meta.field?.options?.map((o) => o.name) ?? [],
-        concurrency: "per-issue durable coordinator; optimistic GitHub preflight",
+        concurrency:
+          "per-issue durable coordinator; optimistic GitHub preflight",
       },
       fetchedAt: new Date(now()).toISOString(),
       warnings,
     };
+    await assertPublic(env);
     return { output, meta, all };
-  }
-  function validate(v) {
-    if (
-      !v ||
-      typeof v !== "object" ||
-      Array.isArray(v) ||
-      Object.keys(v).some(
-        (k) =>
-          ![
-            "title",
-            "body",
-            "assignees",
-            "status",
-            "expectedRevision",
-            "expectedStatus",
-            "expectedFingerprint",
-            "requestId",
-          ].includes(k),
-      )
-    )
-      throw new ApiError(400, "invalid_fields");
-    if (
-      typeof v.expectedFingerprint !== "string" ||
-      !/^[a-f0-9]{64}$/.test(v.expectedFingerprint)
-    )
-      throw new ApiError(400, "invalid_precondition");
-    if (
-      typeof v.expectedRevision !== "string" ||
-      v.expectedRevision.length > 64 ||
-      !Number.isFinite(Date.parse(v.expectedRevision)) ||
-      !Object.hasOwn(v, "expectedStatus") ||
-      (v.expectedStatus !== null &&
-        (typeof v.expectedStatus !== "string" ||
-          v.expectedStatus.length > 100)) ||
-      typeof v.requestId !== "string" ||
-      !/^[A-Za-z0-9_-]{16,100}$/.test(v.requestId)
-    )
-      throw new ApiError(400, "invalid_precondition");
-    if (
-      "title" in v &&
-      (typeof v.title !== "string" || !v.title.trim() || v.title.length > 256)
-    )
-      throw new ApiError(400, "invalid_title");
-    if (
-      "body" in v &&
-      (typeof v.body !== "string" || bytes(v.body).length > 60000)
-    )
-      throw new ApiError(400, "invalid_body");
-    if (
-      "assignees" in v &&
-      (!Array.isArray(v.assignees) ||
-        v.assignees.length > 10 ||
-        v.assignees.some(
-          (a) =>
-            typeof a !== "string" ||
-            !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(a),
-        ) ||
-        new Set(v.assignees.map((a) => a.toLowerCase())).size !==
-          v.assignees.length)
-    )
-      throw new ApiError(400, "invalid_assignees");
-    if ("status" in v && v.status !== null && !STATUSES.includes(v.status))
-      throw new ApiError(400, "invalid_status");
-    if (!["title", "body", "assignees", "status"].some((k) => k in v))
-      throw new ApiError(400, "no_changes");
   }
   const equalUsers = (a, b) =>
     JSON.stringify(
@@ -647,7 +660,7 @@ export function createHandler({
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) return null;
     try {
-      // Identity is set only by the Worker after signature and membership validation.
+      // Routing principal is set only by the Worker (verified member or explicit public mode).
       if (!request.headers.get("x-verified-user-id"))
         throw new ApiError(401, "sign_in_required");
       if (
@@ -664,6 +677,8 @@ export function createHandler({
         return reply({
           configured,
           mode: configured ? "github" : "unconfigured",
+          accessMode:
+            env.AUTH_MODE === "public-temporary" ? "public-temporary" : "team",
         });
       if (!configured) throw new ApiError(503, "github_not_configured");
       if (request.method === "GET" && url.pathname === "/api/board") {
@@ -683,8 +698,12 @@ export function createHandler({
         request.method === "GET" &&
         url.pathname === "/api/assignees" &&
         !url.search
-      )
-        return reply({ assigneeOptions: await assignees(env) });
+      ) {
+        await assertPublic(env);
+        const options = await assignees(env);
+        await assertPublic(env);
+        return reply({ assigneeOptions: options });
+      }
       const match = url.pathname.match(/^\/api\/issues\/([1-9]\d{0,8})$/);
       if (request.method !== "POST" || !match || url.search)
         throw new ApiError(404, "not_found");
@@ -722,7 +741,7 @@ export function createHandler({
       } catch {
         throw new ApiError(400, "invalid_json");
       }
-      validate(v);
+      validateMutation(v);
       const number = Number(match[1]),
         user = request.headers.get("x-verified-user-id"),
         key = `${user}:${v.requestId}`,

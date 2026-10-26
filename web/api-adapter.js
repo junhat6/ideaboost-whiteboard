@@ -25,13 +25,16 @@
   async function request(path, options = {}) {
     let response;
     try {
-      response = await fetch(path, {
-        credentials: "same-origin",
-        cache: "no-store",
-        signal: AbortSignal.timeout(45000),
-        ...options,
-        headers: { Accept: "application/json", ...options.headers },
-      });
+      response = await fetch(
+        new URL(path.replace(/^\//, ""), new URL(".", location.href)),
+        {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: AbortSignal.timeout(45000),
+          ...options,
+          headers: { Accept: "application/json", ...options.headers },
+        },
+      );
     } catch {
       const e = new Error(
         options.method === "POST"
@@ -82,7 +85,10 @@
       let latest = null,
         activeMilestone = "";
       await window.Whiteboard.setAdapter({
-        label: "GitHub接続済み",
+        label:
+          health.accessMode === "public-temporary"
+            ? "公開編集・GitHub接続済み"
+            : "GitHub接続済み",
         async load(options) {
           let requestedMilestone = activeMilestone;
           if (options && Object.hasOwn(options, "milestone")) {

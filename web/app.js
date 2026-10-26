@@ -329,6 +329,18 @@ function card(t) {
 // Fit only the presentation, never the Issue title. If the available area is
 // genuinely too small at 10.5px, expose whole scrollable lines (and the drawer).
 function fitCardTitles() {
+  for (const button of document.querySelectorAll(".pbi-title")) {
+    const text = button.querySelector(".pbi-title-text");
+    if (!text) continue;
+    text.style.maxHeight = "none";
+    const css = getComputedStyle(button);
+    const line = parseFloat(css.lineHeight);
+    const available =
+      button.clientHeight -
+      parseFloat(css.paddingTop) -
+      parseFloat(css.paddingBottom);
+    text.style.maxHeight = `${Math.max(0, Math.floor((available + 0.01) / line)) * line}px`;
+  }
   for (const button of document.querySelectorAll(".task-title")) {
     const text = button.querySelector(".task-title-text");
     if (!text || !button.clientHeight || !button.clientWidth) continue;
@@ -459,7 +471,7 @@ function render() {
             (t) => t.lane === l.id && t.status !== "見送り",
           ),
           done = all.filter((t) => t.status === "完了").length;
-        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}">${esc(l.title)}</button><div class="lane-progress"><i><b style="width:${all.length ? (done / all.length) * 100 : 0}%"></b></i>${done}/${all.length}</div></div>${columns
+        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="lane-progress"><i><b style="width:${all.length ? (done / all.length) * 100 : 0}%"></b></i>${done}/${all.length}</div></div>${columns
           .map((s) => {
             const list = own.filter((t) => statusColumn(t.status) === s),
               show = list.slice(0, capacity);

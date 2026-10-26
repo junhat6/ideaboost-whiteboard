@@ -2,6 +2,9 @@ import { authenticate, AccessError, type AuthConfig } from "./auth";
 import { handleApi } from "../server/github.mjs";
 export interface Env extends AuthConfig {
   ASSETS: Fetcher;
+  AUTH_MODE?: string;
+  PUBLIC_PATH?: string;
+  PUBLIC_LIMITER?: RateLimit;
   MUTATIONS?: DurableObjectNamespace;
   GITHUB_APP_ID?: string;
   GITHUB_INSTALLATION_ID?: string;
@@ -12,6 +15,7 @@ function secure(response: Response) {
   r.headers.set("Cache-Control", "private, no-store");
   r.headers.set("X-Content-Type-Options", "nosniff");
   r.headers.set("Referrer-Policy", "no-referrer");
+  r.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   r.headers.set("X-Frame-Options", "DENY");
   r.headers.set(
     "Permissions-Policy",
@@ -27,7 +31,44 @@ export function createWorker(auth = authenticate, api = handleApi) {
   return {
     async fetch(request: Request, env: Env): Promise<Response> {
       try {
-        const user = await auth(request, env);
+        let user;
+        if (env.AUTH_MODE === "public-temporary") {
+          const url = new URL(request.url);
+          if (
+            !env.APP_ORIGIN ||
+            !env.PUBLIC_PATH ||
+            !/^\/b\/[a-f0-9]{48}$/.test(env.PUBLIC_PATH)
+          )
+            throw new AccessError(503, "public_mode_not_configured");
+          if (url.origin !== env.APP_ORIGIN)
+            throw new AccessError(403, "hostname_not_allowed");
+          if (url.pathname === env.PUBLIC_PATH && request.method === "GET")
+            return secure(
+              Response.redirect(url.origin + env.PUBLIC_PATH + "/", 308),
+            );
+          if (!url.pathname.startsWith(env.PUBLIC_PATH + "/"))
+            throw new AccessError(404, "not_found");
+          url.pathname = url.pathname.slice(env.PUBLIC_PATH.length);
+          request = new Request(url, request);
+          if (url.pathname.startsWith("/api/")) {
+            if (!env.PUBLIC_LIMITER)
+              throw new AccessError(503, "rate_limit_not_configured");
+            // Approximate per-location limit; shared key prevents easy evasion by client identity spoofing.
+            if (
+              !(
+                await env.PUBLIC_LIMITER.limit({
+                  key:
+                    request.method === "POST" ? "public-write" : "public-read",
+                })
+              ).success
+            )
+              throw new AccessError(429, "rate_limited");
+          }
+          // Public is deliberately anonymous. This is a routing principal, never a verified person.
+          user = { id: "public-anonymous", email: "" };
+        } else {
+          user = await auth(request, env);
+        }
         if (!["GET", "HEAD", "POST"].includes(request.method))
           return secure(new Response(null, { status: 405 }));
         if (
@@ -37,7 +78,7 @@ export function createWorker(auth = authenticate, api = handleApi) {
         ) {
           throw new AccessError(403, "origin_mismatch");
         }
-        // Remove client identity headers; the API receives only the cryptographically verified subject.
+        // Remove client identity headers. Public mode uses one explicit anonymous principal.
         const headers = new Headers(request.headers);
         headers.delete("oai-authenticated-user-id");
         headers.set("x-verified-user-id", user.id);

@@ -9,7 +9,12 @@ const allowed = new Map([
 ]);
 http
   .createServer(async (req, res) => {
-    const file = allowed.get(new URL(req.url, "http://localhost").pathname);
+    const file = allowed.get(
+      new URL(req.url, "http://localhost").pathname.replace(
+        /^\/b\/[a-f0-9]{48}/,
+        "",
+      ),
+    );
     if (!file) {
       res.writeHead(404);
       res.end();
@@ -31,4 +36,4 @@ http
       res.end();
     }
   })
-  .listen(4173, "127.0.0.1");
+  .listen(4183, "127.0.0.1");

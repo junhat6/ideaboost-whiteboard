@@ -1,63 +1,48 @@
 # 本番導入・運用
 
-## 最新の承認状況
+## 現在の承認と状態
 
-2026-10-26: Cloudflare対象は junhat6@gmail.com。追加の本番鍵発行・Cloudflare secret保存は承認済み、未実行。デモ鍵は保持。Access allowlistの新規設定は中止し、一般公開readを準備する。公開writeはリスク確認の回答待ちで禁止。下記Access経路は旧設計の参考であり実行しない。OAuth consentを完了してからCLIを使用する。
+2026-10-26: Cloudflare対象は junhat6@gmail.com。ユーザーは複雑なURLでの一時的な**匿名閲覧・匿名編集**を、URLを知った誰でも実Issueを変更できると確認したうえで承認した。Access allowlistの設定はしない。Source repositoryはprivateのまま。
 
-## 旧Access設計の設定手順（実行停止）
+既存GitHub App「Idea Boost Whiteboard」App ID 5473658 / installation 175301060に本番鍵を1本追加し、Cloudflare Worker secretへ保存する操作も承認済み。既存デモ鍵は保持し、Sites secretを抽出しない。別App Project Status Syncは変更しない。
 
-1. 対象Cloudflareアカウントを選び `wrangler login` でこのMacに継続認証を設定する。2026-10-26の `wrangler whoami` は未認証。勝手に実行しない。
-2. このアプリ専用のAccess applicationとチーム許可ルールを作成する。候補はメールOTPと正確なチームメール一覧。Everyone、ドメイン全体、OTPで認証した全員への許可は禁止。既存アカウントに適切なIdPがあれば確認して選ぶ。許可メール一覧は未提供。
-3. 既存専用App「Idea Boost Whiteboard」に本番用の鍵を1本追加し、Cloudflare Workerのsecret `GITHUB_APP_PRIVATE_KEY` へ登録する承認を得る。既存デモの鍵は保持し、Sites runtimeから取り出さない。追加発行・保存は承認済み・未実行。`wrangler secret put` はWorkerの新バージョンを即時デプロイする操作である。
+Cloudflare OAuthを公式Wranglerで開始したが、本人ログイン未完了で待機タイムアウト。鍵追加・secret登録・本番デプロイは未実行。GitHub CLIの既存junhat6認証は確認済み。リポジトリとProject 3のpublicフラグを読み取り確認した。
 
-GitHub CLIは既存のjunhat6認証を読み取り確認済み。追加のGitHub権限設定は不要。Cloudflare free/existing枠を優先し、有料契約や課金上限変更は別承認。
+## 導入手順
 
-## 承認後に使用する具体的な設定経路
+1. `npx wrangler login --use-keyring --scopes account:read user:read workers_scripts:write`。ChromeのCloudflareログインを本人が完了し、Wrangler consentのaccount:read / user:read / workers_scripts:write / offline_accessを確認する。既定callback localhost:8976。成功後 `npx wrangler whoami` で対象メールとaccount_idを照合する。追加scopeは勝手に広げない。
+2. account_idを固定。既存/Free枠を確認し、有料契約や課金上限変更はしない。SQLite Durable ObjectsとRate Limiting bindingを使う。Rate Limit namespace 5473658に既存用途がないか確認し、必要なら未使用の専用整数を選ぶ。
+3. `AUTH_MODE=public-temporary`、`APP_ORIGIN=https://<確定hostname>`、`PUBLIC_PATH=/b/<暗号学的乱数24byteのlowercase hex>` を設定する。pathは認証情報ではないが、リポジトリへ実URLを固定しない。preview_urls:false、run_worker_first:true。APP_ORIGIN外とpath外は拒否。
+4. GitHub engineer-first → Settings → Developer settings → GitHub Apps → Idea Boost Whiteboard → Edit → Credentials → Key pairs → New key。App IDを照合し、既存鍵を削除しない。sudo/passkeyが必要なら本人へ引き継ぐ。25鍵上限なら停止する。
+5. ダウンロードPEMを秘密として扱い、本文をツール出力・チャット・引数へ出さない。標準入力で `npx wrangler secret put GITHUB_APP_PRIVATE_KEY --name ideaboost-whiteboard`。この操作は新Worker版を即時デプロイする。PKCS#1/PKCS#8対応。初回はGitHub secretなしでWorkerを作り、path/host/Originの境界を確認してから登録する。
+6. `npm ci && npm run check && npm run test:e2e`。同じcommitから承認済みCLIで `npm run deploy`。CIは検証専用。新しいGitHub Actions deploy tokenの付与は別承認。
+7. URL、Git SHA、Cloudflare version IDを記録。本番読み取りを確認する。実IssueをQA目的で書き換えない。
 
-以下は手順のみ。承認前には実行しない。
+## 公開モードの意味と防御
 
-1. ローカルのWrangler 4.152.0で `npx wrangler login --use-keyring --scopes account:read user:read workers_scripts:write` を実行。既定のlocalhost:8976コールバックとブラウザーOAuth認可を使う。CLIのヘルプでこのフラグを確認済み。許可画面の実際のscopeを照合し、承認されたアカウントに限定する。過剰な権限や追加scopeが必要なら停止して確認する。認証はOS keychainに保持し、リポジトリには置かない。成功後 `npx wrangler whoami` でアカウントを確認し、対象account_idを固定する。
-2. 最初はGitHub秘密なし・Access設定なしのWorkerを配信しても、実装は全ルート503で拒否する。リソース名とworkers.dev hostnameを確定したら、Cloudflareの Workers & Pages → ideaboost-whiteboard → Access → Protect this Worker behind Access → All traffic を使用。**Protect all Workers は使わない**。指定メールだけのAllowポリシーにし、実際のIdP、セッション期限、既存hostname policyの優先関係を確認する。
-3. Access team domain / application AUD / 確定hostname / 承認メールを設定する。APP_ORIGINは単一HTTPS origin。preview_urls:falseを維持。GitHub秘密を登録する前に匿名のHTML・assets・APIが返らないことを確認する。
-4. GitHubの engineer-first → Settings → Developer settings → GitHub Apps → Idea Boost Whiteboard → Edit → Credentials → Key pairs → New key（公式の現在の経路）で本番用鍵を追加する。App ID 5473658であることを確かめる。Installed Appの設定や別App「Project Status Sync」は変更しない。既存鍵を削除しない。25鍵上限なら勝手に既存鍵を消さず停止する。
-5. ダウンロードしたPEMは秘密として扱う。本文をツール出力・チャット・引数へ出さない。承認されたローカル保管先から標準入力で `npx wrangler secret put GITHUB_APP_PRIVATE_KEY --name ideaboost-whiteboard` に渡す。PKCS#1/PKCS#8はサーバーが両対応。保存は即時配信を伴うので、同じ承認対象として扱う。公開鍵fingerprintだけをGitHub表示と照合し、秘密値を記録しない。ローカル鍵の保管/消去は承認した取扱方針に従う。
-6. デプロイ版とGit SHAを記録し、許可ユーザーの読み取り・非メンバー拒否を本番で確認する。
+長いパス・noindex・no-referrerは発見を抑える補助であり、本人確認や編集権限ではない。アプリは匿名の全利用者を一つのpublic-anonymous主体として扱い、誰が保存したかを識別できない。GitHubにはAppの代理操作として記録される。
 
-確認資料（2026-10-26）:
-- https://developers.cloudflare.com/workers/configuration/cloudflare-access/
+公開APIは30 requests/60秒のCloudflare rate limitをread/write別の共有キーで適用。これは各Cloudflare location内で近似的に計数され、全世界の厳密上限やDDoS完全防御ではない。Origin制限はブラウザーからのcross-site送信対策であり、直接クライアントの意図的な編集を止めない。
+
+固定対象以外のIssue/Projectをプロキシしない。読取前後にrepo isPrivate=false、Project public=trueを要求する。公開範囲の変更と応答の間の外部競合まで原子的にはできない。秘密鍵・tokenはサーバーだけ。全応答no-store、Markdownは原文テキスト。将来チーム認証へ移行する場合はpublic-temporaryを無効にし、保持しているJWT/allowlist境界を設定・検証する。
+
+## 本番スモーク
+
+- root、誤path、旧preview/別hostnameでHTML/APIが露出しない。
+- 正しい公開pathでは匿名のHTML/assets/boardが読める。メンバーだけと誤表示しない。
+- 偽認証ヘッダー、別OriginのPOST、任意Issue/Project、入力過大を拒否。レート上限で429。
+- GitHub publicフラグ検証、6 PBI、原文、アバター、全画面、45秒更新。
+- 同時保存/部分保存/通信中断はmock試験を用い、実Issue書込成功と混同しない。
+
+## 障害・保存停止
+
+409競合は最新取得後に新しい編集を行う。`mutation_outcome_unresolved` は未確定の外部処理が残るため、そのIssueの新IDも拒否する。読み直しだけでは解除しない。管理者がGitHub正本・履歴・外部処理の終息を確認し、承認された保守変更で対象Objectのpendingを処理する必要がある。現在公開リセットAPIや自動TTLはなく、コードによる保守が必要という運用制約がある。元request記録を残し、再送・namespace変更・全記録削除をしない。
+
+各Issue10,000記録で `mutation_ledger_capacity`。履歴を無条件に消さず保持方針を見直す。共有調停なしの旧版へrollbackすると同時保存の保証が失われるため戻さない。Worker rollbackはGitHub上の変更を戻さない。
+
+## 参照
+
+- https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
 - https://developers.cloudflare.com/workers/configuration/secrets/
+- https://developers.cloudflare.com/durable-objects/platform/pricing/
 - https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps
-
-## 設定後のデプロイ手順
-
-- `wrangler.jsonc` の worker名は `ideaboost-whiteboard`。App ID 5473658、installation 175301060 は公開識別子。秘密ではない。
-- `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ALLOWED_EMAILS`, `APP_ORIGIN` を承認された本番値にする。APP_ORIGINは末尾スラッシュなしの単一HTTPS origin。
-- Accessルールはアプリ全体を保護。Worker内のJWT検証はAccessルーティングとは別の防御。全URLでworker-first、preview_urls:false。別ホストはJWTが有効でも拒否する。
-- 最初の配信は秘密・アクセス設定と一緒に扱い、未認証のURLでHTML/JS/APIが漏れないことを先に確認。
-- 同じコミットで `npm ci && npm run check && npm run test:e2e` 後、既存の承認済みCLIから `npm run deploy`。まず手動デプロイだけ。CIは検証専用。Cloudflare tokenをGitHubへ登録する自動配信は新たな継続権限のため別承認。
-- 公開されたworker URLとGit SHA、Cloudflare version IDを記録。
-
-## 本番スモーク試験
-
-匿名、許可外アカウント、期限切れJWT、別audience、偽ヘッダー、別hostnameで `/`, `/app.js`, `/styles.css`, `/api/health`, `/api/board` のアクセスが拒否されること。Accessログインへのredirectも許容するが本文やアセットを返さないこと。
-
-許可ユーザーでログインし、実ボードの読み取り、アバター、PBI選択、全画面、45秒更新を確認。実Issue書き込み試験は自動でしない。使い捨てテストIssueを別途承認してもらうか、実変更は通常のチーム利用として扱う。モック試験を実接続書き込み成功と報告しない。
-
-## 障害対応
-
-- 401: Accessで再ログイン。403: チーム許可または本番originを管理者が確認。503: 設定や公開JWKSへの通信を確認。秘密値をログへ出さない。
-- 409: 他の変更と競合。入力が必要ならコピーし、最新を取得してから改めて編集。
-- 部分保存/結果不明: GitHubのIssueとProjectを直接確認。ロールバックや再送を機械的に実行しない。ボードは再取得まで保存を停止。
-- token失効: App installationと既存権限を確認。秘密鍵rotationは別承認。
-- rollback: 直前の検証済みWorker版を選ぶ。アプリのrollbackはGitHubデータ変更を取り消さない。Access設定変更も別管理。
-- メンバー退会: AccessポリシーとWorker ALLOWED_EMAILSの両方から除外し、Accessセッションを失効させる。操作には明示承認が必要。
-
-## 運用上の限界
-
-Issue単位のDurable Objectが別isolateの保存を直列化し、request記録を永続保持する。pendingは再起動でも解除しない。GitHub直接編集・自動化との原子性はない。長いタイトルは完全行単位でカード内スクロール、本文はドロワーで全文を読む。PBI選択は個別ブラウザー。チーム共通スプリント定義、監査DB、WebSocketは現在範囲外。
-
-## Durable Objectの保存停止
-
-`mutation_outcome_unresolved` はそのIssueに未確定の外部操作が残ったことを示す。最新取得だけで解除しない。GitHub Issue/Projectの正本と履歴、外部処理が終息したことを管理者が確認し、承認された保守変更で対象Objectのpending記録を処理する必要がある。公開リセットAPIや自動TTLは実装していない。元requestの記録を残し、機械的な再送・namespace変更・全記録削除をしない。現在この保守経路はコードによる調査・修復が必要という運用制約がある。
-
-10,000 request/Issueの上限は `mutation_ledger_capacity`。無条件の履歴消去で回復させず、保持と再送防止方針を見直す。SQLite DO migration v1を含む。旧い共有調停なしのWorker版へrollbackすると同時保存の保証が失われるため、その版へ戻さない。

@@ -28,9 +28,11 @@ GitHub transportはmock。ページング、正式parent/descendant、外部親P
 
 ## ローカル検証記録 2026-10-26
 
-- lint / typecheck / GitHub mock 19件 / JWT/route認可5件と共有coordinator7件 / Wrangler dry-run: 合格。
-- Chromium E2E: 16シナリオ × 2サイズ = 32件。全画面切替でフォーカスを保持する修正、通信中断時の再送禁止、長いMarkdownフェンスと未閉じコメントの除外を含む。
+- lint / typecheck / GitHub mock 19件 / JWT/route認可5件と共有coordinator8件、公開境界3件 / Wrangler dry-run: 合格。
+- Chromium E2E: 18シナリオ × 2サイズ = 36件。全画面切替でフォーカスを保持する修正、通信中断時の再送禁止、長いMarkdownフェンスと未閉じコメントの除外を含む。
 - 過去の実データfixture（14 PBI・24 tasks）: 最初の6 PBIで15カードを表示。1920幅で最小12px、2560幅で最小14px。両サイズでタイトルスクロール0件、ページ縦スクロールなし。原文タイトルとPBI列・ゴール列をスクリーンショットで目視確認。fixtureと画像はgit対象外。
 - Google DESIGN.md lint: エラー0、未参照component-token警告17（本文とCSSで使う色トークンが含まれる）。
 - npm audit: 0 vulnerabilities。開発依存のundici/zodは修正版overrideをlockfileで固定。
 - 本番URL/認証付きリアルタイム読み取り/実Issue書き込み: 未実施。
+
+公開mode: 長いpathの配信/API保存、別host/path/Origin拒否、匿名主体の上書き、rate binding欠落/制限、repo/Projectの非公開化をmockで検証。長いPBIの2560幅はみ出しを再現して修正し、両サイズで完全行と進捗の保持を確認。

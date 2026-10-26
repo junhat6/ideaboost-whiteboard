@@ -1322,3 +1322,20 @@ dialog dt,
   background: #42252b;
   color: #ffc6cf;
 }
+
+/* Bound every PBI title, including the non-compact 2560 layout. */
+#board .pbi-title {
+  max-height: 75%;
+  min-height: 0;
+  max-width: 100%;
+  flex-shrink: 1;
+  overflow: hidden;
+}
+.pbi-title-text {
+  display: block;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.lane-progress {
+  flex-shrink: 0;
+}

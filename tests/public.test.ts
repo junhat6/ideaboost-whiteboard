@@ -1,0 +1,149 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createWorker } from "../worker/index.ts";
+import { createHandler } from "../server/github.mjs";
+import { fixture, env as githubEnv, req, patch } from "./github-fixture.mjs";
+const path = "/b/" + "a".repeat(48);
+const env = {
+  AUTH_MODE: "public-temporary",
+  APP_ORIGIN: "https://board.example",
+  PUBLIC_PATH: path,
+  ASSETS: {
+    fetch: async (r: Request) => new Response(new URL(r.url).pathname),
+  },
+  PUBLIC_LIMITER: { limit: async () => ({ success: true }) },
+} as any;
+const request = (suffix = "/", method = "GET", origin = env.APP_ORIGIN) =>
+  new Request(env.APP_ORIGIN + path + suffix, {
+    method,
+    headers: { Origin: origin, "x-verified-user-id": "spoofed" },
+  });
+test("public mode gates exact path and host, strips prefix, marks anonymous and noindex", async () => {
+  const worker = createWorker(
+    async () => {
+      throw Error("must not require Access");
+    },
+    async (r) =>
+      r.url.includes("/api/")
+        ? Response.json({
+            path: new URL(r.url).pathname,
+            user: r.headers.get("x-verified-user-id"),
+          })
+        : null,
+  );
+  assert.equal(
+    (await worker.fetch(new Request(env.APP_ORIGIN + "/"), env)).status,
+    404,
+  );
+  assert.equal(
+    (await worker.fetch(new Request("https://other.example" + path + "/"), env))
+      .status,
+    403,
+  );
+  assert.equal((await worker.fetch(request(""), env)).status, 308);
+  assert.equal(
+    await (await worker.fetch(request("/app.js"), env)).text(),
+    "/app.js",
+  );
+  const r = await worker.fetch(request("/api/board"), env);
+  assert.deepEqual(await r.json(), {
+    path: "/api/board",
+    user: "public-anonymous",
+  });
+  assert.match(r.headers.get("X-Robots-Tag")!, /noindex/);
+  assert.equal(r.headers.get("Referrer-Policy"), "no-referrer");
+  assert.equal(
+    (
+      await worker.fetch(request("/api/board"), {
+        ...env,
+        PUBLIC_LIMITER: undefined,
+      })
+    ).status,
+    503,
+  );
+  assert.equal(
+    (
+      await worker.fetch(request("/api/board"), {
+        ...env,
+        PUBLIC_LIMITER: { limit: async () => ({ success: false }) },
+      })
+    ).status,
+    429,
+  );
+});
+test("public mutation still checks Origin and uses shared coordinator, never direct API", async () => {
+  let calls = 0;
+  const worker = createWorker(undefined, async () => {
+    throw Error("bypassed");
+  });
+  const bindings = {
+    ...env,
+    MUTATIONS: {
+      getByName: (name: string) => {
+        assert.equal(name, "engineer-first/idea-boost:2");
+        return {
+          fetch: async (r: Request) => {
+            calls++;
+            assert.equal(new URL(r.url).pathname, "/api/issues/2");
+            return Response.json({ ok: true });
+          },
+        };
+      },
+    },
+  };
+  assert.equal(
+    (
+      await worker.fetch(
+        request("/api/issues/2", "POST", "https://evil.example"),
+        bindings,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(calls, 0);
+  assert.equal(
+    (await worker.fetch(request("/api/issues/2", "POST"), bindings)).status,
+    200,
+  );
+  assert.equal(calls, 1);
+});
+test("public data rejects private repo/project and privacy change during board read; writes reject too", async () => {
+  for (const mode of ["public", "private-repo", "private-project", "changed"]) {
+    const f = fixture();
+    let checks = 0;
+    const handler = createHandler({
+      fetch: async (url: any, opt: any) => {
+        const body = opt.body ? JSON.parse(opt.body) : {};
+        if (body.query?.includes("PublicScope")) {
+          checks++;
+          return Response.json({
+            data: {
+              repository: { isPrivate: mode === "private-repo" },
+              organization: {
+                projectV2: {
+                  public:
+                    mode !== "private-project" &&
+                    !(mode === "changed" && checks > 1),
+                },
+              },
+            },
+          });
+        }
+        return f.fetch(url, opt);
+      },
+    });
+    const e = { ...githubEnv, AUTH_MODE: "public-temporary" };
+    const r = await handler(req("/api/board"), e);
+    assert.equal(r!.status, mode === "public" ? 200 : 403, mode);
+    if (mode !== "public")
+      assert.equal((await r!.json()).error, "scope_not_public");
+    if (mode === "private-repo" || mode === "private-project") {
+      assert.equal(
+        (await handler(req("/api/issues/2", patch({ title: "No" })), e))!
+          .status,
+        403,
+      );
+      assert.equal(f.calls.filter((c: any) => c.method === "PATCH").length, 0);
+    }
+  }
+});

@@ -214,3 +214,23 @@ test("ambiguous upstream response fences new IDs even after coordinator restart"
     "mutation_outcome_unresolved",
   );
 });
+
+test("10,001 invalid unique requests cannot consume durable ledger or block a valid save", async () => {
+  const ledger = new MemoryLedger();
+  let calls = 0;
+  const c = new MutationCoordinator(ledger, async () => {
+    calls++;
+    return Response.json({ ok: true });
+  });
+  for (let i = 0; i < 10001; i++) {
+    const r = await c.fetch(
+      req("/api/issues/2", { requestId: "invalid_request_" + i, rogue: true }),
+    );
+    assert.equal(r.status, 400);
+  }
+  assert.equal(ledger.rows.size, 0);
+  assert.equal(calls, 0);
+  assert.equal((await c.fetch(write())).status, 200);
+  assert.equal(calls, 1);
+  assert.equal(await ledger.get("count"), 1);
+});

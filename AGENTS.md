@@ -7,7 +7,7 @@
 - GitHub が正本。本文リンクから親子関係を推測しない。Issue の close と Project Status は別。
 - 既存の Sites デモ、他の GitHub App、実 Issue をテスト目的で変更しない。
 - 秘密・実チーム fixture・アクセストークンを git / クライアント / ログへ含めない。
-- 認証は全ルートで fail closed。Access JWT の署名・issuer・audience・期限と許可メールを確認。
+- チームモードは全ルート認証fail closed。明示承認済みpublic-temporaryは匿名閲覧/編集であることを正直に扱い、固定path/host、Origin、公開範囲、rate limitを維持する。
 - 外部認証設定、秘密の移行、権限拡張、有料契約は明示承認が必要。
 
 ## 実装

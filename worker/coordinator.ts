@@ -1,3 +1,4 @@
+import { validateMutation } from "../server/github.mjs";
 /** Persist only request digests and outcomes, never GitHub Issue content or credentials. */
 interface RecordEntry {
   digest: string;
@@ -74,6 +75,7 @@ export class MutationCoordinator {
     const user = request.headers.get("x-verified-user-id");
     if (!user) return json("sign_in_required", 401);
     if (
+      new URL(request.url).search ||
       request.method !== "POST" ||
       !/^\/api\/issues\/[1-9]\d{0,8}$/.test(new URL(request.url).pathname)
     )
@@ -96,12 +98,14 @@ export class MutationCoordinator {
     } catch {
       return json("invalid_json", 400);
     }
-    if (
-      !data ||
-      typeof data.requestId !== "string" ||
-      !/^[A-Za-z0-9_-]{16,100}$/.test(data.requestId)
-    )
-      return json("invalid_precondition", 400);
+    try {
+      validateMutation(data);
+    } catch (error) {
+      return json(
+        error instanceof Error ? error.message : "invalid_fields",
+        400,
+      );
+    }
     const key = "request:" + (await digest(user + ":" + data.requestId));
     const hash = await digest(new URL(request.url).pathname + ":" + body);
     const prior = await this.storage.get<RecordEntry>(key);
