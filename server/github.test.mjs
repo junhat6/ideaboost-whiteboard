@@ -177,7 +177,7 @@ test("contextual view filter is explicitly not applied", async () => {
   assert.equal(
     f.calls.find((c) => c.parsed?.query?.includes("BoardItems")).parsed
       .variables.filter,
-    "repo:engineer-first/idea-boost",
+    "",
   );
 });
 test("parent PBI outside project status write is rejected", async () => {
@@ -290,7 +290,7 @@ test("type:PBI view selects rows, expands formal children and descendants, exclu
   assert.equal(
     f.calls.find((c) => c.parsed?.query?.includes("BoardItems")).parsed
       .variables.filter,
-    "repo:engineer-first/idea-boost",
+    "",
   );
 });
 

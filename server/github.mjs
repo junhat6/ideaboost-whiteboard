@@ -12,7 +12,7 @@ const STATUSES = [
 ];
 const BASE = "https://api.github.com";
 const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:100) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
-const ISSUE = `id number url updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } parent { id issueType { name } repository { nameWithOwner } }`;
+const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const META = `query BoardMeta { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { id url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter } } } }`;
 const ITEMS = `query BoardItems($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { id isArchived content { ... on Issue { ${ISSUE} } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name optionId } } } pageInfo { hasNextPage endCursor } } } } }`;
@@ -415,7 +415,7 @@ export function createHandler({
           await read("items", () =>
             gql(env, ITEMS, {
               after,
-              filter: "repo:engineer-first/idea-boost",
+              filter: "",
             }),
           )
         )?.organization?.projectV2?.items;
@@ -587,6 +587,7 @@ export function createHandler({
         const full = normalize(node);
         // Keep membership and formal parent from the Project scan.
         for (const key of [
+          "number",
           "title",
           "body",
           "assignees",
