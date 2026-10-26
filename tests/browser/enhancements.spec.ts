@@ -175,7 +175,11 @@ test("safe lazy media never delays text; video has no request before play and st
   await expect(page.locator('#detail-body-view img[src*="evil"]')).toHaveCount(
     0,
   );
-  await expect.poll(() => imageRequests).toBe(1);
+  // The live surface and the explicitly opened reading surface may each start
+  // their own lazy image before the first surface is destroyed. Scheduling must
+  // not decide whether this test passes; video still has zero pre-click requests.
+  await expect.poll(() => imageRequests).toBeGreaterThanOrEqual(1);
+  expect(imageRequests).toBeLessThanOrEqual(2);
   release();
   await expect
     .poll(() =>
