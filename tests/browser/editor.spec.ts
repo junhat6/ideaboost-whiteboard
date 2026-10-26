@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { setup } from "./fixtures";
+import { setup, fillEditor } from "./fixtures";
 
 async function open(page) {
   await page.locator(".task-title").first().click();
@@ -24,7 +24,7 @@ test("immediate Markdown editing preserves raw source, undo, safe GFM preview an
   });
   const raw =
     '# 日本語\n\n- [x] 完了\n- 項目\n\n| A | B |\n|---|---|\n| 一 | 二 |\n\n```js\nconst x = "<script>";\n```\n\n<script>window.bad=1</script><img src=x onerror="window.bad=1">[危険](javascript:alert(1))';
-  await page.locator(".cm-content").fill(raw);
+  await fillEditor(page, raw);
   await expect(page.locator("#detail-body")).toHaveValue(raw);
   await page.waitForTimeout(600); // CodeMirrorの履歴グループを区切る
   await page.keyboard.press("End");
@@ -55,7 +55,7 @@ test("typing during a gated refresh survives; separate remote field merges, same
     await route.fulfill({ json: s.board });
   });
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await page.locator(".cm-content").fill("自分の本文");
+  await fillEditor(page, "自分の本文");
   s.board.tasks[0].assignees = [
     { login: "newperson", name: "新担当", avatarUrl: "" },
   ];
@@ -77,14 +77,17 @@ test("typing during a gated refresh survives; separate remote field merges, same
   await expect(page.locator("#save-issue")).toBeEnabled();
   await page.locator("#save-issue").click();
   await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toContainText("保存しました");
+  await expect(page.locator("#detail-sync")).toHaveAttribute(
+    "aria-label",
+    "保存しました",
+  );
 });
 test("synthetic composition suppresses save and Escape, double submit sends once", async ({
   page,
 }) => {
   const s = await setup(page, { slow: true });
   await open(page);
-  await page.locator(".cm-content").fill("IME入力");
+  await fillEditor(page, "IME入力");
   await page.locator(".cm-content").dispatchEvent("compositionstart");
   await page.keyboard.press("ControlOrMeta+Enter");
   await page.keyboard.press("Escape");
@@ -98,7 +101,10 @@ test("synthetic composition suppresses save and Escape, double submit sends once
     f.requestSubmit();
   });
   await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toContainText("保存しました");
+  await expect(page.locator("#detail-sync")).toHaveAttribute(
+    "aria-label",
+    "保存しました",
+  );
   expect(s.posts()).toBe(1);
 });
 test("durable unknown-outcome fence survives successful background GET and keeps typing available", async ({
@@ -116,12 +122,12 @@ test("durable unknown-outcome fence survives successful background GET and keeps
       },
     }),
   );
-  await page.locator(".cm-content").fill("結果不明の下書き");
+  await fillEditor(page, "結果不明の下書き");
   await page.locator("#save-issue").click();
   await expect(page.locator("#detail-error")).toContainText("管理者");
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.locator("#recover-edit")).toBeDisabled();
-  await page.locator(".cm-content").fill("追加の入力は保持");
+  await fillEditor(page, "追加の入力は保持");
   await expect(page.locator("#detail-body")).toHaveValue("追加の入力は保持");
   await expect(page.locator("#save-issue")).toBeDisabled();
   expect(s.posts()).toBe(0);
@@ -136,13 +142,13 @@ test("confirmed save stays saved when following GET fails; removed Issue retains
       ? route.abort("connectionreset")
       : route.fulfill({ json: s.board }),
   );
-  await page.locator(".cm-content").fill("保存する本文");
+  await fillEditor(page, "保存する本文");
   await page.locator("#save-issue").click();
   await expect(page.locator("#detail-sync")).toContainText(
     "保存しました。ボードの再同期",
   );
   await expect(page.locator("#save-issue")).toBeDisabled();
-  await page.locator(".cm-content").fill("消さない下書き");
+  await fillEditor(page, "消さない下書き");
   s.board.tasks = s.board.tasks.filter((i) => i.id !== "t0-0-0");
   await page.route("**/api/board", (route) => route.fulfill({ json: s.board }));
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -166,17 +172,23 @@ test("cached data can be edited while fresh confirmation waits without overwriti
     await route.fulfill({ json: s.board });
   });
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await page.locator(".cm-content").fill("確認中に入力");
+  await fillEditor(page, "確認中に入力");
   await page.locator("#save-issue").click();
-  await expect(page.locator("#detail-sync")).toContainText("保存前");
-  await page.locator(".cm-content").fill("確認中にも続けて入力");
+  await expect(page.locator("#detail-sync")).toHaveAttribute(
+    "aria-label",
+    /保存前/,
+  );
+  await fillEditor(page, "確認中にも続けて入力");
   expect(s.posts()).toBe(0);
   release();
   await expect.poll(s.posts).toBe(1);
   await expect(page.locator("#detail-body")).toHaveValue(
     "確認中にも続けて入力",
   );
-  await expect(page.locator("#detail-sync")).toContainText("保存しました");
+  await expect(page.locator("#detail-sync")).toHaveAttribute(
+    "aria-label",
+    "保存しました",
+  );
 });
 test("CRLF original stays clean and title-only save does not rewrite Markdown", async ({
   page,
@@ -211,7 +223,7 @@ test("accepted close cancels preflight immediately even when GET returns inside 
     await gate;
     await route.fulfill({ json: s.board });
   });
-  await page.locator(".cm-content").fill("保存を取り消す");
+  await fillEditor(page, "保存を取り消す");
   await page.locator("#save-issue").click();
   await expect.poll(() => started).toBe(true);
   page.once("dialog", async (d) => {
@@ -222,10 +234,13 @@ test("accepted close cancels preflight immediately even when GET returns inside 
   await page.locator("#details").waitFor({ state: "hidden" });
   expect(s.posts()).toBe(0);
   await open(page);
-  await page.locator(".cm-content").fill("次の編集は正常");
+  await fillEditor(page, "次の編集は正常");
   await page.locator("#save-issue").click();
   await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toContainText("保存しました");
+  await expect(page.locator("#detail-sync")).toHaveAttribute(
+    "aria-label",
+    "保存しました",
+  );
 });
 test("late editor bundle never replaces a focused native draft or its caret and undo", async ({
   page,
@@ -261,7 +276,7 @@ test("new submit after accepted close cannot save inside animation and reopening
 }) => {
   const s = await setup(page);
   await open(page);
-  await page.locator(".cm-content").fill("閉じた後には送らない");
+  await fillEditor(page, "閉じた後には送らない");
   page.once("dialog", (d) => d.accept());
   // 同一ブラウザーtaskで閉じる承認直後に新規submit。160ms timer前を確実に通す。
   const closing = await page.evaluate(() => {
@@ -278,8 +293,11 @@ test("new submit after accepted close cannot save inside animation and reopening
   await page.locator("#details").waitFor({ state: "hidden" });
   expect(s.posts()).toBe(0);
   await open(page);
-  await page.locator(".cm-content").fill("開き直した後の明示保存");
+  await fillEditor(page, "開き直した後の明示保存");
   await page.locator("#save-issue").click();
   await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toContainText("保存しました");
+  await expect(page.locator("#detail-sync")).toHaveAttribute(
+    "aria-label",
+    "保存しました",
+  );
 });

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { setup } from "./fixtures";
+import { setup, fillEditor } from "./fixtures";
 import { readFile } from "node:fs/promises";
 const asset =
   "https://github.com/user-attachments/assets/00000000-0000-4000-8000-000000000001";
@@ -250,7 +250,7 @@ test("type colors are stable across Status moves and update for actual type chan
   await page.keyboard.press("f");
   expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
   await page.keyboard.press("Escape");
-  await page.locator(".cm-content").fill("f");
+  await fillEditor(page, "f");
   await page.keyboard.press("f");
   expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
   await page.locator("#comment-body").fill("f");

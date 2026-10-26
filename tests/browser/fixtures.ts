@@ -111,3 +111,9 @@ export async function setup(
   await expect(page.locator(".pbi-title")).toHaveCount(6);
   return { board, posts: () => posts, reads: () => reads };
 }
+
+export async function fillEditor(page: Page, value: string) {
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.insertText(value);
+}

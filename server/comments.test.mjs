@@ -118,3 +118,26 @@ test("private transition after accepted POST retains scope signal and ambiguous 
   assert.equal(b.error, "scope_not_public");
   assert.equal(b.ambiguous, true);
 });
+
+test("lightweight comments scope skips whole-board hydration and preserves outside-Project PBI parent", async () => {
+  const f = fixture();
+  for (const number of [2, 1])
+    assert.equal(
+      (await f.handler(req(`/api/issues/${number}/comments`), env)).status,
+      200,
+    );
+  assert.equal(
+    f.calls.some(
+      (c) =>
+        /BoardBootstrap|BoardRelations|IssueDetails|ParentDetails/.test(
+          c.parsed?.query || "",
+        ) || c.url.includes("/assignees"),
+    ),
+    false,
+  );
+  const r = await f.handler(req("/api/issues/2/comments"), env);
+  assert.match(
+    r.headers.get("server-timing"),
+    /scope;dur=.*comments;dur=.*visibility;dur=/,
+  );
+});

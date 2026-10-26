@@ -47,17 +47,34 @@ export function createComments({ scope, read, write, visibility }) {
         !/^[1-9]\d{0,2}$/.test(page)
       )
         return Response.json({ error: "invalid_query" }, { status: 400 });
-      await scope(number);
-      const values = await read(number, Number(page));
+      const timings = [];
+      const timed = async (name, fn) => {
+        const start = performance.now();
+        try {
+          return await fn();
+        } finally {
+          timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`);
+        }
+      };
+      await timed("scope", () => scope(number));
+      const values = await timed("comments", () => read(number, Number(page)));
       if (!Array.isArray(values) || values.length > 50)
         throw new Error("invalid_comment_response");
       const comments = values.map(normalizeComment);
-      await visibility();
-      return Response.json({
-        comments,
-        nextPage: values.length === 50 ? Number(page) + 1 : null,
-        fetchedAt: new Date().toISOString(),
-      });
+      await timed("visibility", () => visibility());
+      return Response.json(
+        {
+          comments,
+          nextPage: values.length === 50 ? Number(page) + 1 : null,
+          fetchedAt: new Date().toISOString(),
+        },
+        {
+          headers: {
+            "server-timing": timings.join(", "),
+            "cache-control": "no-store",
+          },
+        },
+      );
     }
     validateComment(data);
     await scope(number);

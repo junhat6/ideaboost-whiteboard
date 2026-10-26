@@ -47,6 +47,51 @@ export function fixture({
         token: "SECRET",
         expires_at: "2099-01-01T00:00:00Z",
       });
+    if (body?.query?.includes("query CommentScope")) {
+      const n = body.variables.number;
+      const i = n === 1 ? parent : n === 2 ? issue : null;
+      return Response.json({
+        data: {
+          repository: {
+            isPrivate: false,
+            issue: i && {
+              ...i,
+              projectItems: {
+                nodes:
+                  n === 2 || parentInProject
+                    ? [{ isArchived: false, project: { id: "PROJ" } }]
+                    : [],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+          organization: { projectV2: { id: "PROJ", public: true } },
+        },
+      });
+    }
+    if (body?.query?.includes("query CommentParentScope"))
+      return Response.json({
+        data: {
+          organization: {
+            projectV2: {
+              items: {
+                nodes: [
+                  {
+                    isArchived: false,
+                    content: {
+                      repository: {
+                        nameWithOwner: "engineer-first/idea-boost",
+                      },
+                      parent: { id: "I1" },
+                    },
+                  },
+                ],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+        },
+      });
     if (url.includes("/assignees"))
       return Response.json([
         {

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { setup, snapshot } from "./fixtures";
+import { setup, snapshot, fillEditor } from "./fixtures";
 test("six rows, four cards per cell, whole title lines, no page scroll", async ({
   page,
 }) => {
@@ -72,7 +72,7 @@ test("repeated editor saves, cancel draft, canonical refetch and no full-body pa
   expect(state.reads()).toBeGreaterThanOrEqual(4);
   await page.locator(".pbi-title").first().click();
   await page.locator("#rename-issue").click();
-  await page.locator(".cm-content").fill("破棄する内容");
+  await fillEditor(page, "破棄する内容");
   page.once("dialog", (d) => d.dismiss());
   await page.keyboard.press("Escape");
   await expect(page.locator("#details")).toBeVisible();
@@ -363,7 +363,10 @@ test("right 80% viewer opens and closes immediately during background read, then
   s.board.lanes[0].body = "再取得後の正本本文";
   release();
   await expect(page.locator("#detail-body")).toHaveValue("再取得後の正本本文");
-  await expect(page.locator("#detail-sync")).toContainText("変更を反映");
+  await expect(page.locator("#detail-sync")).toHaveAttribute(
+    "aria-label",
+    /変更を反映/,
+  );
   await page.locator("#rename-issue").click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("ControlOrMeta+A");
@@ -537,7 +540,10 @@ test("polling applies upstream fields, a new child and closed PBI without naviga
   await expect(page.locator("#detail-body")).toHaveValue(target.body);
   await expect(page.locator("#detail-status")).toHaveValue("レビュー中");
   await expect(page.locator("#detail-assignee")).toHaveValues(["new-user"]);
-  await expect(page.locator("#detail-sync")).toContainText("変更を反映");
+  await expect(page.locator("#detail-sync")).toHaveAttribute(
+    "aria-label",
+    /変更を反映/,
+  );
   await expect(page.locator('[data-task="new-child"]')).toBeVisible();
   await page.keyboard.press("Escape");
   await page.clock.fastForward(200);

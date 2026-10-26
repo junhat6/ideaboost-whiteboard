@@ -502,8 +502,7 @@ function render() {
     $("#milestone-filter").innerHTML = milestoneOptions;
   $("#milestone-filter").value = selectedMilestone;
   const displayed = selectedLanes();
-  $("#choose-pbis").textContent =
-    `表示するPBI ${displayed.length} / ${MAX_PBIS}`;
+  $("#choose-pbis").textContent = `▦ ${displayed.length} / ${MAX_PBIS}`;
   $("#choose-pbis").disabled = pending || loading || editMode;
   const tasks = matching(),
     height = $("#board-scroll").clientHeight,
@@ -821,6 +820,9 @@ function renderPreview() {
 function setPreview(value) {
   if (!value) composerModule?.clearPreview($("#detail-body-view"));
   previewMode = value;
+  composer?.source(value || sourceVisible);
+  $("#markdown-write").hidden = !value;
+  $("#markdown-preview").hidden = value;
   $("#markdown-editor").hidden = value;
   $("#detail-body").hidden = value || !!composer;
   $("#detail-body-view").hidden = !value;
@@ -853,6 +855,7 @@ async function ensureComposer() {
   } catch {
     composerPromise = null;
     $("#markdown-preview").disabled = true;
+    $(".editor-hint").hidden = false;
     $(".editor-hint").textContent =
       "本文はこの入力欄で編集できます。⌘/Ctrl + Enterで保存";
   }
@@ -869,6 +872,9 @@ function canonicalIssueUrl(t) {
   }
 }
 function fillDetail() {
+  sourceVisible = false;
+  $("#markdown-source").setAttribute("aria-pressed", "false");
+  composer?.source(false);
   const t = issue(editing.kind, editing.id);
   if (!t) return;
   editorBaseline = clone(t);
@@ -936,6 +942,24 @@ function updateDetailSync() {
                       : detailUpdated
                         ? "GitHub側の変更を反映しました"
                         : "すべての変更を保存済み";
+  indicator.title = indicator.textContent;
+  indicator.setAttribute("aria-label", indicator.textContent);
+  if (
+    !editorOutcome &&
+    !detailUnavailable &&
+    !Object.keys(editorConflicts).length &&
+    !lastReadError
+  ) {
+    indicator.textContent = editorPosting
+      ? "保存中…"
+      : editorBusy
+        ? "確認中…"
+        : editMode || composing
+          ? "● 未保存"
+          : loading || snapshotPending
+            ? "↻ 同期中"
+            : "✓ 保存済み";
+  }
 }
 function detailVersion(i) {
   return (
@@ -1195,6 +1219,8 @@ async function loadComments(more = false) {
   const session = editorSession,
     number = editorLatest.number;
   commentsLoading = true;
+  $("#comments-skeleton").hidden = commentItems.length > 0;
+  $("#comments-list").setAttribute("aria-busy", "true");
   $("#comments-status").textContent = commentItems.length
     ? "コメントを更新中…"
     : "コメントを読み込み中…";
@@ -1216,6 +1242,7 @@ async function loadComments(more = false) {
     $("#comments-status").textContent = commentItems.length
       ? `${commentItems.length}件のコメント`
       : "まだコメントはありません。";
+    $("#comments-status").title = `取得: ${result.fetchedAt || "現在"}`;
   } catch (error) {
     if (error.code === "scope_not_public") {
       stopPrivateScope(error.message);
@@ -1227,6 +1254,8 @@ async function loadComments(more = false) {
   } finally {
     if (session === editorSession) {
       commentsLoading = false;
+      $("#comments-skeleton").hidden = true;
+      $("#comments-list").setAttribute("aria-busy", "false");
       syncCommentControls();
     }
   }
@@ -1547,6 +1576,13 @@ $("#detail-body").addEventListener("input", () => {
 $("#detail-fields").addEventListener("input", updateDirty);
 $("#detail-fields").addEventListener("change", updateDirty);
 $("#detail-title").addEventListener("input", updateDirty);
+let sourceVisible = false;
+$("#markdown-source").onclick = () => {
+  sourceVisible = !sourceVisible;
+  setPreview(false);
+  composer?.source(sourceVisible);
+  $("#markdown-source").setAttribute("aria-pressed", String(sourceVisible));
+};
 $("#markdown-write").onclick = () => {
   setPreview(false);
   composer?.focus();
@@ -1919,9 +1955,13 @@ document.addEventListener("keydown", (e) => {
   $("#fullscreen").click();
 });
 document.addEventListener("fullscreenchange", () => {
-  $("#fullscreen").textContent = document.fullscreenElement
-    ? "全画面を終了"
-    : "全画面";
+  $("#fullscreen").setAttribute(
+    "aria-pressed",
+    String(!!document.fullscreenElement),
+  );
+  $("#fullscreen").title = document.fullscreenElement
+    ? "全画面を終了（F）"
+    : "全画面（F）";
   render();
 });
 $("#about").onclick = () => {
@@ -2090,3 +2130,38 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !document.querySelector("dialog[open]"))
     dismissControls();
 });
+
+// Conventional icons retain explicit names and keyboard focus, without permanent prose.
+for (const [id, label, path] of [
+  [
+    "refresh",
+    "最新を取得",
+    "M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2",
+  ],
+  ["fullscreen", "全画面切替（F）", "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"],
+  ["theme", "配色切替", "M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11Z"],
+  [
+    "about",
+    "ヘルプ",
+    "M12 17v.1M9 8a3 3 0 0 1 6 0c0 2-3 2-3 5M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20",
+  ],
+  ["comments-refresh", "コメントを更新", "M20 7v5h-5M6 7a7 7 0 1 1-1 9"],
+  [
+    "markdown-preview",
+    "読み取り表示",
+    "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+  ],
+  [
+    "markdown-write",
+    "ライブ編集へ戻る",
+    "m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z",
+  ],
+]) {
+  const b = document.getElementById(id);
+  b.innerHTML = `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.classList.add("compact-icon");
+}
+$("#choose-pbis").title = "表示するPBIを選択（最大6件）";
+$("#choose-pbis").setAttribute("aria-label", "表示するPBIを選択");

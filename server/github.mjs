@@ -999,13 +999,107 @@ export function createHandler({
       };
     return { status: 200, data: { ok: true, issue: actual, board: null } };
   }
+  async function commentScope(env, number) {
+    let after = null,
+      issueId = null,
+      isPbi = false;
+    for (let page = 0; page < 100; page++) {
+      const data = await gql(
+        env,
+        `query CommentScope($number:Int!,$after:String) {
+        repository(owner:"${OWNER}",name:"${REPO}") { isPrivate issue(number:$number) {
+          id number issueType { name } repository { nameWithOwner }
+          projectItems(first:100,after:$after,includeArchived:false) { nodes { isArchived project { id } } pageInfo { hasNextPage endCursor } }
+        } }
+        organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { id public } }
+      }`,
+        { number, after },
+      );
+      const repo = data?.repository,
+        project = data?.organization?.projectV2,
+        issue = repo?.issue;
+      if (
+        env.AUTH_MODE === "public-temporary" &&
+        (repo?.isPrivate !== false || project?.public !== true)
+      )
+        throw new ApiError(403, "scope_not_public");
+      if (!project?.id) throw new ApiError(502, "project_unavailable");
+      if (
+        !issue?.id ||
+        issue.number !== number ||
+        issue.repository?.nameWithOwner !== `${OWNER}/${REPO}`
+      )
+        throw new ApiError(403, "issue_out_of_scope");
+      issueId = issue.id;
+      isPbi = issue.issueType?.name === "PBI";
+      const c = issue.projectItems;
+      if (
+        !Array.isArray(c?.nodes) ||
+        typeof c.pageInfo?.hasNextPage !== "boolean"
+      )
+        throw new ApiError(502, "issue_membership_unavailable");
+      if (
+        c.nodes.some(
+          (i) => i?.isArchived === false && i.project?.id === project.id,
+        )
+      )
+        return;
+      if (!c.pageInfo.hasNextPage) break;
+      if (
+        !c.pageInfo.endCursor ||
+        c.pageInfo.endCursor === after ||
+        page === 99
+      )
+        throw new ApiError(502, "pagination_error");
+      after = c.pageInfo.endCursor;
+    }
+    // Preserve unfiltered write scope: a same-repository PBI directly referenced
+    // by a nonarchived Project Issue is valid even when the PBI is outside Project.
+    if (!isPbi) throw new ApiError(403, "issue_out_of_scope");
+    after = null;
+    for (let page = 0; page < 100; page++) {
+      const data = await gql(
+        env,
+        `query CommentParentScope($after:String,$filter:String!) {
+        organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) {
+          nodes { isArchived content { ... on Issue { repository { nameWithOwner } parent { id } } } }
+          pageInfo { hasNextPage endCursor }
+        } } }
+      }`,
+        {
+          after,
+          filter: `repo:${OWNER}/${REPO} is:issue parent-issue:${OWNER}/${REPO}#${number}`,
+        },
+      );
+      const c = data?.organization?.projectV2?.items;
+      if (
+        !Array.isArray(c?.nodes) ||
+        typeof c.pageInfo?.hasNextPage !== "boolean"
+      )
+        throw new ApiError(502, "issue_membership_unavailable");
+      if (
+        c.nodes.some(
+          (i) =>
+            i?.isArchived === false &&
+            i.content?.repository?.nameWithOwner === `${OWNER}/${REPO}` &&
+            i.content.parent?.id === issueId,
+        )
+      )
+        return;
+      if (!c.pageInfo.hasNextPage) break;
+      if (
+        !c.pageInfo.endCursor ||
+        c.pageInfo.endCursor === after ||
+        page === 99
+      )
+        throw new ApiError(502, "pagination_error");
+      after = c.pageInfo.endCursor;
+    }
+    throw new ApiError(403, "issue_out_of_scope");
+  }
   function commentHandler(env) {
     return createComments({
-      scope: async (number) => {
-        const current = await board(env, null, false);
-        if (![...current.all.values()].some((i) => i.number === number))
-          throw new ApiError(403, "issue_out_of_scope");
-      },
+      scope: (number) => commentScope(env, number),
       visibility: () => assertPublic(env),
       read: (number, page) =>
         api(

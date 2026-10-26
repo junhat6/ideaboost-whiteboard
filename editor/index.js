@@ -1,3 +1,6 @@
+import { patchRaw } from "./raw.js";
+import { livePreview, sourceMode } from "./live.js";
+import { GFM } from "@lezer/markdown";
 import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -237,7 +240,8 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
   let isDisabled = false;
   const extensions = [
     history(),
-    markdown({ base: markdownLanguage }),
+    markdown({ base: markdownLanguage, extensions: [GFM] }),
+    livePreview(preview, clearPreview),
     keymap.of([
       {
         key: "Mod-Enter",
@@ -250,7 +254,7 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
       ...historyKeymap,
     ]),
     EditorView.lineWrapping,
-    editable.of(EditorView.editable.of(true)),
+    editable.of([EditorView.editable.of(true), EditorState.readOnly.of(false)]),
     EditorView.contentAttributes.of({
       "aria-label": "本文（Markdown）",
       spellcheck: "false",
@@ -277,7 +281,7 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
     ),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        raw = update.state.sliceDoc();
+        raw = patchRaw(raw, update.changes, update.state.lineBreak);
         onChange(raw);
       }
     }),
@@ -321,6 +325,9 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
   }
   const view = new EditorView({ parent, state: state(initial) });
   return {
+    source(value) {
+      view.dispatch({ effects: sourceMode.of(value) });
+    },
     get value() {
       return raw;
     },
@@ -330,7 +337,10 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
       view.setState(state(value));
       if (isDisabled)
         view.dispatch({
-          effects: editable.reconfigure(EditorView.editable.of(false)),
+          effects: editable.reconfigure([
+            EditorView.editable.of(false),
+            EditorState.readOnly.of(true),
+          ]),
         });
     },
     focus() {
@@ -340,13 +350,17 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
       if (isDisabled === value) return;
       isDisabled = value;
       view.dispatch({
-        effects: editable.reconfigure(EditorView.editable.of(!value)),
+        effects: editable.reconfigure([
+          EditorView.editable.of(!value),
+          EditorState.readOnly.of(value),
+        ]),
       });
     },
     destroy() {
       view.destroy();
     },
     format(before, after = before) {
+      if (isDisabled || view.composing) return;
       const { from, to } = view.state.selection.main;
       view.dispatch({
         changes: {
