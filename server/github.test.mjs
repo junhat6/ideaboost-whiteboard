@@ -286,9 +286,13 @@ test("type:PBI view selects rows, expands formal children and descendants, exclu
   assert.equal(d.scope.childTasksExpanded, true);
   assert.equal(d.scope.filterApplied, true);
   assert.equal(
-    f.calls.find((c) => c.parsed?.query?.includes("BoardRows")).parsed.variables
-      .filter,
-    filter,
+    f.calls.some((c) => c.parsed?.query?.includes("BoardRowsFull")),
+    false,
+  );
+  assert.equal(
+    f.calls.find((c) => c.parsed?.query?.includes("BoardBootstrap")).parsed
+      .variables.prefetch,
+    true,
   );
   assert.equal(
     f.calls
@@ -364,9 +368,10 @@ test("lean Project index hydrates only selected formal descendants and never emi
       const response = await f.fetch(url, opt);
       if (!query.includes("BoardBootstrap") && !query.includes("BoardItems"))
         return response;
-      assert.equal(query.includes("body"), false);
-      assert.equal(query.includes("assignees"), false);
-      assert.equal(query.includes("fieldValueByName"), false);
+      const indexQuery = query.split("initialRows:")[0];
+      assert.equal(indexQuery.includes("body"), false);
+      assert.equal(indexQuery.includes("assignees"), false);
+      assert.equal(indexQuery.includes("fieldValueByName"), false);
       const data = await response.json();
       for (const item of data.data.organization.projectV2.items.nodes) {
         delete item.content.body;
@@ -611,4 +616,76 @@ test("focused full data never silently truncates assignees at the GitHub limit",
   const r = await handler(req(), env);
   assert.equal(r.status, 502);
   assert.equal((await r.json()).error, "assignees_truncated");
+});
+
+test("matching view uses prefetched rows, follows their cursor, and writes never prefetch", async () => {
+  const filter = "repo:engineer-first/idea-boost is:issue type:PBI is:open";
+  const f = fixture({ viewFilter: filter, extraTasks: true });
+  const handler = createHandler({
+    fetch: async (url, opt) => {
+      const r = await f.fetch(url, opt);
+      const body = opt.body ? JSON.parse(opt.body) : {};
+      if (body.query?.includes("BoardBootstrap") && body.variables.prefetch) {
+        const d = await r.json();
+        d.data.organization.projectV2.initialRows = {
+          nodes: [],
+          pageInfo: { hasNextPage: true, endCursor: "next-root" },
+        };
+        return Response.json(d);
+      }
+      return r;
+    },
+  });
+  const r = await handler(req(), env);
+  assert.equal(r.status, 200);
+  assert.deepEqual(
+    (await r.json()).tasks.map((i) => i.id),
+    ["I2", "I3"],
+  );
+  assert.match(r.headers.get("server-timing"), /rows_prefetched/);
+  assert.equal(
+    f.calls.find((c) => c.parsed?.query?.includes("BoardRowsFull")).parsed
+      .variables.after,
+    "next-root",
+  );
+  f.calls.length = 0;
+  const conflict = await handler(
+    req("/api/issues/2", patch({ expectedRevision: "1970-01-01T00:00:00Z" })),
+    env,
+  );
+  assert.equal(conflict.status, 409);
+  assert.equal(
+    f.calls.find((c) => c.parsed?.query?.includes("BoardBootstrap")).parsed
+      .variables.prefetch,
+    false,
+  );
+  assert.equal(
+    f.calls.some((c) => c.method === "PATCH"),
+    false,
+  );
+});
+
+test("changed view ignores unrelated prefetched rows and reads the actual saved filter", async () => {
+  const f = fixture({ viewFilter: "type:PBI milestone:Sprint" });
+  const handler = createHandler({
+    fetch: async (url, opt) => {
+      const r = await f.fetch(url, opt);
+      if (!opt.body || !JSON.parse(opt.body).query?.includes("BoardBootstrap"))
+        return r;
+      const d = await r.json();
+      d.data.organization.projectV2.initialRows = {
+        nodes: [],
+        pageInfo: { hasNextPage: false },
+      };
+      return Response.json(d);
+    },
+  });
+  const r = await handler(req(), env);
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).lanes.length, 1);
+  assert.equal(
+    f.calls.find((c) => c.parsed?.query?.includes("BoardRowsFull")).parsed
+      .variables.filter,
+    "type:PBI milestone:Sprint",
+  );
 });

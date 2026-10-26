@@ -16,7 +16,9 @@ const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { nu
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state } } } } pageInfo { hasNextPage endCursor }`;
 const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter }`;
-const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100) { ${INDEX} } } } }`;
+const DEFAULT_VIEW_FILTER = `repo:${OWNER}/${REPO} is:issue type:PBI is:open`;
+const FOCUSED_FIELDS = `nodes { id isArchived content { ... on Issue { ${CORE} parent { id repository { nameWithOwner } } subIssuesSummary { total } } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } pageInfo { hasNextPage endCursor }`;
+const BOOTSTRAP = `query BoardBootstrap($prefetch:Boolean!) { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100) { ${INDEX} } initialRows:items(first:50,query:${JSON.stringify(DEFAULT_VIEW_FILTER)}) @include(if:$prefetch) { ${FOCUSED_FIELDS} } } } }`;
 const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after) { ${INDEX} } } } }`;
 class ApiError extends Error {
   constructor(status, code, extra = {}) {
@@ -354,7 +356,9 @@ export function createHandler({
         timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`);
       }
     };
-    const bootstrap = await read("bootstrap", () => gql(env, BOOTSTRAP));
+    const bootstrap = await read("bootstrap", () =>
+      gql(env, BOOTSTRAP, { prefetch: applyView }),
+    );
     const meta = bootstrap?.organization?.projectV2;
     if (
       env.AUTH_MODE === "public-temporary" &&
@@ -687,19 +691,30 @@ export function createHandler({
   async function focusedBoard(env, milestone, meta, read, timings) {
     const own = (i) =>
       i?.id && i.repository?.nameWithOwner === `${OWNER}/${REPO}`;
-    const fullFields = `nodes { id isArchived content { ... on Issue { ${CORE} parent { id repository { nameWithOwner } } subIssuesSummary { total } } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } pageInfo { hasNextPage endCursor }`;
+    const fullFields = FOCUSED_FIELDS;
     async function pages(name, filter) {
       const items = [];
       let after = null;
       for (let page = 0; page < 100; page++) {
-        const data = await read(name, () =>
-          gql(
-            env,
-            `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter) { ${fullFields} } } } }`,
-            { after, filter },
-          ),
-        );
-        const c = data?.organization?.projectV2?.items;
+        let c;
+        if (
+          name === "BoardRowsFull" &&
+          page === 0 &&
+          filter === DEFAULT_VIEW_FILTER &&
+          meta.initialRows
+        ) {
+          c = meta.initialRows;
+          timings.push('rows_prefetched;desc="bootstrap"');
+        } else {
+          const data = await read(name, () =>
+            gql(
+              env,
+              `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter) { ${fullFields} } } } }`,
+              { after, filter },
+            ),
+          );
+          c = data?.organization?.projectV2?.items;
+        }
         if (!c) throw new ApiError(502, "project_items_unavailable");
         for (const item of c.nodes) {
           if (item?.isArchived || !own(item?.content)) continue;

@@ -251,8 +251,9 @@ test("auto refresh pauses in editor and picker, resumes on visible interval", as
   await page.clock.fastForward(46000);
   expect(s.reads()).toBe(picking);
   await page.locator("#pbi-cancel").click();
-  await page.clock.fastForward(46000);
   await expect.poll(s.reads).toBe(picking + 1);
+  await page.clock.fastForward(46000);
+  await expect.poll(s.reads).toBe(picking + 2);
 });
 test("same-column drag preserves raw status and cross-column writes Doing canonical status", async ({
   page,
@@ -472,7 +473,7 @@ test("right 80% viewer opens and closes immediately during background read, then
   await expect(page.locator("#detail-body-view")).toHaveText(
     "再取得後の正本本文",
   );
-  await expect(page.locator("#detail-sync")).toBeHidden();
+  await expect(page.locator("#detail-sync")).toContainText("変更を反映");
   await page.locator("#edit-issue").click();
   await page.locator("#detail-body").fill("未保存");
   page.once("dialog", (d) => d.dismiss());
@@ -607,4 +608,250 @@ test("hanging initial read reaches timeout reason and can retry without a reload
   await page.locator("#retry-load").click();
   await expect(page.locator(".task")).toHaveCount(96);
   await expect(page.locator("#empty")).toBeHidden();
+});
+
+test("polling applies upstream fields, a new child and closed PBI without navigation", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const s = await setup(page);
+  let navigations = 0;
+  page.on("framenavigated", () => navigations++);
+  const target = s.board.tasks[0];
+  await page.locator(`[data-open="${target.id}"]`).click();
+  Object.assign(target, {
+    title: "外部で更新されたタイトル",
+    body: "外部で更新された本文",
+    status: "レビュー中",
+    assignees: [
+      {
+        login: "new-user",
+        name: "新しい担当者",
+        avatarUrl: "https://avatars.githubusercontent.com/u/2",
+      },
+    ],
+  });
+  s.board.assigneeOptions = [...s.board.assigneeOptions, target.assignees[0]];
+  s.board.tasks.unshift({
+    ...s.board.tasks[1],
+    id: "new-child",
+    nodeId: "new-child",
+    number: 9999,
+    title: "新しく追加された正式な子Issue",
+  });
+  await page.clock.fastForward(46000);
+  await expect(page.locator("#detail-heading")).toHaveText(target.title);
+  await expect(page.locator("#detail-body-view")).toHaveText(target.body);
+  await expect(page.locator("#detail-status")).toHaveValue("レビュー中");
+  await expect(page.locator("#detail-assignee")).toHaveValues(["new-user"]);
+  await expect(page.locator("#detail-sync")).toContainText("変更を反映");
+  await expect(page.locator('[data-task="new-child"]')).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.clock.fastForward(200);
+  await page.locator("#operations").click();
+  await page.clock.fastForward(300);
+  await page.locator("#assignee-filter").selectOption("new-user");
+  await expect(page.locator(".task")).toHaveCount(1);
+  await page.locator("#assignee-filter").selectOption("");
+  await page.locator("#operations").click();
+  await page.clock.fastForward(300);
+  await page.locator('[data-pbi="p0"]').first().click();
+  s.board.lanes = s.board.lanes.filter((i) => i.id !== "p0");
+  s.board.tasks = s.board.tasks.filter((i) => i.lane !== "p0");
+  await page.clock.fastForward(46000);
+  await expect(page.locator('[data-pbi="p0"]')).toHaveCount(0);
+  await expect(page.locator("#details")).toBeVisible();
+  await expect(page.locator("#detail-sync")).toContainText(
+    "表示範囲から外れました",
+  );
+  await expect(page.locator("#edit-issue")).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page.clock.fastForward(200);
+  await expect(page.locator("#operations")).toBeFocused();
+  expect(navigations).toBe(0);
+  expect(s.posts()).toBe(0);
+});
+
+test("open overflow list reconciles title, membership and removed PBI on polling", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const s = await setup(page);
+  await page.locator(".overflow-button").first().click();
+  await expect(page.locator("#issue-list .list-item")).toHaveCount(5);
+  s.board.tasks.find((t) => t.id === "t0-0-0")!.status = "完了";
+  s.board.tasks.find((t) => t.id === "t0-0-1")!.title = "一覧も自動更新";
+  s.board.tasks = s.board.tasks.filter((t) => t.id !== "t0-0-2");
+  await page.clock.fastForward(46000);
+  await expect(page.locator("#issue-list .list-item")).toHaveCount(3);
+  await expect(page.locator("#list-heading")).toContainText("3 件");
+  await expect(page.locator('[data-list-task="t0-0-1"]')).toContainText(
+    "一覧も自動更新",
+  );
+  await expect(page.locator('[data-list-task="t0-0-0"]')).toHaveCount(0);
+  s.board.lanes = s.board.lanes.filter((i) => i.id !== "p0");
+  s.board.tasks = s.board.tasks.filter((i) => i.lane !== "p0");
+  await page.clock.fastForward(46000);
+  await expect(page.locator("#list-heading")).toContainText(
+    "表示範囲から外れました",
+  );
+  await expect(page.locator("#issue-list .list-item")).toHaveCount(0);
+  expect(s.posts()).toBe(0);
+});
+
+for (const kind of ["見送り", "未分類"])
+  test(`${kind} list stays current while open`, async ({ page }) => {
+    await page.clock.install();
+    const s = await setup(page);
+    const target = s.board.tasks[0];
+    target.status = kind === "見送り" ? "見送り" : "未知";
+    await page.clock.fastForward(46000);
+    await page.locator("#operations").click();
+    await page
+      .locator(kind === "見送り" ? "#show-deferred" : "#show-unmapped")
+      .click();
+    await expect(page.locator("#issue-list .list-item")).toHaveCount(1);
+    target.title = "一覧の外部変更";
+    await page.clock.fastForward(46000);
+    await expect(page.locator("#issue-list")).toContainText("一覧の外部変更");
+    target.status = "作業中";
+    await page.clock.fastForward(46000);
+    await expect(page.locator("#issue-list .list-item")).toHaveCount(0);
+    expect(s.posts()).toBe(0);
+  });
+
+test("dirty editor preserves draft and resumes queued remote sync immediately on cancel", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const s = await setup(page);
+  await page.locator(".task-title").first().click();
+  await page.locator("#edit-issue").click();
+  await page.locator("#detail-title").fill("保持すべき未保存の入力");
+  s.board.tasks[0].title = "GitHubで別の人が変更";
+  s.board.tasks[0].body = "GitHubの本文変更";
+  const reads = s.reads();
+  await page.clock.fastForward(46000);
+  expect(s.reads()).toBe(reads);
+  await expect(page.locator("#detail-title")).toHaveValue(
+    "保持すべき未保存の入力",
+  );
+  await expect(page.locator("#detail-sync")).toContainText(
+    "自動同期を一時停止",
+  );
+  page.once("dialog", (d) => d.accept());
+  await page.locator("#cancel-edit").click();
+  await expect.poll(s.reads).toBe(reads + 1);
+  await expect(page.locator("#detail-heading")).toHaveText(
+    "GitHubで別の人が変更",
+  );
+  await expect(page.locator("#detail-body-view")).toHaveText(
+    "GitHubの本文変更",
+  );
+  expect(s.posts()).toBe(0);
+});
+
+test("online recovers initial failure and later offline updates without reload or request storm", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const board = snapshot();
+  let reads = 0,
+    fail = true;
+  await page.route("**/api/health", (r) =>
+    r.fulfill({ json: { configured: true } }),
+  );
+  await page.route("**/api/board", (r) => {
+    reads++;
+    return r.fulfill(
+      fail
+        ? { status: 502, json: { error: "github_request_failed" } }
+        : { json: board },
+    );
+  });
+  await page.goto("/");
+  await expect(page.locator("#retry-load")).toBeVisible();
+  fail = false;
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.locator(".task")).toHaveCount(96);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      get: () => false,
+    });
+    window.dispatchEvent(new Event("offline"));
+  });
+  const before = reads;
+  board.tasks[0].title = "回線復帰で反映";
+  await page.clock.fastForward(46000);
+  expect(reads).toBe(before);
+  await expect(page.locator("#connection")).toContainText("オフライン");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      get: () => true,
+    });
+    for (let i = 0; i < 5; i++) {
+      window.dispatchEvent(new Event("online"));
+      window.dispatchEvent(new Event("focus"));
+    }
+  });
+  await expect(page.locator('[data-open="t0-0-0"]')).toHaveText(
+    "回線復帰で反映",
+  );
+  await page.clock.fastForward(6000);
+  expect(reads - before).toBeLessThanOrEqual(2);
+  await expect(page.locator("#sync-warning")).toBeHidden();
+});
+
+test("slow poll stays serialized and queued wakeup cannot overwrite newer data", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const s = await setup(page);
+  let reads = 0,
+    release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route("**/api/board", async (r) => {
+    reads++;
+    const data = JSON.parse(JSON.stringify(s.board));
+    if (reads === 1) await gate;
+    await r.fulfill({ json: data });
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => reads).toBe(1);
+  s.board.tasks[0].title = "後の最新状態";
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("online"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  expect(reads).toBe(1);
+  release();
+  await expect(page.locator("#refresh")).toBeEnabled();
+  await page.clock.fastForward(6000);
+  await expect.poll(() => reads).toBe(2);
+  await expect(page.locator('[data-open="t0-0-0"]')).toHaveText("後の最新状態");
+  expect(s.posts()).toBe(0);
+});
+
+test("resize during interrupted drag releases the auto refresh pause", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const s = await setup(page);
+  const box = await page.locator(".task").first().boundingBox();
+  await page.mouse.move(box!.x + 2, box!.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + 24, box!.y + 24, { steps: 4 });
+  await expect(page.locator(".task.dragging")).toHaveCount(1);
+  const before = s.reads();
+  await page.clock.fastForward(46000);
+  expect(s.reads()).toBe(before);
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ ...viewport, height: viewport.height - 10 });
+  await expect.poll(s.reads).toBe(before + 1);
+  await page.mouse.up();
+  await page.clock.fastForward(46000);
+  await expect.poll(s.reads).toBe(before + 2);
+  expect(s.posts()).toBe(0);
 });

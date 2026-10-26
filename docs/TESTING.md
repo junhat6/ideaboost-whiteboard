@@ -48,3 +48,11 @@ GitHub transportはmock。ページング、正式parent/descendant、外部親P
 27件GitHub mock + 16件auth/coordinator/public = 43件、24シナリオ×2サイズ = 48件。スケルトン6行とページ高さ、7秒の遅延表示、実AbortSignalの期限切れ（試験で期限を短縮）、失敗後のresize/ツールバー再試行、背景同期の失敗通知と再試行を追加。右80%の座標と背景クリックを確認。
 
 PBI起点と全走査の同値性、子・孫の各ページ、元のProject順、対象外/archived/別repositoryの除外、assignee切り捨て拒否を検証。公開→非公開の遷移拒否は両取得戦略で通過。実測値と本番で実施した範囲はPERFORMANCE.md・DEPLOYMENT.md。
+
+## 自動同期と初回問い合わせの追加検証
+
+29件GitHub mock + 16件auth/coordinator/public = 45件、32シナリオ×2サイズ = 64件が成功。既定view先読みの利用・続きcursor・実filter不一致の破棄・mutation先読み無効を確認。
+
+45秒タイマーでtitle/body/assignees/Status、新しい正式子Issue、閉じたPBIの表示範囲変更を反映する試験を追加。担当者filter、overflow/見送り/未分類一覧、開いたreadonly詳細も追従する。初回失敗からonline復帰、複数wake-upの集約、遅いGETの直列化、編集保持とキャンセル直後の保留同期再開、resizeで中断したdragからの再開を確認。テストは制御したmockの上流変更であり、実Issueを書き換えた伝播試験ではない。
+
+自動取得は表示中45秒ごととfocus/online復帰。連続wake-upは最短5秒間隔にまとめる。編集・保存・drag・PBI選択中は一時停止し、保留された確認を操作終了後に再開する。通常の反映待ちは最大約45秒＋GitHub取得時間（上流検索反映遅延は別）。オフライン・非表示・編集中はこの目安を保証しない。Webhook即時通知ではない。

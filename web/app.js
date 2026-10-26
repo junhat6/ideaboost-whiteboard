@@ -57,7 +57,13 @@ let state = clone(initial),
   toastTimer,
   editMode = false,
   lastReceivedAt = null,
-  lastAutoAttempt = 0;
+  lastAutoAttempt = 0,
+  autoRefreshRequested = false,
+  autoTimer = null,
+  bootstrapAttempt = false,
+  detailUpdated = false,
+  detailUnavailable = false,
+  listContext = null;
 function valid(s) {
   return (
     s &&
@@ -186,6 +192,7 @@ function closePicker() {
   pickerLanes = [];
   $("#pbi-picker").close();
   $("#choose-pbis").focus();
+  resumeAutoRefresh();
 }
 function togglePbi(id, checked) {
   if (
@@ -435,11 +442,38 @@ function beginConnection() {
   }, 7000);
   render();
 }
+function syncAssigneeFilter() {
+  const select = $("#assignee-filter"),
+    chosen = select.value;
+  const users = new Map(
+    [
+      ...(state.assigneeOptions || []),
+      ...[...state.lanes, ...state.tasks].flatMap((i) => i.assignees || []),
+    ].map((a) => [a.login, a]),
+  );
+  if (chosen && !users.has(chosen))
+    users.set(chosen, { login: chosen, name: chosen + "（現在の候補外）" });
+  const html =
+    '<option value="">担当者：全員</option>' +
+    [...users.values()]
+      .map(
+        (a) =>
+          `<option value="${esc(a.login)}">${esc(a.name || a.login)}</option>`,
+      )
+      .join("");
+  if (select.innerHTML !== html) {
+    select.innerHTML = html;
+    select.value = chosen;
+  }
+}
 function render() {
+  if (dragged) clearDrag();
   if (!adapter) {
     renderInitial();
     return;
   }
+  syncAssigneeFilter();
+  if ($("#list-dialog").open) renderIssueList();
   $("#sync-warning").hidden = !stale || !lastReadError || loading;
   $("#sync-warning-message").textContent = lastReadError
     ? `同期できませんでした。前回の表示を保持しています。${lastReadError}`
@@ -500,12 +534,17 @@ function render() {
       ? loading
         ? "GitHubと同期中…"
         : "接続先に保存中…"
-      : stale
-        ? "接続エラー · 表示は最新未確認"
-        : state.scope?.filterApplied === false || state.filterApplied === false
-          ? "GitHub接続 · ビュー絞り込み未適用"
-          : adapter.label || "GitHub接続済み"
+      : editMode
+        ? "編集中 · 自動同期は一時停止"
+        : stale
+          ? "接続エラー · 表示は最新未確認"
+          : state.scope?.filterApplied === false ||
+              state.filterApplied === false
+            ? "GitHub接続 · ビュー絞り込み未適用"
+            : adapter.label || "GitHub接続済み"
     : "GitHub 未接続";
+  if (!navigator.onLine)
+    $("#connection").textContent = "オフライン · 表示は最新未確認";
   if (adapter) {
     const fetched = state.fetchedAt || lastReceivedAt;
     if (fetched && !Number.isNaN(Date.parse(fetched))) {
@@ -631,6 +670,7 @@ async function updateIssue(kind, id, patch, baseline = null) {
   } finally {
     pending = false;
     render();
+    resumeAutoRefresh();
   }
 }
 function issueFrom(snapshot, kind, id) {
@@ -654,6 +694,9 @@ function setEdit(value) {
   $("#detail-fields").classList.toggle("read-only", !value);
   $("#detail-body").hidden = !value;
   $("#detail-body-view").hidden = value;
+  if (value) detailUpdated = false;
+  updateDetailSync();
+  if (!value) resumeAutoRefresh();
 }
 function fillDetail() {
   const t = issue(editing.kind, editing.id);
@@ -715,14 +758,48 @@ function fillDetail() {
 }
 function updateDetailSync() {
   const indicator = $("#detail-sync");
-  indicator.hidden = !loading && !stale;
+  indicator.hidden =
+    !loading && !stale && !editMode && !detailUpdated && !detailUnavailable;
   indicator.textContent = loading
     ? "最新を確認中です。取得済みのIssueを表示しています。"
-    : "最新の確認に失敗しました。前回取得した内容です。「最新を取得」で再確認してください。";
+    : editMode
+      ? "編集中は自動同期を一時停止しています。入力は保持されます。保存・キャンセル後に最新を確認します。"
+      : detailUnavailable
+        ? "このIssueは現在の表示範囲から外れました。表示は前回取得した内容です。元のIssueを確認してください。"
+        : stale
+          ? "最新の確認に失敗しました。前回取得した内容です。「最新を取得」で再確認してください。"
+          : "GitHub側の変更を反映しました。";
+}
+function detailVersion(i) {
+  return (
+    i &&
+    JSON.stringify([
+      i.revision,
+      i.fingerprint,
+      i.title,
+      i.body,
+      i.status,
+      i.assignees,
+    ])
+  );
+}
+function reconcileDetail(previous) {
+  if (!$("#details").open || editMode) return;
+  const current = issue(editing.kind, editing.id);
+  detailUnavailable = !current;
+  if (current) {
+    detailUpdated =
+      detailUpdated || detailVersion(previous) !== detailVersion(current);
+    fillDetail();
+  }
+  $("#edit-issue").disabled = pending || detailUnavailable;
+  updateDetailSync();
 }
 let returnFocusSelector = null;
 function openIssue(kind, id) {
   if ((pending && !loading) || !adapter || !issue(kind, id)) return;
+  detailUpdated = false;
+  detailUnavailable = false;
   editing = { kind, id };
   returnFocus = document.activeElement;
   returnFocusSelector = focusSelector(returnFocus);
@@ -741,14 +818,29 @@ function closeDetail() {
     d.close();
     setEdit(false);
     d.classList.remove("closing");
-    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
-    else if (returnFocusSelector)
-      document
-        .querySelector(returnFocusSelector)
-        ?.focus({ preventScroll: true });
+    const target = returnFocus?.isConnected
+      ? returnFocus
+      : returnFocusSelector && document.querySelector(returnFocusSelector);
+    (target || $("#operations")).focus({ preventScroll: true });
   }, 160);
 }
 function openList(lane, column) {
+  listContext = { lane, column };
+  renderIssueList();
+  $("#list-dialog").showModal();
+}
+function renderIssueList() {
+  if (!listContext) return;
+  const { lane, column } = listContext;
+  const focused = document.activeElement?.dataset?.listTask;
+  const root = state.lanes.find((l) => l.id === lane);
+  if (!["見送り", "未分類"].includes(column) && !root) {
+    $("#list-heading").textContent = "対象のPBIは表示範囲から外れました";
+    $("#issue-list").innerHTML =
+      "<p>最新のボードで対象PBIを選び直してください。</p>";
+    if (focused) $("#list-dialog .close-dialog").focus();
+    return;
+  }
   const list = matching().filter((t) =>
     column === "未分類"
       ? (!statusColumn(t.status) ||
@@ -760,7 +852,7 @@ function openList(lane, column) {
   );
   $("#list-heading").textContent = ["見送り", "未分類"].includes(column)
     ? `${column} · ${list.length} 件`
-    : `${state.lanes.find((l) => l.id === lane).title} / ${column} · ${list.length} 件`;
+    : `${root.title} / ${column} · ${list.length} 件`;
   $("#issue-list").innerHTML =
     list
       .map(
@@ -768,7 +860,11 @@ function openList(lane, column) {
           `<button class="list-item" data-list-task="${esc(t.id)}"><strong>${esc(t.title)}</strong><span>${esc(person(t))} · ${esc(t.status || "Status未設定")}</span></button>`,
       )
       .join("") || "<p>該当するIssueはありません。</p>";
-  $("#list-dialog").showModal();
+  if (focused)
+    (
+      document.querySelector(`[data-list-task="${CSS.escape(focused)}"]`) ||
+      $("#list-dialog .close-dialog")
+    ).focus();
 }
 $("#board").addEventListener("click", (e) => {
   dismissControls();
@@ -817,6 +913,7 @@ $("#board").addEventListener("dragover", (e) => {
 });
 function clearDrag() {
   dragged = null;
+  resumeAutoRefresh();
   document
     .querySelectorAll(".drag-over,.dragging")
     .forEach((c) => c.classList.remove("drag-over", "dragging"));
@@ -834,7 +931,7 @@ $("#board").addEventListener("drop", (e) => {
 });
 $("#board").addEventListener("dragend", clearDrag);
 $("#edit-issue").onclick = () => {
-  if (pending) return;
+  if (pending || detailUnavailable) return;
   fillDetail();
   setEdit(true);
   $("#detail-title").focus();
@@ -931,6 +1028,7 @@ async function refreshBoard(options, { silent = false } = {}) {
     announce("編集中の内容を保存またはキャンセルしてください。");
     return false;
   }
+  autoRefreshRequested = false;
   pending = true;
   loading = true;
   $("#refresh").disabled = true;
@@ -941,14 +1039,12 @@ async function refreshBoard(options, { silent = false } = {}) {
   try {
     const next = await adapter.load(options);
     if (!valid(next)) throw new Error("無効なIssueデータです");
+    const previous = editing && issue(editing.kind, editing.id);
     state = clone(next);
     if (options && Object.hasOwn(options, "milestone"))
       selectedMilestone = String(options.milestone ?? "");
     markFresh();
-    if ($("#details").open) {
-      if (issue(editing.kind, editing.id)) fillDetail();
-      else $("#details").close();
-    }
+    reconcileDetail(previous);
     if (!silent) announce("最新のデータを取得しました。");
     return true;
   } catch (e) {
@@ -961,9 +1057,10 @@ async function refreshBoard(options, { silent = false } = {}) {
     loading = false;
     $("#refresh").disabled = false;
     $("#milestone-filter").disabled = false;
-    $("#edit-issue").disabled = false;
+    $("#edit-issue").disabled = detailUnavailable;
     updateDetailSync();
     render();
+    resumeAutoRefresh();
   }
 }
 $("#refresh").onclick = () =>
@@ -1141,14 +1238,6 @@ window.Whiteboard = {
     page = 0;
     if ($("#details").open) $("#details").close();
     $("#refresh").hidden = false;
-    $("#assignee-filter").innerHTML =
-      '<option value="">担当者：全員</option>' +
-      (snapshot.assigneeOptions || [])
-        .map(
-          (a) =>
-            `<option value="${esc(a.login)}">${esc(a.name || a.login)}</option>`,
-        )
-        .join("");
     render();
   },
   applySnapshot(snapshot) {
@@ -1170,29 +1259,66 @@ $("#retry-load").onclick = () =>
   window.Whiteboard.connectApi().catch((e) =>
     window.Whiteboard.setConnectionError("接続できません：" + e.message),
   );
-// Read-only reconciliation of external GitHub edits; never replace an open draft.
-async function autoRefresh() {
+// Coalesce wake-ups, not mutations. At most one UI read is active.
+function resumeAutoRefresh() {
+  if (autoRefreshRequested) queueMicrotask(drainAutoRefresh);
+}
+function autoRefresh() {
+  autoRefreshRequested = true;
+  return drainAutoRefresh();
+}
+async function drainAutoRefresh() {
+  if (!autoRefreshRequested) return false;
+  if (!adapter && !connectionError) {
+    autoRefreshRequested = false;
+    return false;
+  }
   if (
-    !adapter ||
     document.visibilityState === "hidden" ||
+    !navigator.onLine ||
     pending ||
     loading ||
     editMode ||
     dragged ||
-    pickerDraft
-  )
+    pickerDraft ||
+    bootstrapAttempt
+  ) {
+    updateDetailSync();
     return false;
-  const now = Date.now();
-  if (now - lastAutoAttempt < 5000) return false;
-  lastAutoAttempt = now;
-  return refreshBoard(undefined, { silent: true });
+  }
+  const delay = 5000 - (Date.now() - lastAutoAttempt);
+  if (delay > 0) {
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(drainAutoRefresh, delay);
+    return false;
+  }
+  autoRefreshRequested = false;
+  lastAutoAttempt = Date.now();
+  if (adapter) return refreshBoard(undefined, { silent: true });
+  bootstrapAttempt = true;
+  try {
+    return await window.Whiteboard.connectApi();
+  } catch {
+    return false;
+  } finally {
+    bootstrapAttempt = false;
+    resumeAutoRefresh();
+  }
 }
 new ResizeObserver(() => render()).observe($("#board-scroll"));
 render();
 if (document.fonts) document.fonts.ready.then(() => fitCardTitles());
-
 setInterval(autoRefresh, 45000);
 window.addEventListener("focus", autoRefresh);
+window.addEventListener("online", autoRefresh);
+window.addEventListener("offline", () => {
+  if (adapter) {
+    stale = true;
+    lastReadError = "オフラインです。接続が戻ると自動的に再確認します。";
+    updateDetailSync();
+    render();
+  }
+});
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") autoRefresh();
 });

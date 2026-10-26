@@ -83,8 +83,15 @@
     if (connecting) return connecting;
     connecting = (async () => {
       window.Whiteboard.beginConnection();
-      const health = await request("/api/health");
-      if (!health.configured) throw new Error(messages.github_not_configured);
+      const [health, firstBoard] = await Promise.all([
+        request("/api/health").then((health) => {
+          if (!health.configured)
+            throw new Error(messages.github_not_configured);
+          return health;
+        }),
+        request("/api/board"),
+      ]);
+      let initialBoard = firstBoard;
       let latest = null,
         activeMilestone = "";
       await window.Whiteboard.setAdapter({
@@ -100,10 +107,13 @@
               throw new Error("マイルストーンを確認してください。");
             requestedMilestone = value;
           }
-          const loaded = await request(
-            "/api/board" +
-              (requestedMilestone ? "?milestone=" + requestedMilestone : ""),
-          );
+          const loaded =
+            initialBoard ||
+            (await request(
+              "/api/board" +
+                (requestedMilestone ? "?milestone=" + requestedMilestone : ""),
+            ));
+          initialBoard = null;
           activeMilestone = requestedMilestone;
           latest = loaded;
           return latest;
