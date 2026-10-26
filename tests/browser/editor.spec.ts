@@ -198,3 +198,61 @@ test("CRLF original stays clean and title-only save does not rewrite Markdown", 
   await expect.poll(s.posts).toBe(1);
   expect(s.board.tasks[0].body).toBe(original);
 });
+test("accepted close cancels preflight immediately even when GET returns inside the close animation", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  await open(page);
+  let release;
+  let started = false;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route("**/api/board", async (route) => {
+    started = true;
+    await gate;
+    await route.fulfill({ json: s.board });
+  });
+  await page.locator(".cm-content").fill("保存を取り消す");
+  await page.locator("#save-issue").click();
+  await expect.poll(() => started).toBe(true);
+  page.once("dialog", async (d) => {
+    await d.accept();
+    release();
+  });
+  await page.locator("#close-detail").click();
+  await page.locator("#details").waitFor({ state: "hidden" });
+  expect(s.posts()).toBe(0);
+  await open(page);
+  await page.locator(".cm-content").fill("次の編集は正常");
+  await page.locator("#save-issue").click();
+  await expect.poll(s.posts).toBe(1);
+  await expect(page.locator("#detail-sync")).toContainText("保存しました");
+});
+test("late editor bundle never replaces a focused native draft or its caret and undo", async ({
+  page,
+}) => {
+  let release;
+  const gate = new Promise<void>((r) => (release = r));
+  let arrived = false;
+  await page.route("**/editor-bundle.js", async (route) => {
+    await gate;
+    await route.continue();
+    arrived = true;
+  });
+  const s = await setup(page);
+  await page.locator(".task-title").first().click();
+  const input = page.locator("#detail-body");
+  await expect(input).toBeVisible();
+  await input.fill("日本語の下書き");
+  await input.evaluate((e: HTMLTextAreaElement) => e.setSelectionRange(3, 3));
+  release();
+  await expect.poll(() => arrived).toBe(true);
+  await expect(page.locator("#markdown-preview")).toBeEnabled();
+  await expect(input).toBeVisible();
+  await expect(page.locator(".cm-content")).toHaveCount(0);
+  await page.waitForTimeout(600);
+  await page.keyboard.insertText("追加");
+  await expect(input).toHaveValue("日本語追加の下書き");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(input).toHaveValue("日本語の下書き");
+  expect(s.posts()).toBe(0);
+});

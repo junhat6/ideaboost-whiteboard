@@ -17,7 +17,9 @@
     "design:lint": "designmd lint DESIGN.md",
     "deploy": "wrangler deploy",
     "build:editor": "esbuild editor/index.js --bundle --format=esm --minify --outfile=web/editor-bundle.js --legal-comments=inline",
-    "pretest:e2e": "npm run build:editor"
+    "pretest:e2e": "npm run build:editor",
+    "predev": "npm run build:editor",
+    "predeploy": "npm run build:editor"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

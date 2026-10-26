@@ -4,7 +4,7 @@
 
 ## 原文と入力
 
-CodeMirror 6をローカルbundleとして詳細を開いた時だけ読み込む。GFMの構文装飾、履歴、選択、IMEはエンジンへ委ね、独自contentEditableを実装しない。正本はMarkdown文字列。HTMLへの変換結果を保存しない。単一ペインのプレビューはmarked+DOMPurifyのallowlistとURL検証を通し、画像・スクリプト・任意HTMLを実行しない。bundle失敗時はtextareaで入力を継続する。外部CDNは不要。
+CodeMirror 6をローカルbundleとして詳細を開いた時だけ読み込む。GFMの構文装飾、履歴、選択、IMEはエンジンへ委ね、独自contentEditableを実装しない。正本はMarkdown文字列。HTMLへの変換結果を保存しない。単一ペインのプレビューはmarked+DOMPurifyのallowlistとURL検証を通し、画像・スクリプト・任意HTMLを実行しない。bundle失敗時はtextareaで入力を継続する。到着前にtextareaへフォーカス/入力した場合も途中置換せず、ネイティブのカーソルとUndoを守る。そのIssueの下書きはそのまま編集・プレビューできる。外部CDNは不要。
 
 タイトルリンクとタイトル入力は別要素。タイトル変更時のクリックで外部へ移動しない。本文・担当者・原語Statusを編集可能にし、Close/Task/Parentの帯は置かない。
 

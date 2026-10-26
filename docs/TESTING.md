@@ -67,4 +67,6 @@ PBI起点と全走査の同値性、子・孫の各ページ、元のProject順�
 
 ## ライブIssue編集（ADR005）
 
-55 backend + 82 browser（41シナリオ×1920/2560）。即時Markdown入力、原文とCRLF保持、Undo、安全なGFMプレビュー、タイトルリンク、背景GET中の入力、別項目マージ、同本文の競合選択、二重保存防止、合成IMEイベント、永続未確定fence、保存成功後GET失敗、scope外下書き保持を検証。OS実機IMEは未検証。本番は読み取り・編集取消のみで実Issue保存は行わない。
+55 backend + 86 browser（43シナリオ×1920/2560）。即時Markdown入力、原文とCRLF保持、Undo、安全なGFMプレビュー、タイトルリンク、背景GET中の入力、別項目マージ、同本文の競合選択、二重保存防止、合成IMEイベント、永続未確定fence、保存成功後GET失敗、scope外下書き保持を検証。OS実機IMEは未検証。本番は読み取り・編集取消のみで実Issue保存は行わない。
+
+閉じる承認直後の保存前GET完了でPOSTしないこと、遅いbundle到着時にネイティブ入力のカーソル/Undoを保持することを追加。dev/deployはprehookでeditor bundleを必ず生成する。

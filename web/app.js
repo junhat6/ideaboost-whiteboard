@@ -818,14 +818,16 @@ function setPreview(value) {
   $("#detail-body-view").hidden = !value;
   $("#markdown-write").setAttribute("aria-pressed", String(!value));
   $("#markdown-preview").setAttribute("aria-pressed", String(value));
-  $(".format-actions").hidden = value;
+  $(".format-actions").hidden = value || !composer;
   renderPreview();
 }
 async function ensureComposer() {
   try {
     composerModule ||= await (composerPromise ||= import("./editor-bundle.js"));
+    $("#markdown-preview").disabled = false;
     if (!$("#details").open || composer || composing) return;
-    const focused = document.activeElement === $("#detail-body");
+    // Do not replace a native editor while it owns caret/history or a draft.
+    if (document.activeElement === $("#detail-body") || editMode) return;
     composer = composerModule.createEditor(
       $("#markdown-editor"),
       editorBody,
@@ -839,7 +841,6 @@ async function ensureComposer() {
     );
     $("#markdown-preview").disabled = false;
     setPreview(previewMode);
-    if (focused) composer.focus();
   } catch {
     composerPromise = null;
     $("#markdown-preview").disabled = true;
@@ -1064,10 +1065,11 @@ function closeDetail() {
   if (composing || editorPosting) return;
   if (editMode && !confirm("未保存の変更を破棄して閉じますか？")) return;
   const d = $("#details");
+  if (d.classList.contains("closing")) return;
+  editorSession++; // Accepted close cancels a pending preflight before animation.
   d.classList.add("closing");
   setTimeout(() => {
     d.close();
-    editorSession++;
     editMode = false;
     editorBusy = false;
     editorOutcome = null;
@@ -1211,6 +1213,7 @@ for (const id of ["#detail-title", "#detail-body"]) {
     ensureComposer();
   });
 }
+$("#detail-body").addEventListener("blur", () => ensureComposer());
 $("#detail-body").addEventListener("input", () => {
   editorBody = $("#detail-body").value;
 });
