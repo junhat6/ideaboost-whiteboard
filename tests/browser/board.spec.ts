@@ -54,7 +54,7 @@ function snapshot() {
 }
 async function setup(
   page: Page,
-  { failure = false, slow = false, abort = false } = {},
+  { failure = false, slow = false, abort = false, conflict = false } = {},
 ) {
   const board = snapshot();
   let posts = 0;
@@ -68,6 +68,11 @@ async function setup(
       return route.fulfill({ json: board });
     }
     posts++;
+    if (conflict)
+      return route.fulfill({
+        status: 409,
+        json: { ok: false, error: "conflict" },
+      });
     if (abort) return route.abort("connectionreset");
     if (slow) await new Promise((r) => setTimeout(r, 500));
     if (failure)
@@ -319,3 +324,41 @@ test("initial stationary top pointer does not open toolbar; deliberate edge moti
   await page.locator(".pbi-title").nth(3).click();
   await expect(page.locator("#chrome")).not.toHaveClass(/controls-open/);
 });
+
+for (const mode of ["partial", "network", "conflict"]) {
+  test(`recovery from ${mode} permits an explicit new edit and save`, async ({
+    page,
+  }) => {
+    const state = await setup(page, {
+      failure: mode === "partial",
+      abort: mode === "network",
+      conflict: mode === "conflict",
+    });
+    await page.locator(".task-title").first().click();
+    await page.locator("#edit-issue").click();
+    await page.locator("#detail-title").fill("失敗する変更");
+    await page.locator("#save-issue").click();
+    await expect(page.locator("#detail-error")).toBeVisible();
+    await expect(page.locator("#save-issue")).toBeDisabled();
+    expect(state.posts()).toBe(1);
+    page.once("dialog", (d) => d.accept());
+    await page.locator("#recover-edit").click();
+    await expect(page.locator("#detail-error")).not.toBeVisible();
+    expect(state.posts()).toBe(1);
+    await page.route("**/api/issues/*", async (route) => {
+      const issue = state.board.tasks[0];
+      Object.assign(issue, route.request().postDataJSON(), {
+        revision: "2026-10-26T00:00:02Z",
+      });
+      await route.fulfill({ json: { ok: true, issue } });
+    });
+    await page.locator("#edit-issue").click();
+    await expect(page.locator("#save-issue")).toBeEnabled();
+    await page.locator("#detail-title").fill("再取得後に明示して保存");
+    await page.locator("#save-issue").click();
+    await expect(page.locator("#detail-heading")).toHaveText(
+      "再取得後に明示して保存",
+    );
+    await expect(page.locator("#detail-error")).not.toBeVisible();
+  });
+}

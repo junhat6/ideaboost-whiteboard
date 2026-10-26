@@ -577,7 +577,8 @@ async function move(id, column) {
 }
 function setEdit(value) {
   editMode = value;
-  $("#detail-fields").disabled = !value;
+  $("#save-issue").disabled = !value || pending || saveBlocked;
+  $("#detail-fields").disabled = !value || pending;
   $("#edit-issue").hidden = value;
   $("#save-issue").hidden = !value;
   $("#cancel-edit").hidden = !value;

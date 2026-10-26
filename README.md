@@ -2,7 +2,7 @@
 
 IdeaBoost チーム専用の GitHub Issue / Projects ホワイトボード。ライトモードを中心に、6 PBI × 4状態列の俯瞰と Issue の編集を提供します。
 
-**現在の段階:** ローカル実装・自動試験済み。本番 Cloudflare の認証、Access allowlist、GitHub App 本番用追加鍵の登録は未設定。未設定のWorkerは503で拒否します。利用可能な本番サービスと誤認しないでください。
+**現在の段階:** ローカル実装・自動試験済み。本番 Cloudflare は未配信。一般公開への方針変更を準備中で、公開書き込みの確認は未完了です。Access新規設定は停止。本番用追加鍵の発行・Cloudflare保存は承認済みですが未実行。未設定のWorkerは503で拒否します。利用可能な本番サービスと誤認しないでください。
 
 ## 開発
 
@@ -22,6 +22,7 @@ npm run test:e2e
 - [DESIGN.md](DESIGN.md): Google alpha形式のデザイン仕様。3サービスの資料調査を経て作成。
 - [AGENTS.md](AGENTS.md): 開発・安全・検証規約。
 - `web/`: 日本語ボード、ドラッグ、PBI選択、エディター、45秒更新。
+- `worker/coordinator.ts`: Issue単位の共有直列化と永続request記録。
 - `worker/`: Access JWTとメールallowlistの検証、全ルート保護、セキュリティヘッダー。
 - `server/github.mjs`: GitHub App認証、ページング、正式な親子関係、競合検査、変更とreadback。
 - [docs/adr](docs/adr): アーキテクチャと競合の決定記録。
@@ -36,7 +37,7 @@ GitHubが正本。localStorageに保存するのはPBI選択とテーマだけ�
 
 Accessの署名、issuer、audience、iat/exp、subject、メールallowlistを毎リクエスト検証します。平文の認証済みメールヘッダーは信用しません。POSTは同一originとJSON、入力フィールド・サイズ制限を検証。App tokenと秘密鍵はサーバーだけです。
 
-保存は変更フィールドだけを送信。updatedAt、内容のSHA-256、raw Statusを最新GitHubデータと比較します。IssueとProjectの変更は原子的ではなく、外部更新との最後の競合窓が残ります。部分反映・結果不明はエディターに残し、再読込まで追加保存を停止します。自動再送はしません。詳細はADR 002。
+保存はIssue単位のDurable Objectを通して直列化し、変更フィールドだけを送信。updatedAt、内容のSHA-256、raw Statusを最新GitHubデータと比較します。IssueとProjectの変更は原子的ではなく、外部更新との最後の競合窓が残ります。部分反映・結果不明はエディターに残し、追加保存を停止します。永続pendingが残った場合は管理者の調査が必要です。自動再送はしません。詳細はADR 002。
 
 ## 由来
 

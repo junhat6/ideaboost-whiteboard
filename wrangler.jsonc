@@ -1,7 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ideaboost-whiteboard",
-  "main": "worker/index.ts",
+  "main": "worker/entry.ts",
+  "durable_objects": {
+    "bindings": [{ "name": "MUTATIONS", "class_name": "IssueCoordinator" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["IssueCoordinator"] }],
   "compatibility_date": "2026-10-26",
   "assets": {
     "directory": "./web",

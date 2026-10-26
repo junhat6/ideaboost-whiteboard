@@ -12,6 +12,7 @@
 
 ## 実装
 - web/ はフレームワーク不要の静的UI。server/github.mjs はGitHub境界。worker/ は認証と配信。
+- mutationはIssueごとのDurable Objectを必ず経由し、awaitをまたぐ明示queueと永続request記録を維持する。
 - 狭い変更を送り、revisionとraw Statusで楽観的競合を検出する。
 - 部分保存・通信結果不明を自動再送しない。再取得を要求して利用者に判断させる。
 - 6 PBI・4 cards/cell・原文・ツールバー自動表示・キーボード操作は回帰試験対象。

@@ -5,6 +5,14 @@
     sign_in_required: "許可されたチームアカウントでログインし直してください。",
     github_not_configured: "GitHub Appの接続設定がまだ完了していません。",
     github_auth_failed: "GitHub Appの認証を確認できません。",
+    mutation_outcome_unresolved:
+      "保存結果が未確定のため、このIssueの保存を停止しています。GitHubの状態を管理者が確認する必要があります。",
+    request_already_processed:
+      "この保存要求は処理済みです。最新を取得してから改めて編集してください。",
+    mutation_queue_full:
+      "保存要求が混み合っています。最新を取得し、時間をおいて操作してください。",
+    mutation_ledger_capacity:
+      "保存履歴が上限に達しました。管理者に確認してください。",
     conflict: "他の更新と競合しました。最新を取得してから編集してください。",
     issue_not_in_project_status:
       "Project外の親PBIのStatusはここでは変更できません。",
@@ -47,10 +55,12 @@
       const e = new Error(
         data.partial
           ? "一部の変更はGitHubに反映されています。元Issueを確認し、最新を取得してください。"
-          : data.ambiguous
-            ? "保存結果が不明です。再送せず、最新を取得してください。"
-            : messages[data.error] ||
-              `GitHub連携の処理を確認できません（${response.status}）。最新を取得してください。`,
+          : data.error === "mutation_outcome_unresolved"
+            ? messages.mutation_outcome_unresolved
+            : data.ambiguous
+              ? "保存結果が不明です。再送せず、最新を取得してください。"
+              : messages[data.error] ||
+                `GitHub連携の処理を確認できません（${response.status}）。最新を取得してください。`,
       );
       e.code = response.status === 409 ? "CONFLICT" : data.error;
       e.partial = !!data.partial;

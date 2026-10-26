@@ -437,7 +437,7 @@ export function createHandler({
         selectedMilestone: milestone,
         milestones,
         statusOptions: meta.field?.options?.map((o) => o.name) ?? [],
-        concurrency: "optimistic-check; isolate-local lock only",
+        concurrency: "per-issue durable coordinator; optimistic GitHub preflight",
       },
       fetchedAt: new Date(now()).toISOString(),
       warnings,

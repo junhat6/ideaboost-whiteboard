@@ -16,6 +16,8 @@
 
 認証試験はローカル生成RSA署名を用いてJWT検証そのものを試す。匿名/nonmemberのHTML・assets・API、偽造/期限切れ/別audience、plain header偽装、別host、cross-origin POSTを拒否。
 
+共有coordinatorは2つのWorker handlerと共通mock storage/upstreamで、古い2回目保存の409、再起動・曖昧結果・記録障害後の再送防止を検証。本番DOインスタンスの試験とは区別する。
+
 GitHub transportはmock。ページング、正式parent/descendant、外部親PBI、null/未知Status、最小権限token、入力制限、競合・同秒の内容変更・重複リクエスト・部分保存・タイムアウト・readbackを検証する。
 
 ## 実データの扱い
@@ -26,8 +28,8 @@ GitHub transportはmock。ページング、正式parent/descendant、外部親P
 
 ## ローカル検証記録 2026-10-26
 
-- lint / typecheck / GitHub mock 19件 / JWTとroute認可5件 / Wrangler dry-run: 合格。
-- Chromium E2E: 13シナリオ × 2サイズ = 26件。全画面切替でフォーカスを保持する修正、通信中断時の再送禁止、長いMarkdownフェンスと未閉じコメントの除外を含む。
+- lint / typecheck / GitHub mock 19件 / JWT/route認可5件と共有coordinator7件 / Wrangler dry-run: 合格。
+- Chromium E2E: 16シナリオ × 2サイズ = 32件。全画面切替でフォーカスを保持する修正、通信中断時の再送禁止、長いMarkdownフェンスと未閉じコメントの除外を含む。
 - 過去の実データfixture（14 PBI・24 tasks）: 最初の6 PBIで15カードを表示。1920幅で最小12px、2560幅で最小14px。両サイズでタイトルスクロール0件、ページ縦スクロールなし。原文タイトルとPBI列・ゴール列をスクリーンショットで目視確認。fixtureと画像はgit対象外。
 - Google DESIGN.md lint: エラー0、未参照component-token警告17（本文とCSSで使う色トークンが含まれる）。
 - npm audit: 0 vulnerabilities。開発依存のundici/zodは修正版overrideをlockfileで固定。

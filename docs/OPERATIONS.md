@@ -1,10 +1,14 @@
 # 本番導入・運用
 
-## 承認待ちの具体的な操作
+## 最新の承認状況
+
+2026-10-26: Cloudflare対象は junhat6@gmail.com。追加の本番鍵発行・Cloudflare secret保存は承認済み、未実行。デモ鍵は保持。Access allowlistの新規設定は中止し、一般公開readを準備する。公開writeはリスク確認の回答待ちで禁止。下記Access経路は旧設計の参考であり実行しない。OAuth consentを完了してからCLIを使用する。
+
+## 旧Access設計の設定手順（実行停止）
 
 1. 対象Cloudflareアカウントを選び `wrangler login` でこのMacに継続認証を設定する。2026-10-26の `wrangler whoami` は未認証。勝手に実行しない。
 2. このアプリ専用のAccess applicationとチーム許可ルールを作成する。候補はメールOTPと正確なチームメール一覧。Everyone、ドメイン全体、OTPで認証した全員への許可は禁止。既存アカウントに適切なIdPがあれば確認して選ぶ。許可メール一覧は未提供。
-3. 既存専用App「Idea Boost Whiteboard」に本番用の鍵を1本追加し、Cloudflare Workerのsecret `GITHUB_APP_PRIVATE_KEY` へ登録する承認を得る。既存デモの鍵は保持し、Sites runtimeから取り出さない。追加発行・保存とも未承認・未実行。`wrangler secret put` はWorkerの新バージョンを即時デプロイする操作である。
+3. 既存専用App「Idea Boost Whiteboard」に本番用の鍵を1本追加し、Cloudflare Workerのsecret `GITHUB_APP_PRIVATE_KEY` へ登録する承認を得る。既存デモの鍵は保持し、Sites runtimeから取り出さない。追加発行・保存は承認済み・未実行。`wrangler secret put` はWorkerの新バージョンを即時デプロイする操作である。
 
 GitHub CLIは既存のjunhat6認証を読み取り確認済み。追加のGitHub権限設定は不要。Cloudflare free/existing枠を優先し、有料契約や課金上限変更は別承認。
 
@@ -50,4 +54,10 @@ GitHub CLIは既存のjunhat6認証を読み取り確認済み。追加のGitHub
 
 ## 運用上の限界
 
-同一isolateのロック/idempotencyは再起動や別isolateへまたがらない。GitHub直接編集・自動化との原子性はない。長いタイトルは完全行単位でカード内スクロール、本文はドロワーで全文を読む。PBI選択は個別ブラウザー。チーム共通スプリント定義、監査DB、WebSocketは現在範囲外。
+Issue単位のDurable Objectが別isolateの保存を直列化し、request記録を永続保持する。pendingは再起動でも解除しない。GitHub直接編集・自動化との原子性はない。長いタイトルは完全行単位でカード内スクロール、本文はドロワーで全文を読む。PBI選択は個別ブラウザー。チーム共通スプリント定義、監査DB、WebSocketは現在範囲外。
+
+## Durable Objectの保存停止
+
+`mutation_outcome_unresolved` はそのIssueに未確定の外部操作が残ったことを示す。最新取得だけで解除しない。GitHub Issue/Projectの正本と履歴、外部処理が終息したことを管理者が確認し、承認された保守変更で対象Objectのpending記録を処理する必要がある。公開リセットAPIや自動TTLは実装していない。元requestの記録を残し、機械的な再送・namespace変更・全記録削除をしない。現在この保守経路はコードによる調査・修復が必要という運用制約がある。
+
+10,000 request/Issueの上限は `mutation_ledger_capacity`。無条件の履歴消去で回復させず、保持と再送防止方針を見直す。SQLite DO migration v1を含む。旧い共有調停なしのWorker版へrollbackすると同時保存の保証が失われるため、その版へ戻さない。

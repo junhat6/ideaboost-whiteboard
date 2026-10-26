@@ -1,7 +1,13 @@
-# ADR 002: GitHubの競合と部分保存
+# ADR 002: アプリ内直列化とGitHubの競合・部分保存
 
-保存は変更フィールドだけ送信。タイトル・本文・担当者のSHA-256、updatedAt とraw Project Statusの事前条件をサーバーが最新取得・狭い直前再検証する。保存後にGitHubを再取得する。Issue更新とProject更新は別リクエストで、GitHub APIに分散トランザクションやProject expected-version入力はない。
+Issueごとに固定名のSQLite Durable Objectを使用する。別Worker isolateからの保存も同じObjectへ送り、明示的Promise queueでpreflight・GitHub変更・readbackの全awaitを直列化する。外部fetchをblockConcurrencyWhileで囲まない。直接APIへのmutation fallbackは設けない。
 
-現段階は同一isolate内のIssueロックと15分request IDメモリを使用。別isolate・GitHub直接編集・自動化は並行しうる。updatedAtは秒単位のため内容ハッシュも比較する。それでも最終比較後の外部変更は競合しうる。厳密なCAS/atomic/exactly-onceは主張しない。
+変更フィールドだけを送り、updatedAt、内容SHA-256、raw StatusをGitHub最新値と比較する。古いスナップショットを持つ2クライアントでは先の保存だけ成功し、後続は409になる。GitHub直接編集・自動化はこのqueueに参加しないため最終比較後の競合窓は残る。IssueとProjectsの更新は別APIであり、atomic/CAS/exactly-onceは主張しない。
 
-部分保存・応答喪失・readback不一致は明示して編集をロックし、読み直して新しい利用者操作を必要とする。ネットワークの自動mutation retryは無効。今後アプリ内同時書き込みの直列化が必要ならDurable Objectを導入するが、GitHub直接編集との競合を消せるとは扱わない。
+外部呼び出し前にrequest ID＋主体のハッシュ、リクエストdigest、pending、時刻をtransactionで永続化。成功・確定した失敗はcompletedとHTTP statusを保存する。Issue本文、鍵、token、利用者の平文識別子は保存しない。同じIDの再送は処理済みでも409にし、レスポンスや変更を再実行しない。各Issueは最大32待機要求、10,000永続記録で停止する。TTLによる自動削除はしない。
+
+プロセス中断、記録完了失敗、GitHub結果不明はpending fenceを残し、新しいIDも止める。タイムアウトしたGitHub操作が遅れて完了する可能性があるため、読み直しただけではこのfenceを解除しない。運用者が外部操作の終息と正本を確認する必要がある。公開の解除APIはない。現段階では対象Objectを調査・修復する承認済み保守変更が必要であり、無人の自動復旧は提供しない。namespace変更や記録全削除で回避しない。
+
+既存server内メモリlockは補助のみ。安全性は共有Objectと永続記録に置く。SQLite Durable ObjectsはFreeでも利用可能だが、実アカウントの枠を導入時に確認し、有料契約へ自動変更しない。
+
+検証: 独立Worker handler 2個から同一coordinatorへ保存し、後続409・PATCH1回・正本Firstを確認。再起動、結果不明、新ID、完了記録失敗をmock storage/GitHubで試験する。Wrangler dry-runはbinding/exportを確認するが、本番Cloudflare動作の実証ではない。

@@ -2,6 +2,7 @@ import { authenticate, AccessError, type AuthConfig } from "./auth";
 import { handleApi } from "../server/github.mjs";
 export interface Env extends AuthConfig {
   ASSETS: Fetcher;
+  MUTATIONS?: DurableObjectNamespace;
   GITHUB_APP_ID?: string;
   GITHUB_INSTALLATION_ID?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
@@ -41,6 +42,17 @@ export function createWorker(auth = authenticate, api = handleApi) {
         headers.delete("oai-authenticated-user-id");
         headers.set("x-verified-user-id", user.id);
         const internal = new Request(request, { headers });
+        const issue = new URL(request.url).pathname.match(
+          /^\/api\/issues\/([1-9]\d{0,8})$/,
+        );
+        if (request.method === "POST" && issue) {
+          if (!env.MUTATIONS)
+            throw new AccessError(503, "mutation_coordinator_not_configured");
+          const coordinator = env.MUTATIONS.getByName(
+            `engineer-first/idea-boost:${issue[1]}`,
+          );
+          return secure(await coordinator.fetch(internal));
+        }
         const result = await api(internal, env);
         if (result) return secure(result);
         if (request.method === "POST")
