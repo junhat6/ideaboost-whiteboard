@@ -124,3 +124,69 @@ test("compact toolbar fits one row and its icon actions are not covered by opera
   await page.getByRole("button", { name: "ヘルプ", exact: true }).click();
   await expect(page.locator("#about-dialog")).toBeVisible();
 });
+
+test("composition start removes decorations before any document change and keeps them removed through input", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  const raw = "## 非選択の見出し\n\n**非選択の強調**\n\n入力行";
+  s.board.tasks[0].body = raw;
+  await page.evaluate(
+    (b) => (window as any).Whiteboard.applySnapshot(b),
+    s.board,
+  );
+  await page.locator(".task-title").first().click();
+  const content = page.locator(".cm-content");
+  await expect(content).toBeVisible();
+  await page.locator(".cm-line").filter({ hasText: "入力行" }).click();
+  await page.keyboard.press("End");
+  await expect(content).not.toContainText("##");
+  await expect(content).not.toContainText("**");
+  // Synthetic start intentionally has no document change yet (CodeMirror's composing flag may still be false).
+  await content.dispatchEvent("compositionstart", { data: "" });
+  await expect(content).toContainText("## 非選択の見出し");
+  await expect(content).toContainText("**非選択の強調**");
+  await expect(page.locator("#detail-body")).toHaveValue(raw);
+  await content.dispatchEvent("compositionupdate", { data: "あ" });
+  await page.keyboard.insertText("あ");
+  await expect(content).toContainText("## 非選択の見出し");
+  await expect(content).toContainText("**非選択の強調**");
+  await expect(page.locator("#detail-body")).toHaveValue(raw + "あ");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  expect(s.posts()).toBe(0);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#details")).toBeVisible();
+  await content.dispatchEvent("compositionend", { data: "あ" });
+  await expect(content).not.toContainText("##");
+  await expect(content).not.toContainText("**");
+  await expect(page.locator("#detail-body")).toHaveValue(raw + "あ");
+  expect(s.posts()).toBe(0);
+});
+
+test("source mode stays selected and visible when a clean remote body is refreshed", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  await page.locator(".task-title").first().click();
+  await expect(page.locator(".cm-content")).toBeVisible();
+  await page.locator("#markdown-source").click();
+  await expect(page.locator("#markdown-source")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  s.board.tasks[0].body = "## 更新された見出し\n\n**新しい強調**";
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator("#detail-body")).toHaveValue(s.board.tasks[0].body);
+  await expect(page.locator(".cm-content")).toContainText(
+    "## 更新された見出し",
+  );
+  await expect(page.locator(".cm-content")).toContainText("**新しい強調**");
+  await expect(page.locator("#markdown-source")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.locator("#markdown-source").click();
+  await expect(page.locator(".cm-content")).not.toContainText("##");
+  await expect(page.locator(".cm-content")).not.toContainText("**");
+  expect(s.posts()).toBe(0);
+});

@@ -244,6 +244,7 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
   const restoreRaw = StateEffect.define();
   let raw = initial;
   let isDisabled = false;
+  let isSource = false;
   const extensions = [
     history(),
     invertedEffects.of((tr) => (tr.docChanged ? [restoreRaw.of(raw)] : [])),
@@ -333,6 +334,7 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
   const view = new EditorView({ parent, state: state(initial) });
   return {
     source(value) {
+      isSource = value;
       view.dispatch({ effects: sourceMode.of(value) });
     },
     get value() {
@@ -342,6 +344,7 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
       if (value === raw) return;
       raw = value;
       view.setState(state(value));
+      if (isSource) view.dispatch({ effects: sourceMode.of(true) });
       if (isDisabled)
         view.dispatch({
           effects: editable.reconfigure([

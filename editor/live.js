@@ -153,13 +153,17 @@ export function livePreview(render, clear) {
     });
     return Decoration.set(ranges, true);
   }
+  // view.composing can remain false until the first composition document change.
+  // DOM composition events own this state from the start, independently of that lag.
+  let composingSession = false;
   const notify = (view) => {
-    const v = field && view.state.field(field, false);
-    if (v && (v.focused !== view.hasFocus || v.composing !== view.composing))
+    if (!view.dom.isConnected) return;
+    const v = view.state.field(field, false);
+    if (v && (v.focused !== view.hasFocus || v.composing !== composingSession))
       view.dispatch({
         effects: activity.of({
           focused: view.hasFocus,
-          composing: view.composing,
+          composing: composingSession,
         }),
       });
   };
@@ -173,9 +177,11 @@ export function livePreview(render, clear) {
         queueMicrotask(() => notify(v));
       },
       compositionstart: (_, v) => {
+        composingSession = true;
         queueMicrotask(() => notify(v));
       },
       compositionend: (_, v) => {
+        composingSession = false;
         requestAnimationFrame(() => notify(v));
       },
     }),
