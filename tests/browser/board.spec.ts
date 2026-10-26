@@ -117,6 +117,9 @@ test("six rows, four cards per cell, whole title lines, no page scroll", async (
     height: document.documentElement.scrollHeight,
     viewport: innerHeight,
     bottom: document.querySelector("#board")!.getBoundingClientRect().bottom,
+    unnecessaryPbiScroll: [
+      ...document.querySelectorAll(".pbi-title-text"),
+    ].some((el) => el.scrollHeight > el.clientHeight + 1),
     partial: [...document.querySelectorAll(".task-title-text")].some((el) => {
       const s = getComputedStyle(el.parentElement!);
       const line = parseFloat(s.lineHeight);
@@ -131,6 +134,7 @@ test("six rows, four cards per cell, whole title lines, no page scroll", async (
   expect(layout.height).toBe(layout.viewport);
   expect(layout.bottom).toBeLessThanOrEqual(layout.viewport);
   expect(layout.partial).toBe(false);
+  expect(layout.unnecessaryPbiScroll).toBe(false);
   await page.screenshot({
     path: `test-results/board-${page.viewportSize()!.width}.png`,
   });

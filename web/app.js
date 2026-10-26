@@ -337,10 +337,10 @@ function fitCardTitles() {
     const css = getComputedStyle(button);
     const line = parseFloat(css.lineHeight);
     const available =
-      button.clientHeight -
+      button.getBoundingClientRect().height -
       parseFloat(css.paddingTop) -
       parseFloat(css.paddingBottom);
-    text.style.maxHeight = `${Math.max(0, Math.floor((available + 0.01) / line)) * line}px`;
+    text.style.maxHeight = `${Math.max(0, Math.floor((available + 0.05) / line)) * line}px`;
   }
   for (const button of document.querySelectorAll(".task-title")) {
     const text = button.querySelector(".task-title-text");
