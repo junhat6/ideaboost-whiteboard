@@ -5,6 +5,8 @@
   --selected: #e8effc;
   --input-border: #7d8da8;
   --raised: #ffffff;
+  --avatar-fallback-bg: var(--selected);
+  --avatar-fallback-ink: var(--ink);
   --error: #a72a35;
   --error-surface: #fff0f1;
   --progress-complete: var(--accent);
@@ -289,17 +291,17 @@ main {
   width: 21px;
   height: 21px;
   border: 2px solid #fff8;
-  background: #719582;
+  background: var(--avatar-fallback-bg);
   border-radius: 50%;
-  color: white;
+  color: var(--avatar-fallback-ink);
   font-size: 8px;
   font-weight: 700;
 }
 .avatar.b {
-  background: #b18680;
+  background: var(--avatar-fallback-bg);
 }
 .avatar.c {
-  background: #8896b2;
+  background: var(--avatar-fallback-bg);
 }
 .avatar.none {
   background: var(--soft);
@@ -1717,7 +1719,7 @@ dialog dt,
   padding: 3px 0;
   margin: 0;
   border: 1px solid transparent;
-  border-bottom-color: var(--line);
+  border-bottom-color: var(--input-border);
   border-radius: 0;
   font: 650 26px/1.5 inherit;
   font-family: inherit;
@@ -2378,4 +2380,12 @@ input[type="checkbox"] {
   margin: 0;
   width: 100%;
   flex-shrink: 0;
+}
+
+.toolbar input,
+.toolbar select,
+.detail-dialog input,
+.detail-dialog select,
+.detail-dialog textarea {
+  border-color: var(--input-border);
 }

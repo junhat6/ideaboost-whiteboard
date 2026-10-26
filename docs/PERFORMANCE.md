@@ -143,3 +143,13 @@ GET中央値は約88.5%短縮。初回/再訪はいずれもfresh scopeとコメ
 CDPの媒体dataReceived.encodedDataLength合計は4,275,995 / 4,295,926 bytes。loadingFinishedだけの合計は67,595 / 84,409 bytesであり、取消・未完了要求を含まないため総転送量と扱わない。拡張子なし添付の画像判定やブラウザーのRange取得があり、metadataだけで数KBに制限できるとは主張しない。同時preview1、画面外開始なし、12秒timeout、型判定のみ64URL/5分cacheで無制限の並列取得を抑える。既知画像の別queueは3。
 
 Peleは本体とは別のworker asset（minify約677KB、gzip258,052 bytes）。editor bundleはgzip206,754 bytes。図の近傍到達までrendererを要求しない。実公開Issue360/362/128の計5図を読み取り、配信rendererのブラウザー内検証面へ投入した（GitHub本文は変更せず）。両解像度で5/5描画し、worker内描画CPUは1–17ms。これは実ボード選択内に図があったという証明ではなく、実公開原文と本番配信rendererの互換性確認である。全Mermaid構文の互換性は保証しない。合成flowchart/sequenceは通常のlive-editor経路でも検証済み。
+
+## 青基調と図scroll追補の限定性能確認（f6e1f62）
+
+同じ作者のfresh read3回をfixtureで比較: 作者avatarのDOM置換3回→0回。作者情報が変われば更新し、非公開化で消えたDOMは再作成する。新しい取得cacheやAPI短縮は導入していない。Peleは近傍lazy Worker、媒体は画像3/preview1の既存scheduler、コメントと本文の独立読取、authorの既存query内取得を維持。小さな描画削減を本番の速度改善率とは呼ばない。
+
+新ブラウザーcontextを毎回作り、1920/1920/2560の3回、実データを読み取り測定した。変更前はすべて共有snapshot hit: board1583/2015/1495ms（中央値1583）、Issue body146/1349/140ms（中央値146）、comments1376/1472/1806ms（中央値1472）。変更後は最初がデプロイ後fresh miss: board4171ms/body859ms/comments1716ms、残り2回はhitでboard1644/1938ms、body135/234ms、comments1566/1863ms。cold clientとcold serverを混同しない。命中条件と通信変動があるため、有意な初回/コメント速度改善とは結論しない。安全境界や鮮度を緩める変更は不要とした。
+
+図上の実wheel(50,220)で、両解像度とも親Issue scrollTop0→220、拡大図scrollTop/Left0のまま、width2050.78px不変。実公開図原文を配信rendererの読み取り面へブラウザー内だけ投入し、GitHubへは書き込んでいない。Fit/拡大中央/境界/上下斜め・live/readはfixtureで回帰。
+
+Demo goalの長文可視高は実本番1920で133→151px、2560で152→216px。上下padding10.18/30px→6px、font12/15pxは同一。整数行のviewportと内部scrollを維持。横paddingも12pxへ揃えたため、短い文が少ない行で収まる場合は高さが減るが全文は表示される。配色は白面・濃い本文、進捗はStatusと独立した青へ変更。

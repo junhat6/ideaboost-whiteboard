@@ -15,6 +15,8 @@ colors:
   selected: "#e8effc"
   input-border: "#7d8da8"
   raised: "#ffffff"
+  avatar-fallback-bg: "{colors.selected}"
+  avatar-fallback-ink: "{colors.ink}"
   primary-hover: "#2447a8"
   on-primary: "#ffffff"
   todo: "{colors.status-gray}"
@@ -141,7 +143,7 @@ IdeaBoost のチームが、会議中に同じ一枚の作業面を見て状況�
 
 既定はライトモード。キャンバスは `{colors.canvas}`、ボード・エディターは `{colors.surface}`、本文は `{colors.ink}`。補助テキストも `{colors.muted}` より薄くしない。フォーカスと主操作は `{colors.primary}` に統一する。
 
-付箋色はGitHub Issue typeの固定対応。現在の正本にはPBI・Task・競合調査が存在する。Taskは参考画像の黄#FBDF7F、競合調査は青#9ECCFA、未知/nullは灰#E7E9EE。PBI左セルの白い面と最小構成は維持する。色はStatus・担当者・配列順から決めず、カードの短いT/調/?と実typeのtooltip・アクセシブルラベルを併用する。本文#24292FとのWCAG比は順に11.14/8.70/12.06、補助文字#374151は7.84/6.12/8.49。focus#3159C9は黄/青背景で4.69/3.66、カード境界#8A7130/#456B91/#7B8290は各背景と3.56/3.31/3.18。参照20色をそのまま増やさず、実typeに必要な二色を選んだ。Status は列名とエディターの原語で判別できる。見送り・未設定・未知の状態を Done 色や完了集計へ混入させない。警告は赤の色面に必ず具体的な文言を添える。
+付箋色はGitHub Issue typeの固定対応。現在の正本にはPBI・Task・競合調査が存在する。Taskは参考画像の黄#FBDF7F、競合調査は青#9ECCFA、未知/nullは灰#E7E9EE。PBI左セルは淡青canvas #F2F6FCと最小構成を維持する。色はStatus・担当者・配列順から決めず、カードの短いT/調/?と実typeのtooltip・アクセシブルラベルを併用する。カードタイトルはink #182B49でWCAG比は順に10.78/8.42/11.68。type面の基礎文字token #24292Fは11.14/8.70/12.06、補助文字#374151は7.84/6.12/8.49。focus#3159C9は黄/青背景で4.69/3.66、カード境界#8A7130/#456B91/#7B8290は各背景と3.56/3.31/3.18。参照20色をそのまま増やさず、実typeに必要な二色を選んだ。Status は列名とエディターの原語で判別できる。見送り・未設定・未知の状態を Done 色や完了集計へ混入させない。警告は赤の色面に必ず具体的な文言を添える。
 
 ダークモードは操作メニューから明示的に選ぶ補助機能。自動で白いボードを反転しない。dark 系トークンと濃い付箋色に切り替え、読めるコントラストを維持する。ライトの設計・検証を優先する。
 
@@ -209,3 +211,7 @@ mermaid fenceは近傍でWorker描画し、通常は図、選択/鉛筆では原
 - 宣伝ページ、サイドナビ常設、意味のないカード列、ダミーの実績値を追加しない。
 
 配色検証（ライト）: ink/白14.18:1、muted/白7.58:1、accent/白6.17:1、progress-complete/pending3.92:1、操作境界/白3.36:1。focusの青はtype黄/青上で4.69/3.66:1。構造lineは装飾の区切りであり単独の操作境界にしない。旧--green名は--accentへ改称し、drag-over/選択/入力/トースト/欠損avatarもsemantic rolesを使う。Status greenとtype色は保持。
+
+入力境界はtoolbar/detail-dialogの高詳細度ルールにもinput-borderを適用する。小avatarの画像失敗時はavatar-fallback-bg/ink（selected面とink）で頭文字を表示し、旧緑＋白文字は使わない。
+
+タイトルのインライン入力は三辺透明＋下線の構成を維持し、その下線にinput-borderを適用する。focus outlineは青で表示する。

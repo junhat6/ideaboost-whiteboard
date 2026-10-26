@@ -264,3 +264,35 @@ test("blue semantic palette and goal whole-line viewport keep strong contrast an
   });
   expect(s.posts()).toBe(0);
 });
+
+test("actual toolbar/detail input borders and failed avatar use semantic colors", async ({
+  page,
+}) => {
+  await page.route("https://avatars.githubusercontent.com/**", (r) =>
+    r.abort(),
+  );
+  await setup(page);
+  const avatar = page.locator(".task .avatar-stack .avatar").first();
+  await expect(avatar.locator("img")).toHaveCount(0);
+  await expect(avatar).toHaveCSS("background-color", "rgb(232, 239, 252)");
+  await expect(avatar).toHaveCSS("color", "rgb(24, 43, 73)");
+  await page.locator("#operations").click();
+  await expect(page.locator("#search")).toHaveCSS(
+    "border-top-color",
+    "rgb(125, 141, 168)",
+  );
+  await expect(page.locator("#assignee-filter")).toHaveCSS(
+    "border-top-color",
+    "rgb(125, 141, 168)",
+  );
+  await page.locator(".task-title").first().click();
+  await page.locator("#rename-issue").click();
+  await expect(page.locator("#detail-title")).toHaveCSS(
+    "border-bottom-color",
+    "rgb(125, 141, 168)",
+  );
+  await expect(page.locator("#detail-body")).toHaveCSS(
+    "border-top-color",
+    "rgb(125, 141, 168)",
+  );
+});

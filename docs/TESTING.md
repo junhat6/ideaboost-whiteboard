@@ -115,3 +115,5 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 69 backend（DESIGN/CSS token一致試験を含む）、146 browser成功。図のFit/拡大中央/境界で実mouse.wheel（斜め含む）を送り、live/read両面で親のscrollが変化し図の位置・scaleは不変、明示drag/±/Fitは動作する。wheel listenerは追加しない。進捗0/1/6/40/41と全完了、blue accentとStatus greenの分離、contrast、長文goalの整数行viewport・末尾scroll、作者同一/変更時のDOM再利用を確認。
 
 同じ作者のfresh read3回は変更前3回DOM置換→変更後0回。変更した作者は即反映。これはfixtureのDOM削減であり、本番レイテンシ短縮率ではない。原文/保存/コメント/媒体/IME/右88%を含む全回帰も実行。
+
+限定レビュー追補: toolbar/detailの入力境界をcomputed styleで確認し、titleは三辺透明＋下線の意図した形を保って下線をinput-borderへ。GitHub avatar取得をabortし、fallback背景selected/文字inkを確認。既存146ケース成功後、追加2ケース（両サイズ）も成功。全148ケースをCI対象にする。

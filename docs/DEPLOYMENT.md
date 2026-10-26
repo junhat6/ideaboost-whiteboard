@@ -174,3 +174,10 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 本番両サイズで実動画の先頭frame・作者・Status色・幅を確認。POST0/JSエラー0。4配信assets（app/style/editor/diagram-worker）のHTTP200とSHA256一致。実公開5図も配信rendererで描画確認。
 - 初期本文/媒体計測と転送量の制約はPERFORMANCE.md。未知添付の型判定とnative metadata取得は厳密なbytes上限ではない。実Issue/コメントへのQA変更なし。既存匿名公開モード/資格情報/権限/料金は変更なし。CSPにはローカルrenderer用worker-src selfのみ追加。
 - 同一配信SHAのCI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40320639817 。check成功、browser138件成功（Linux上7.8分）。
+
+### 図の自然なscroll・青基調・Demo goal
+
+- 配信source `f6e1f62e51cc04487035f264c0d24de05380efdc`、Worker `f0add312-9484-409f-b75d-d7290639ad6f`。
+- ローカルcheck成功（69 backend）、146 browser成功。DESIGN validator errors0/warnings38（CSS/本文から使うsemantic tokenの未参照警告を含む）。CSS/DESIGN色一致を単体試験。
+- 図のoverflow hidden/overscroll autoで通常wheelを親へ渡し、±/Fit/明示dragを保持。青進捗・白goal面・6px上下余白・Status輪郭・semantic token統一を配信。作者同一時DOM再作成を抑止。
+- 実本番両サイズでwheel親scroll0→220と図位置/scale不変を確認。実データのgoal可視高133→151px/152→216px。実Issue/コメントQA書込みなし。匿名モード/secret/権限/料金/取得鮮度は変更なし。
