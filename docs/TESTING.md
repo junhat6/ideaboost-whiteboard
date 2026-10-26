@@ -38,3 +38,7 @@ GitHub transportはmock。ページング、正式parent/descendant、外部親P
 公開mode: 長いpathの配信/API保存、別host/path/Origin拒否、匿名主体の上書き、rate binding欠落/制限、repo/Projectの非公開化をmockで検証。長いPBIの2560幅はみ出しを再現して修正し、両サイズで完全行と進捗の保持を確認。
 
 ローカルworkerd（秘密なし）でも正path HTML/assets/health=200、root=404、cross-origin POST=403、無効payload=400を確認。これはCloudflare本番配信ではない。CIで発見した初期接続エラーのResizeObserverによる上書きを状態保持で修正し、resize回帰を追加。
+
+## 性能・詳細画面の回帰追加
+
+22件GitHub mock + 16件auth/coordinator/public = 38件、20シナリオ×2サイズ = 40件を通過。遅いGETの完了前にTask/PBIを開閉、左80%の実寸、更新中の編集ロック、取得失敗と再試行、背景クリックの破棄確認を追加。索引から選択Issueのみをhydrateし、欠損時はfail closedとする試験を含む。本番の測定結果と実施範囲はPERFORMANCE.mdを参照。

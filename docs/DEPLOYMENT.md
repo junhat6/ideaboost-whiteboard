@@ -32,3 +32,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 実Issueの成功する変更はQAでは実行していない。保存の成功/競合/部分反映はmock試験であり、本番書込成功とは報告しない。GitHub直接編集との競合窓、Issue/Project更新の非原子性、結果不明時の管理者保守、近似的なlocation単位rate limitはADR/OPERATIONS記載通り。
 
 この文書は配信後の記録であり、文書を追加したcommitと上記の実配信source commitは区別する。
+
+## 表示速度・左側Issue画面の更新
+
+- 配信source commit: `4e3c623a05991d698d98d5307969a5d5312eea43`
+- Worker version: `1ab6229d-4a3d-46ae-a330-fafda2d246a3`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40274970760 （success）
+- 初期表示は同条件3回平均9.350→6.357秒（32%短縮）、API8.840→5.972秒。初回/再訪・測定限界と内訳は[PERFORMANCE.md](PERFORMANCE.md)。古いboardキャッシュは未導入。
+- 実背景更新中も取得済みIssueは約30msで開閉可能。左80vwを使用し、編集/保存操作を上部へ移動。確認中は編集を無効化し状態を明示。
+- 38件backend、40件browser、lint/typecheck/build成功。実配信の1920/2560で6PBI/15cards、完全行、ページ縦スクロールなし、繰り返し編集キャンセル、PBI表示、Fullscreenを再確認。全QA POSTを遮断し実書込0件。
+- 公開mode、host/path/Origin/visibility/rate制約、DO mutation、Free planと鍵は変更なし。
