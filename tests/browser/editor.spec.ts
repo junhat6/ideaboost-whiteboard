@@ -178,3 +178,23 @@ test("cached data can be edited while fresh confirmation waits without overwriti
   );
   await expect(page.locator("#detail-sync")).toContainText("保存しました");
 });
+test("CRLF original stays clean and title-only save does not rewrite Markdown", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  const original = "## 日本語\r\n\r\n- [ ] 原文\r\n";
+  s.board.tasks[0].body = original;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator("#connection")).not.toContainText("同期中");
+  await open(page);
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await page.locator("#rename-issue").click();
+  await page.locator("#detail-title").fill("タイトルのみ変更");
+  const request = page.waitForRequest((r) => r.method() === "POST");
+  await page.locator("#save-issue").click();
+  const payload = (await request).postDataJSON();
+  expect(payload.title).toBe("タイトルのみ変更");
+  expect(payload).not.toHaveProperty("body");
+  await expect.poll(s.posts).toBe(1);
+  expect(s.board.tasks[0].body).toBe(original);
+});

@@ -704,6 +704,7 @@ let editorBusy = false,
   composing = false,
   previewMode = false;
 let editorSession = 0;
+let editorBody = "";
 let pendingEditorRemote = undefined,
   editorSaved = false,
   refreshFlight = null;
@@ -725,7 +726,7 @@ function equalField(a, b) {
 function editorDraft() {
   return {
     title: $("#detail-title").value,
-    body: $("#detail-body").value,
+    body: editorBody,
     assignees: [...$("#detail-assignee").selectedOptions]
       .map((o) => o.value)
       .sort(),
@@ -734,6 +735,7 @@ function editorDraft() {
 }
 function writeField(key, value) {
   if (key === "body") {
+    editorBody = value || "";
     $("#detail-body").value = value || "";
     composer?.set(value || "");
     renderPreview();
@@ -807,7 +809,7 @@ function setComposition(value) {
 }
 function renderPreview() {
   if (previewMode && composerModule)
-    composerModule.preview($("#detail-body").value, $("#detail-body-view"));
+    composerModule.preview(editorBody, $("#detail-body-view"));
 }
 function setPreview(value) {
   previewMode = value;
@@ -826,8 +828,9 @@ async function ensureComposer() {
     const focused = document.activeElement === $("#detail-body");
     composer = composerModule.createEditor(
       $("#markdown-editor"),
-      $("#detail-body").value,
+      editorBody,
       (value) => {
+        editorBody = value;
         $("#detail-body").value = value;
         updateDirty();
       },
@@ -1208,6 +1211,9 @@ for (const id of ["#detail-title", "#detail-body"]) {
     ensureComposer();
   });
 }
+$("#detail-body").addEventListener("input", () => {
+  editorBody = $("#detail-body").value;
+});
 $("#detail-fields").addEventListener("input", updateDirty);
 $("#detail-fields").addEventListener("change", updateDirty);
 $("#detail-title").addEventListener("input", updateDirty);
