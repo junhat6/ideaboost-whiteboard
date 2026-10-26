@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "tests/browser",
   fullyParallel: true,
+  maxFailures: process.env.CI ? 2 : 0,
   use: { baseURL: "http://127.0.0.1:4173", headless: true },
   webServer: {
     command: "node scripts/preview.mjs",

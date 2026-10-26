@@ -945,7 +945,8 @@ function dismissControls() {
 $("#board").addEventListener("pointerdown", dismissControls);
 // Reveal only after intentional movement at the top edge, not a stationary
 // pointer at (0,0) during initial layout or a hidden overlay bounding box.
-$(".top-edge").addEventListener("pointermove", () => {
+$(".top-edge").addEventListener("pointermove", (event) => {
+  if (event.clientX < 12 || (!event.movementX && !event.movementY)) return;
   if (!controlsHoverBlocked) {
     controlsHovered = true;
     syncControls();
