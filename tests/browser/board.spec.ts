@@ -52,7 +52,10 @@ function snapshot() {
     fetchedAt: "2026-10-26T00:00:00Z",
   };
 }
-async function setup(page: Page, { failure = false, slow = false } = {}) {
+async function setup(
+  page: Page,
+  { failure = false, slow = false, abort = false } = {},
+) {
   const board = snapshot();
   let posts = 0;
   let reads = 0;
@@ -65,6 +68,7 @@ async function setup(page: Page, { failure = false, slow = false } = {}) {
       return route.fulfill({ json: board });
     }
     posts++;
+    if (abort) return route.abort("connectionreset");
     if (slow) await new Promise((r) => setTimeout(r, 500));
     if (failure)
       return route.fulfill({
@@ -263,4 +267,39 @@ test("keyboard access, dark secondary mode and full-screen API", async ({
   await expect(page.locator("#details")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator(".pbi-title").first()).toBeFocused();
+});
+
+test("interrupted write never retries and leaves draft available", async ({
+  page,
+}) => {
+  const s = await setup(page, { abort: true });
+  await page.locator(".task-title").first().click();
+  await page.locator("#edit-issue").click();
+  await page.locator("#detail-title").fill("通信が途切れた入力");
+  await page.locator("#save-issue").click();
+  await expect(page.locator("#detail-error")).toContainText("保存結果が不明");
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await expect(page.locator("#detail-title")).toHaveValue("通信が途切れた入力");
+  expect(s.posts()).toBe(1);
+});
+test("unconfigured connection never displays a sample board", async ({
+  page,
+}) => {
+  await page.route("**/api/health", (r) =>
+    r.fulfill({ json: { configured: false } }),
+  );
+  await page.goto("/");
+  await expect(page.locator("#empty")).toContainText("接続できません");
+  await expect(page.locator(".task")).toHaveCount(0);
+});
+test("goal parser respects long fences, heading preference and unclosed comments", async ({
+  page,
+}) => {
+  await setup(page);
+  const result = await page.evaluate(() =>
+    (window as any).Whiteboard.goal(
+      "## 受け入れ条件\nfallback\n## ユーザーに提供する体験\noriginal **markdown**\n````js\n```\n## デモゴール\nfake\n````\n<!-- unclosed\n## デモゴール\ncomment",
+    ),
+  );
+  expect(result).toBe("original **markdown**");
 });

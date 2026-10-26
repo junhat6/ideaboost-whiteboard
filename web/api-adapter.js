@@ -20,6 +20,7 @@
       response = await fetch(path, {
         credentials: "same-origin",
         cache: "no-store",
+        signal: AbortSignal.timeout(45000),
         ...options,
         headers: { Accept: "application/json", ...options.headers },
       });

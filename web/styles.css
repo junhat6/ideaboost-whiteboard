@@ -81,10 +81,9 @@ main {
 }
 .board-row {
   display: grid;
-  grid-template-columns: minmax(210px, 1.05fr) repeat(
-      4,
-      minmax(190px, 1.35fr)
-    ) minmax(220px, 1.12fr);
+  grid-template-columns:
+    minmax(210px, 1.05fr) repeat(4, minmax(190px, 1.35fr))
+    minmax(220px, 1.12fr);
   min-height: 0;
 }
 .board-row + .board-row {
@@ -714,10 +713,9 @@ dialog dd {
 }
 @media (max-width: 1250px) {
   .board-row {
-    grid-template-columns: minmax(155px, 1fr) repeat(
-        4,
-        minmax(150px, 1.25fr)
-      ) minmax(165px, 1fr);
+    grid-template-columns:
+      minmax(155px, 1fr) repeat(4, minmax(150px, 1.25fr))
+      minmax(165px, 1fr);
   }
   #board {
     min-width: 950px;

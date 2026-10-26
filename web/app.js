@@ -212,15 +212,20 @@ function issue(kind, id) {
   return (kind === "PBI" ? state.lanes : state.tasks).find((t) => t.id === id);
 }
 function goal(body) {
-  const clean = body.replace(/<!--[\s\S]*?-->/g, "");
+  const clean = body.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
   let fence = null,
     sections = [],
     current = null;
   for (const line of clean.split("\n")) {
-    const f = line.match(/^\s*(`{3,}|~{3,})/);
+    const f = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (f) {
-      if (!fence) fence = f[1][0];
-      else if (f[1][0] === fence) fence = null;
+      if (!fence) fence = f[1];
+      else if (
+        f[1][0] === fence[0] &&
+        f[1].length >= fence.length &&
+        !f[2].trim()
+      )
+        fence = null;
       continue;
     }
     if (fence) continue;
