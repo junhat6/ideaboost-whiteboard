@@ -131,3 +131,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 操作バーは高さ61pxの一行に整理。常設の長い説明はヘルプへ移し、同期/全画面/配色/ヘルプはtooltipとアクセシブル名を持つアイコン。保存・競合・失敗の意味は維持する。
 - 最終配信1920/2560で本文55/51ms、コメント1648/1513ms、媒体操作前通信0、POST0・JS error0を確認。4配信assetsのHTTP200/SHA256がローカル一致。実QuickTime再生は主実装の本番ライブ面でreadyState4/error nullを確認し、追補では追加動画取得を省いた。
 - コメント投稿/Issue保存の実QA書き込みは行わない。合成IME、制御した競合/結果不明/非公開化を試験。OS実機IME・全codecを保証しない。タスクリストはチェック記号を表示し、変更時は原文編集へ入る。新たな資格情報・権限・有料資源は追加なし。
+
+## IME装飾・原文表示モードの限定追補
+
+- 配信source: `34a0b228c0c5722cc53633754c9296c7765b8f59`
+- Active Worker version: `712753db-2e52-49fb-927a-b4505cad71b9`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40308752176
+- compositionstart/endから独立したセッション状態を持ち、最初の本文変更までview.composingがfalseでも装飾を解除。原文モードはremote body更新によるsetState後も保持する。
+- ローカルcheck（67 backend、lint/typecheck/build）と118 browser成功。開始時本文変更なし→合成IME入力→終了、IME中保存/close抑止、原文表示中のremote更新とaria-pressed整合を両サイズで検証。
+- 本番1920/2560の合成compositionイベント・原文切替・開閉で原文不変、POST0・JS error0。4配信assetsのHTTP200/SHA256一致。実GitHub書き込み・native OS IME検証は未実施。
+- サーバーコメントscope/速度、権限、秘密、媒体取得方式は変更なし。
