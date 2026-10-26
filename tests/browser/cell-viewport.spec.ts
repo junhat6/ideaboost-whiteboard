@@ -61,6 +61,13 @@ test("native wheel continues cards, fifth card can drag to Doing, same-column is
     .locator('[data-task="t0-0-0"]')
     .dragTo(page.locator('[data-lane="p1"][data-status="Doing"]'));
   expect(s.posts()).toBe(1);
+  await expect(page.locator("#details")).not.toBeVisible();
+  await page.locator('[data-open="t0-0-0"]').click();
+  await expect(page.locator("#details")).toBeVisible();
+  await page.locator("#close-detail").click();
+  await expect(page.locator('[data-open="t0-0-0"]')).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#details")).toBeVisible();
 });
 
 test("PBI assignees are canonical and independent from task assignees", async ({
@@ -213,5 +220,83 @@ test("drag edge scroll cancels on blur without posting or blocking later detail"
   await page.keyboard.press("Home");
   await cell.locator('[data-open="t0-0-0"]').click();
   await expect(page.locator("#details")).toBeVisible();
+  expect(s.posts()).toBe(0);
+});
+
+test("mid-cell visible anchor survives pure insertion and deletion before it", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const s = await setup(page);
+  const base = s.board.tasks[0];
+  s.board.tasks = s.board.tasks.filter(
+    (t) => t.lane !== "p0" || t.status !== "未整理",
+  );
+  s.board.tasks.unshift(
+    ...Array.from({ length: 20 }, (_, i) => ({
+      ...base,
+      id: `anchor${i}`,
+      nodeId: `anchor${i}`,
+      number: 4000 + i,
+      title: `位置確認 ${i}`,
+    })),
+  );
+  await page.clock.fastForward(46000);
+  const port = page.locator(firstCell).locator(".cell-viewport");
+  await expect(page.locator(firstCell).locator(".task")).toHaveCount(20);
+  await port.evaluate((el) => {
+    el.scrollTop = el.clientHeight * 1.5 + 7;
+  });
+  const anchor = await port.evaluate((el) => {
+    const top = el.getBoundingClientRect().top;
+    const card = [...el.querySelectorAll<HTMLElement>("[data-task]")].find(
+      (n) => n.getBoundingClientRect().bottom > top + 1,
+    )!;
+    return {
+      id: card.dataset.task!,
+      offset: card.getBoundingClientRect().top - top,
+    };
+  });
+  const offset = () =>
+    port.evaluate(
+      (el, id) =>
+        el.querySelector(`[data-task="${id}"]`)!.getBoundingClientRect().top -
+        el.getBoundingClientRect().top,
+      anchor.id,
+    );
+  s.board.tasks.unshift(
+    ...Array.from({ length: 2 }, (_, i) => ({
+      ...base,
+      id: `insert${i}`,
+      nodeId: `insert${i}`,
+      number: 5000 + i,
+    })),
+  );
+  await page.clock.fastForward(46000);
+  await expect(page.locator(firstCell).locator(".task")).toHaveCount(22);
+  await expect.poll(offset).toBeCloseTo(anchor.offset, 0);
+  s.board.tasks = s.board.tasks.filter(
+    (t) => !["anchor0", "anchor1"].includes(t.id),
+  );
+  await page.clock.fastForward(46000);
+  await expect(page.locator(firstCell).locator(".task")).toHaveCount(20);
+  await expect.poll(offset).toBeCloseTo(anchor.offset, 0);
+  const oldHeight = await port.evaluate((el) => el.clientHeight);
+  const size = page.viewportSize()!;
+  await page.setViewportSize({ width: size.width, height: size.height + 80 });
+  await expect
+    .poll(async () => {
+      const h = await port.evaluate((el) => el.clientHeight);
+      return Math.abs((await offset()) - (anchor.offset * h) / oldHeight);
+    })
+    .toBeLessThan(1.5);
+  const beforeOpen = await offset();
+  const bounds = await port.boundingBox();
+  const card = await port.locator(`[data-task="${anchor.id}"]`).boundingBox();
+  await page.mouse.click(card!.x + 20, bounds!.y + 10);
+  await expect(page.locator("#details")).toBeVisible();
+  await page.locator("#close-detail").click();
+  await expect(page.locator("#details")).not.toBeVisible();
+  expect(await offset()).toBeCloseTo(beforeOpen, 0);
   expect(s.posts()).toBe(0);
 });

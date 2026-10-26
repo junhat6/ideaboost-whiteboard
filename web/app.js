@@ -513,6 +513,7 @@ function syncAssigneeFilter() {
 // Session-only viewport state. Keys are stamped on rendered DOM, so a scope
 // change cannot accidentally save the old cell position under the new scope.
 const cellPositions = new Map();
+const cellDimensions = new WeakMap();
 function cellKey(lane, column) {
   return JSON.stringify([
     displayScope(),
@@ -522,23 +523,36 @@ function cellKey(lane, column) {
     column,
   ]);
 }
-function rememberCell(port) {
+function rememberCell(port, explicit = false) {
   if (!port.isConnected || !port.clientHeight) return;
-  const pages = [...port.children];
-  const index = Math.min(
-    pages.length - 1,
-    Math.floor((port.scrollTop + 1) / port.clientHeight),
-  );
-  const ids = pages
-    .slice(index)
-    .flatMap((p) =>
-      [...p.querySelectorAll("[data-task]")].map((n) => n.dataset.task),
-    );
+  const dimensions = cellDimensions.get(port);
+  // Resize changes the old DOM before ResizeObserver calls render. Keep the
+  // last pre-resize anchor instead of recapturing it in already changed geometry.
+  if (
+    !explicit &&
+    dimensions &&
+    (dimensions.height !== port.clientHeight ||
+      dimensions.width !== port.clientWidth)
+  )
+    return;
+  const bounds = port.getBoundingClientRect();
+  const anchors = [...port.querySelectorAll("[data-task]")]
+    .map((card) => ({
+      id: card.dataset.task,
+      rect: card.getBoundingClientRect(),
+    }))
+    .filter(
+      ({ rect }) =>
+        rect.bottom > bounds.top + 1 && rect.top < bounds.bottom - 1,
+    )
+    .map(({ id, rect }) => ({
+      id,
+      offset: (rect.top - bounds.top) / port.clientHeight,
+    }));
   cellPositions.delete(port.dataset.cellKey);
   cellPositions.set(port.dataset.cellKey, {
-    ids,
-    index,
-    fraction: port.scrollTop / port.clientHeight - index,
+    anchors,
+    position: port.scrollTop / port.clientHeight,
   });
   if (cellPositions.size > 200)
     cellPositions.delete(cellPositions.keys().next().value);
@@ -564,18 +578,25 @@ function restoreCells() {
   for (const port of document.querySelectorAll(".cell-viewport")) {
     const saved = cellPositions.get(port.dataset.cellKey);
     if (saved) {
-      const pages = [...port.children];
-      let index = -1;
-      for (const id of saved.ids) {
-        index = pages.findIndex((p) =>
-          p.querySelector(`[data-task="${CSS.escape(id)}"]`),
+      const bounds = port.getBoundingClientRect();
+      const anchor = saved.anchors.find(({ id }) =>
+        port.querySelector(`[data-task="${CSS.escape(id)}"]`),
+      );
+      if (anchor) {
+        const card = port.querySelector(
+          `[data-task="${CSS.escape(anchor.id)}"]`,
         );
-        if (index >= 0) break;
-      }
-      port.scrollTop =
-        (index >= 0 ? index + saved.fraction : saved.index + saved.fraction) *
-        port.clientHeight;
+        port.scrollTop +=
+          card.getBoundingClientRect().top -
+          bounds.top -
+          anchor.offset * port.clientHeight;
+      } else port.scrollTop = saved.position * port.clientHeight;
     }
+    cellDimensions.set(port, {
+      height: port.clientHeight,
+      width: port.clientWidth,
+    });
+    rememberCell(port);
     updateCellRange(port);
     port.addEventListener(
       "scroll",
@@ -591,7 +612,7 @@ function stepCell(port, step) {
   if (!port) return;
   port.scrollTop =
     (Math.round(port.scrollTop / port.clientHeight) + step) * port.clientHeight;
-  rememberCell(port);
+  rememberCell(port, true);
   updateCellRange(port);
 }
 function focusCellStart(port) {
@@ -609,10 +630,10 @@ function revealCard(target) {
   const page = target.closest(".cell-page");
   const index = [...port.children].indexOf(page);
   const bounds = port.getBoundingClientRect(),
-    rect = target.getBoundingClientRect();
-  if (rect.top >= bounds.top && rect.bottom <= bounds.bottom) return;
+    rect = (target.closest("[data-task]") || target).getBoundingClientRect();
+  if (rect.bottom > bounds.top + 1 && rect.top < bounds.bottom - 1) return;
   port.scrollTop = index * port.clientHeight;
-  rememberCell(port);
+  rememberCell(port, true);
   updateCellRange(port);
 }
 function render() {
@@ -631,7 +652,9 @@ function render() {
   $("#board").classList.remove("is-loading");
   $("#retry-load").hidden = true;
   const focused = focusSelector(document.activeElement);
-  document.querySelectorAll(".cell-viewport").forEach(rememberCell);
+  document
+    .querySelectorAll(".cell-viewport")
+    .forEach((port) => rememberCell(port));
   const milestones = state.scope?.milestones || [];
   $("#milestone-filter").hidden = !adapter || !milestones.length;
   const milestoneOptions =
@@ -1903,7 +1926,7 @@ $("#board").addEventListener("keydown", (e) => {
       stepCell(port, e.key === "PageDown" ? 1 : -1);
     if (e.key === "Home" || e.key === "End") {
       port.scrollTop = e.key === "Home" ? 0 : port.scrollHeight;
-      rememberCell(port);
+      rememberCell(port, true);
       updateCellRange(port);
     }
     focusCellStart(port);

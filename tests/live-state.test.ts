@@ -27,3 +27,38 @@ test("unrelated transactions reuse decorations while document and source transit
   assert.ok(state.field(field).decorations.size > 0);
   assert.equal(state.doc.toString(), "## 追加原文\n\n**本文**\n\n- [x] 項目");
 });
+
+test("focused same-line selections reuse decorations, changing lines or text recomputes", async () => {
+  const ext = livePreview(
+      () => {},
+      () => {},
+    ),
+    field = ext[0];
+  const view = {
+    dom: { isConnected: true },
+    hasFocus: true,
+    state: EditorState.create({
+      doc: "## 原文\n\n**本文**\n\n- [x] 項目",
+      extensions: [markdown({ extensions: [GFM] }), ext],
+    }),
+    dispatch(spec) {
+      this.state = this.state.update(spec).state;
+    },
+  };
+  ext[1].domEventHandlers.focus(null, view);
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+  const focused = view.state.field(field);
+  assert.equal(focused.focused, true);
+  view.dispatch({ selection: { anchor: 3 } });
+  assert.equal(view.state.field(field), focused);
+  view.dispatch({ selection: { anchor: 4 } });
+  assert.equal(view.state.field(field), focused);
+  view.dispatch({ selection: { anchor: view.state.doc.line(3).from + 2 } });
+  const moved = view.state.field(field);
+  assert.notEqual(moved, focused);
+  view.dispatch({
+    changes: { from: view.state.selection.main.head, insert: "追加" },
+  });
+  assert.notEqual(view.state.field(field), moved);
+  assert.ok(view.state.doc.toString().includes("追加"));
+});

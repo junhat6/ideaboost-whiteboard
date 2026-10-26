@@ -2572,6 +2572,7 @@ input[type="checkbox"] {
 
 /* Same sticky notes continue inside their cell; the six-row board stays fixed. */
 .cell-viewport {
+  overflow-anchor: none; /* Explicit Issue-ID anchoring owns restoration. */
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;
