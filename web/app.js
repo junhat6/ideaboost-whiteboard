@@ -1027,6 +1027,7 @@ function fillDetail() {
   sourceVisible = false;
   $("#markdown-source").setAttribute("aria-pressed", "false");
   $("#markdown-source").innerHTML = "原文を確認 <kbd>F8</kbd>";
+  $("#editor-options").dataset.tooltip = "本文の補助操作（原文切替: F8）";
   composer?.source(false);
   const t = issue(editing.kind, editing.id);
   if (!t) return;
@@ -1848,8 +1849,8 @@ $("#markdown-source").onclick = () => {
     `${sourceVisible ? "ライブ表示へ戻る" : "原文を確認"} <kbd>F8</kbd>`;
   $("#editor-tools").hidePopover();
   $("#editor-options").dataset.tooltip = sourceVisible
-    ? "本文の補助操作（原文表示中）"
-    : "本文の補助操作";
+    ? "本文の補助操作（原文表示中・F8で戻る）"
+    : "本文の補助操作（原文切替: F8）";
   composer?.focus();
 };
 document.addEventListener("keydown", (event) => {

@@ -37,6 +37,20 @@ test("live only with exceptional F8 source and immediate hoverable accessible to
   await expect(tip).toBeVisible();
   await button.click();
   await expect(page.locator("#markdown-source")).toBeVisible();
+  await expect
+    .poll(async () =>
+      page
+        .locator("#markdown-source")
+        .evaluate((e) => e.scrollWidth <= e.clientWidth),
+    )
+    .toBe(true);
+  await expect
+    .poll(async () => {
+      const m = await page.locator("#editor-tools").boundingBox();
+      const a = await button.boundingBox();
+      return Math.abs(m!.x + m!.width - a!.x - a!.width);
+    })
+    .toBeLessThan(2);
   await page.locator("#markdown-source").click();
   await expect(page.locator("#markdown-source")).toHaveAttribute(
     "aria-pressed",
