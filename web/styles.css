@@ -2017,3 +2017,7 @@ dialog dt,
   font-size: 16px;
   line-height: 1.85;
 }
+/* Keep the persistent operations toggle outside the toolbar's action group. */
+.control-panel {
+  padding-right: 88px;
+}

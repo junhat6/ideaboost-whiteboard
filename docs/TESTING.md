@@ -83,6 +83,8 @@ PBI起点と全走査の同値性、子・孫の各ページ、元のProject順�
 
 ## 同一面ライブ編集とコメント専用scope
 
-67 backend（36 server + 31 worker）、110 browser（55シナリオ×2サイズ）。対象Issue所属の全ページ、非archive/固定repo/直接PBI親の範囲、欠落拒否、公開前後、全ボード詳細を取得しない経路を追加。Server-Timingでscope/comments/visibilityを区別する。混在CRLF/LFの未編集部分を保持する原文パッチを単体検証。
+67 backend（36 server + 31 worker）、114 browser（57シナリオ×2サイズ）。対象Issue所属の全ページ、非archive/固定repo/直接PBI親の範囲、欠落拒否、公開前後、全ボード詳細を取得しない経路を追加。Server-Timingでscope/comments/visibilityを区別する。混在CRLF/LFの未編集部分を保持する原文パッチを単体検証。
 
 ライブ面では選択行だけ記法を見せる、表/コード/添付の同一面表示、原文切替、実キーボード全選択とUndo、無関係な入力でvideo DOMを再利用し追加取得しないことを確認。既存の合成IME・同期中編集・保存競合・コメント成功/不明/非公開・close raceと6行ボードを継続する。
+
+改行を含む範囲の置換→Undo→Redo→Undoで混在CRLF/LF原文へ戻り、本文差分なしの改名保存となる試験を追加。履歴のinvertedEffectsで原文も復元する。操作バーの右端アイコンと常設操作ボタンの非重複も両サイズで検証する。

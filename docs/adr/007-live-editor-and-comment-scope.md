@@ -8,7 +8,7 @@
 
 ## ライブ編集
 
-CodeMirrorの構文木とStateField直接提供のDecorationを使用する。selection.rangesのいずれかと交差する行/ブロックでは原文を表示し、非選択行の記法をreplaceで隠す。入力・Undo・保存の正本は常にMarkdown文字列。HTMLへ逆変換しない。GFMを明示した既存Lezerパーサーを直接依存へ記録する。
+CodeMirrorの構文木とStateField直接提供のDecorationを使用する。selection.rangesのいずれかと交差する行/ブロックでは原文を表示し、非選択行の記法をreplaceで隠す。入力・Undo・保存の正本は常にMarkdown文字列。未編集部分は差分パッチで改行を保ち、Undo/RedoはCodeMirrorのinvertedEffectsとともに元の原文を復元する。HTMLへ逆変換しない。GFMを明示した既存Lezerパーサーを直接依存へ記録する。
 
 表・コード・添付は選択外で安全なwidget表示、鉛筆かカーソル移動で原文編集へ戻る。widgetは原文の同一性で再利用し、無関係な入力で動画を作り直さない。destroyで既存のobserver/媒体cleanupを使う。IME中は装飾を解除する。入力不能時はeditableとreadOnlyを併用し、書式ボタンもdisabled/composingを確認する。タスクチェックは表示上の記号で、クリックで勝手に原文を書き換えない。
 

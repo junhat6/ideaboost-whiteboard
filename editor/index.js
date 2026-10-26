@@ -1,9 +1,14 @@
 import { patchRaw } from "./raw.js";
 import { livePreview, sourceMode } from "./live.js";
 import { GFM } from "@lezer/markdown";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  invertedEffects,
+} from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
@@ -236,10 +241,12 @@ function mediaFigure(url, alt, kind, images) {
 }
 export function createEditor(parent, initial, onChange, onComposition, onSave) {
   const editable = new Compartment();
+  const restoreRaw = StateEffect.define();
   let raw = initial;
   let isDisabled = false;
   const extensions = [
     history(),
+    invertedEffects.of((tr) => (tr.docChanged ? [restoreRaw.of(raw)] : [])),
     markdown({ base: markdownLanguage, extensions: [GFM] }),
     livePreview(preview, clearPreview),
     keymap.of([
@@ -281,7 +288,12 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
     ),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        raw = patchRaw(raw, update.changes, update.state.lineBreak);
+        const restored = update.transactions
+          .flatMap((tr) => tr.effects)
+          .findLast((e) => e.is(restoreRaw));
+        raw = restored
+          ? restored.value
+          : patchRaw(raw, update.changes, raw.includes("\r\n") ? "\r\n" : "\n");
         onChange(raw);
       }
     }),
@@ -316,12 +328,7 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
     }),
   ];
   function state(value) {
-    const lineSeparator =
-      value.includes("\r\n") && !/(?<!\r)\n/.test(value) ? "\r\n" : "\n";
-    return EditorState.create({
-      doc: value,
-      extensions: [...extensions, EditorState.lineSeparator.of(lineSeparator)],
-    });
+    return EditorState.create({ doc: value, extensions });
   }
   const view = new EditorView({ parent, state: state(initial) });
   return {

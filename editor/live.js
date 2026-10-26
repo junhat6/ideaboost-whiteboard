@@ -119,13 +119,13 @@ export function livePreview(render, clear) {
             return false;
           }
         }
-        if (active(n.from, n.to)) return;
         if (/^ATXHeading[1-6]$/.test(name))
           ranges.push(
             Decoration.line({
               class: `live-heading live-h${name.slice(-1)}`,
             }).range(state.doc.lineAt(n.from).from),
           );
+        if (active(n.from, n.to)) return;
         if (name === "HeaderMark")
           hide(n.from, Math.min(n.to + 1, state.doc.lineAt(n.to).to));
         if (["EmphasisMark", "StrikethroughMark", "CodeMark"].includes(name))
