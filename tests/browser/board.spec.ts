@@ -396,6 +396,8 @@ test("viewer remains usable on interrupted refresh and explicit retry restores f
   await page.locator("#rename-issue").click();
   await expect(page.locator("#detail-title")).toBeEnabled();
   await page.keyboard.press("Escape"); // タイトル変更だけを取消
+  if (await page.locator(".instant-tooltip").count())
+    await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await expect(page.locator("#details")).not.toBeVisible();
   expect(s.posts()).toBe(0);

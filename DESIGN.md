@@ -159,9 +159,9 @@ Issue タイトルは原文。勝手な略称、要約、番号への置き換�
 
 左セルは PBI タイトル、進捗ゲージ、完了数/対象数のみ。Demo goal は本文から抽出した原文 Markdown のみ。付加説明・装飾旗・独立したゴールデータを置かない。長いゴール本文はセル内スクロールで読む。
 
-操作バーは検索・絞り込み・表示・補助操作を一行にまとめ、同期/全画面/配色/ヘルプは慣例的なアイコンとtooltip・アクセシブル名で示す。常設の操作説明と取得方式の説明はヘルプ内へ移す。通常の詳細同期状態は短いラベルにし、競合・失敗の説明は省かない。
+操作バーは検索・絞り込み・表示・補助操作を一行にまとめ、同期/全画面/配色/ヘルプは慣例的なアイコンとtooltip・アクセシブル名で示す。常設の操作説明と取得方式の説明はヘルプ内へ移す。正常同期の状態表示は置かず、競合・失敗の説明は省かない。
 
-ツールバーは実際の列見出し行の上半分までのポインター移動、キーボードフォーカス、操作ボタンで現れ、ボードクリックで閉じる。表示の切り替えでボードの位置を動かさない。エディターは利用者の指定に従い、右端から画面幅の88%を使うオーバーレイ。左側12%はボードの文脈を残す。本文領域を広く、担当者と Status は右側の補助列へ。ドロワー内だけスクロールする。編集・保存操作と対処が必要なエラーは本文より上へ置き、長い本文でも操作を見つけられるようにする。更新中も取得済みIssueを即座に開く。正常な同期や保存済みを常設表示しない。本文はCodeMirror 6の構文木に基づく同一面のライブ編集。非選択行は見出し・強調・リスト・リンクの記法を隠し、表・コード・添付を整形表示する。カーソル/選択範囲が入った行やブロックは原文に戻す。複数選択とIME中は記法を隠さない。16px・1.85行高を基準にし、通常の編集でMarkdown/previewタブを往復させない。補助操作は原文切替と読み取り表示の小さなアイコンだけにする。開いた直後から入力でき、背景GETでは入力を無効にしない。タイトル自体をGitHubへのリンクにし、隣の鉛筆アイコンから同じ位置・26pxのインライン入力に置き換える。Enter/blurは下書きへ反映、Escapeはそのタイトル変更だけ取消。ラベルや完了ボタンを増やさず、サーバー反映は全体の保存に限る。状態・種別・親Issueの重複したメタデータ帯と常設の編集/再取得ボタンを置かない。背景クリックとEscapeは同じ閉じる処理を使い、実際の未保存差分がある時だけ破棄確認する。IME変換中は閉じない。
+ツールバーは実際の列見出し行の上半分までのポインター移動、キーボードフォーカス、操作ボタンで現れ、ボードクリックで閉じる。表示の切り替えでボードの位置を動かさない。エディターは利用者の指定に従い、右端から画面幅の88%を使うオーバーレイ。左側12%はボードの文脈を残す。本文領域を広く、担当者と Status は右側の補助列へ。ドロワー内だけスクロールする。編集・保存操作と対処が必要なエラーは本文より上へ置き、長い本文でも操作を見つけられるようにする。更新中も取得済みIssueを即座に開く。正常な同期や保存済みを常設表示しない。本文はCodeMirror 6の構文木に基づく同一面のライブ編集。非選択行は見出し・強調・リスト・リンクの記法を隠し、表・コード・添付を整形表示する。カーソル/選択範囲が入った行やブロックは原文に戻す。複数選択とIME中は記法を隠さない。16px・1.85行高を基準にし、通常の編集でMarkdown/previewタブを往復させない。通常はライブ編集一本とし、読み取り/コード/ライブの常設切替は置かない。原文確認はその他メニューとエディター内F8へ退避する。開いた直後から入力でき、背景GETでは入力を無効にしない。タイトル自体をGitHubへのリンクにし、隣の鉛筆アイコンから同じ位置・26pxのインライン入力に置き換える。Enter/blurは下書きへ反映、Escapeはそのタイトル変更だけ取消。ラベルや完了ボタンを増やさず、サーバー反映は全体の保存に限る。状態・種別・親Issueの重複したメタデータ帯と常設の編集/再取得ボタンを置かない。背景クリックとEscapeは同じ閉じる処理を使い、実際の未保存差分がある時だけ破棄確認する。IME変換中は閉じない。
 
 初回は6行と同じ列構造のスケルトンを出し「GitHubから読み込み中」と表示する。7秒以上は応答待ちを明示し、架空の進捗率は出さない。失敗は理由と再試行ボタン、空データは空状態として分ける。背景同期では既存カードを保ち、正常な同期状態は表示しない。取得時刻は診断用に保持し、エラー時のみ最新未確認であることを示す。表示中は約45秒ごと、タブ復帰・回線復帰時に確認する。入力中も同期し、変更していない項目だけリモート値を反映する。同じ項目への変更は下書きを残して選択を求める。保存中・ドラッグ・選択操作による延期は終了後に再開する。開いた詳細や一覧も同期し、対象が範囲外になった場合は前回表示であることを明示して保存を止め、下書きは保持する。aria-busy/liveとreduced-motionに対応する。
 
@@ -197,7 +197,7 @@ Statusは原語名と14pxの色輪郭（2px）＋12%色を混ぜた淡い内側�
 
 進捗は40件まで1task=1segment、完了数だけ塗り、数字を残す。0件は空のtrack、41件以上は極細目盛りを偽って並べず連続バー＋正確な数値へ戻しtooltip/ariaで多数のため連続表示と伝える。分母や完了判定は従来どおり。最新指定により進捗完了色は青のprogress-completeとし、Statusの完了greenとは別の意味にする。GitHub Projectsの見慣れた表現を優先する。参考画像の8px程度のflatな帯を3px間隔で分割し、全体の左右端を丸く、内部の区切りは直線にする。paddingは0、trackは透明（0件はprogress-track）、未完了はprogress-pending、完了はprogress-complete。skeuomorphicな溝・inset・shadow・gradientは使わない。パーセント表示は加えない。数字はtabular-numsで右揃え。
 
-常設B/見出し/リスト/コードの書式列は削除。原文/読み取り表示だけ作者行右側の小さなアイコンへ。Markdown直入力、⌘/Ctrl+B・I・Shift+H・Shift+L・EとUndo/Redo/保存を利用でき、IME中は書式変更しない。
+常設B/見出し/リスト/コードの書式列は削除。作者行右側にはその他メニューのみ置き、必要時の原文確認へ入る。Markdown直入力、⌘/Ctrl+B・I・Shift+H・Shift+L・EとUndo/Redo/保存を利用でき、IME中は書式変更しない。
 
 mermaid fenceは近傍でWorker描画し、通常は図、選択/鉛筆では原文。Fitと拡大縮小、拡大後の明示dragを用意。図のcanvasはoverflow:hiddenでホイール対象にせず、overscrollを封じない。通常wheelは本文へ自然に流し、図のscale/位置を変えない。Cmd/Ctrlのブラウザーzoomも横取りしない。図の外部画像/リンクは無効、エラーと元コードはその図の中に収める。詳細な安全上限はADR008を参照。
 
@@ -224,6 +224,12 @@ GitHubの既知の視覚表現で認知負荷を下げ、操作はチーム向�
 
 関連PRはタイトル下・本文上の文脈欄に、状態アイコン＋#番号＋タイトルの丸いリンクで置く。GitHubの正式なclosing/manual linkのみ、固定repoの公開PRのみを扱い、新しいタブで開く。本文とは独立して取得し、空は欄を隠し、取得不可には再試行を示す。open/draft/merged/closed-unmergedを区別し、StatusやIssue完了判定へ混入させない。
 
-アイコンは[GitHub Octicons](https://primer.style/octicons/) 19.42.0（MIT）をビルド時に必要11個だけ抽出する。Lucideのvanilla/tree-shakingも比較したが、今回のGitHub慣例とPR状態表現に合うOcticonsを選ぶ。人気を無欠陥の保証とはしない。runtime CDN/React移行/全icon bundleは不要。共通Iconは16px viewBox・fill currentColor、IconButtonは32px以上、Kbdは22px四方・同一line-height。Macは⌘/Return、その他はCtrl/Enter。更新時もSVGを文字に置換せず、button-local busyと回転（reduced-motionで停止）、disabled、accessible nameを保つ。
+アイコンは[GitHub Octicons](https://primer.style/octicons/) 19.42.0（MIT）をビルド時に必要12個だけ抽出する。Lucideのvanilla/tree-shakingも比較したが、今回のGitHub慣例とPR状態表現に合うOcticonsを選ぶ。人気を無欠陥の保証とはしない。runtime CDN/React移行/全icon bundleは不要。共通Iconは16px viewBox・fill currentColor、IconButtonは32px以上、Kbdは22px四方・同一line-height。Macは⌘/Return、その他はCtrl/Enter。更新時もSVGを文字に置換せず、button-local busyと回転（reduced-motionで停止）、disabled、accessible nameを保つ。
 
 限定disclosure: parse5 8.0.1（MIT）の非DOMパーサーとLezerのコード範囲で、対応するdetails終端まで抽出する。native details/summaryを新規生成し、元属性はopen真偽だけ移す。summaryは安全なplain text（強調等は文字だけ）、内部は開いた時に既存Markdown/media/diagramルートで描画する。閉じた本文はstringのまま、閉じると媒体/図を破棄する。明示openは初期展開。欠けたsummary/終端、過度なネスト（4段階）/件数（20）は原文fallback。汎用HTMLの許可範囲を増やさず、style/on*/id/name/form/iframeや外部callbackを通さない。raw Markdownは変更せず、toggleだけでdirtyにならない。
+
+ライブ内リンクは通常クリックで編集、MacはCmd+click、その他はCtrl+clickで安全なHTTP(S) URLを新タブへ開く。hover/カーソル時に小さな開くリンクを出し、修飾キーを知らなくても操作可能にする。URLは構文木とMarkdown参照定義から解決し、code/画像/危険protocolでは移動しない。raw・undoを変更しない。
+
+操作tooltipはFloating UI DOM 1.8.0（MIT）のcomputePosition/autoUpdateで配置。hover/focus開始に待ち時間を設けず、濃い中立面と白文字のcompact表示。triggerとtooltip間の120ms close猶予でpointer移動を許し、tooltip上で保持する。aria-describedbyと独立したaccessible name、Escape dismiss、新hover/focus周期まで再表示抑制、scroll/click/close cleanupを共通化。native titleは同じ操作要素から除去する。F8は本文/補助操作内のみ、IME・修飾キー・repeat・closing時は無効。既存保存と全画面shortcutは不変。
+
+限定HTMLの耐入力性: details深さ4/件数20に加え、全HTMLノード深さ64・2000個を上限に反復走査し、深いdivやsummaryでも再帰stackを消費せず原文fallbackにする。

@@ -153,3 +153,7 @@ Peleは本体とは別のworker asset（minify約677KB、gzip258,052 bytes）。
 図上の実wheel(50,220)で、両解像度とも親Issue scrollTop0→220、拡大図scrollTop/Left0のまま、width2050.78px不変。実公開図原文を配信rendererの読み取り面へブラウザー内だけ投入し、GitHubへは書き込んでいない。Fit/拡大中央/境界/上下斜め・live/readはfixtureで回帰。
 
 Demo goalの長文可視高は実本番1920で133→151px、2560で152→216px。上下padding10.18/30px→6px、font12/15pxは同一。整数行のviewportと内部scrollを維持。横paddingも12pxへ揃えたため、短い文が少ない行で収まる場合は高さが減るが全文は表示される。配色は白面・濃い本文、進捗はStatusと独立した青へ変更。
+
+### ライブ単一面・tooltip追補
+
+Floating UI DOM 1.8.0をnamed importでローカルbundle化（ui-tools.js約18KB minified）。全アイコンmapは配信せずOcticons12個のbuild時subset。本文用CodeMirror/parse5は従来同様Issueを開いた時のlazy bundleで、board初期取得へPR/comments/renderを直列追加しない。関連PR実読取は#823 1813ms、#737 1348ms（各1回、改善率の比較ではない）。この追補は操作の単純化と耐入力性が目的で、初回board速度改善を主張しない。

@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { setup, fillEditor } from "./fixtures";
+import {
+  setup,
+  fillEditor,
+  renderReadHarness,
+  closeReadHarness,
+} from "./fixtures";
 import { readFile } from "node:fs/promises";
 const asset =
   "https://github.com/user-attachments/assets/00000000-0000-4000-8000-000000000001";
@@ -43,7 +48,7 @@ test("inline pencil rename accepts locally, cancels with Escape, and preview kee
   await expect(page.locator("#detail-heading")).toHaveText("新しいタイトル");
   await page.locator("#rename-issue").click();
   await page.locator("#detail-title").fill(original);
-  await page.locator("#markdown-preview").click();
+  await renderReadHarness(page);
   await expect(page.locator("#detail-body-view p").first()).toHaveCSS(
     "font-size",
     "16px",
@@ -52,7 +57,7 @@ test("inline pencil rename accepts locally, cancels with Escape, and preview kee
     "color",
     "rgb(24, 43, 73)",
   );
-  await page.locator("#markdown-write").click();
+  await closeReadHarness(page);
   await expect(page.locator(".cm-content")).toHaveCSS("font-size", "16px");
   expect(s.posts()).toBe(0);
 });
@@ -166,7 +171,7 @@ test("safe lazy media never delays text; video previews without autoplay and sto
     .fill(
       `本文は先に表示\n\n![画像](${imageUrl})\n\n${asset}\n\n\`\`\`\n${asset}\n\`\`\`\n\n![危険](https://github.com.evil/x)`,
     );
-  await page.locator("#markdown-preview").click();
+  await renderReadHarness(page);
   await expect(page.locator("#detail-body-view")).toContainText(
     "本文は先に表示",
   );

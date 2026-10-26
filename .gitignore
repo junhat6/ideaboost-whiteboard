@@ -18,3 +18,5 @@ web/editor-bundle.js
 web/diagram-worker.js
 
 web/icons.js
+
+web/ui-tools.js

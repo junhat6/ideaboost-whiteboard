@@ -21,6 +21,8 @@ export default [
       "dist/**",
       "web/editor-bundle.js",
       "web/diagram-worker.js",
+      "web/ui-tools.js",
+      "web/icons.js",
     ],
   },
 ];

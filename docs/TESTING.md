@@ -126,3 +126,9 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 正常な同期/保存済みはhiddenでlive通知しない。POSTをgateした合成試験で、送信本文と後続入力を分離し、後続本文・Status変更・dirty-close警告を保持、重複POSTなしを確認する。担当者checkは全6候補の矩形がtile/scroll領域内に収まりSpaceで選択解除/再選択可能であることを両サイズで検証。
 
 関連PRは正式relationのみ・固定repo/public・全状態・50件cursor・unsafeURL・遅延切替・非公開で消去を確認。OcticonsのviewBox/filled path、MacとWindows keycapsの22px同寸、refresh中の16px維持を確認。detailsはcomplete source範囲、CRLF/コードフェンス/不正終端/ネスト過多、展開前の媒体0、展開後Markdown/Mermaid、malicious属性/HTML、close cleanupを検証。ライブラリは非DOM parse5を使い、構造解析で外部通信しない。
+
+### ライブ一本化・リンク・即時tooltip追補
+- 表示モード切替は通常UIから除去。原文はその他メニュー/F8のみ。共有preview rendererはコメント/折り畳みのため保持し、その安全性のbrowser試験はtest-only harnessで呼び出す。製品へ読み取り切替を戻さない。
+- Cmd/Ctrlリンク、通常クリック編集、noopener/noreferrer、参照リンク、危険URL/code除外、原文不変。
+- tooltipは即時hover/focus・hover保持・Escape・modal内viewport包含・native titleなし。F8はIME中無効。
+- 3000層divのdetails/summaryを単体・browserで安全fallback確認。ネイティブ日本語IME実機は未検証で、composition合成試験と区別。

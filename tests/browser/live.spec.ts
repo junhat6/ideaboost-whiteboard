@@ -28,9 +28,11 @@ test("live surface hides syntax until selected, preserves original CRLF, undo an
   await expect(page.locator("#detail-body")).toHaveValue(
     raw.replaceAll("\r\n", "\n"),
   );
+  await page.locator("#editor-options").click();
   await page.locator("#markdown-source").click();
   await expect(page.locator(".cm-content")).toContainText("**太字**");
   await expect(page.locator(".cm-content table")).toHaveCount(0);
+  await page.locator("#editor-options").click();
   await page.locator("#markdown-source").click();
   await expect(page.locator(".cm-content table")).toHaveCount(1);
   expect(s.posts()).toBe(0);
@@ -176,6 +178,7 @@ test("source mode stays selected and visible when a clean remote body is refresh
   const s = await setup(page);
   await page.locator(".task-title").first().click();
   await expect(page.locator(".cm-content")).toBeVisible();
+  await page.locator("#editor-options").click();
   await page.locator("#markdown-source").click();
   await expect(page.locator("#markdown-source")).toHaveAttribute(
     "aria-pressed",
@@ -192,7 +195,9 @@ test("source mode stays selected and visible when a clean remote body is refresh
     "aria-pressed",
     "true",
   );
+  await page.locator("#editor-options").click();
   await page.locator("#markdown-source").click();
+  await page.locator("#editor-options").focus();
   await expect(page.locator(".cm-content")).not.toContainText("##");
   await expect(page.locator(".cm-content")).not.toContainText("**");
   expect(s.posts()).toBe(0);

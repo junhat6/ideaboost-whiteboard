@@ -119,3 +119,28 @@ export async function fillEditor(page: Page, value: string) {
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.insertText(value);
 }
+
+export async function renderReadHarness(page: Page) {
+  await page.locator("#editor-options").click();
+  await page.locator("#markdown-source").click();
+  await page.evaluate(async () => {
+    const module = await import(/* @vite-ignore */ "/editor-bundle.js");
+    const target = document.querySelector("#detail-body-view") as HTMLElement;
+    const input = document.querySelector("#detail-body") as HTMLTextAreaElement;
+    (document.querySelector("#markdown-editor") as HTMLElement).hidden = true;
+    input.hidden = true;
+    target.hidden = false;
+    module.preview(input.value, target);
+  });
+}
+export async function closeReadHarness(page: Page) {
+  await page.evaluate(async () => {
+    const module = await import(/* @vite-ignore */ "/editor-bundle.js");
+    const target = document.querySelector("#detail-body-view") as HTMLElement;
+    module.clearPreview(target);
+    target.hidden = true;
+    (document.querySelector("#markdown-editor") as HTMLElement).hidden = false;
+  });
+  await page.locator("#editor-options").click();
+  await page.locator("#markdown-source").click();
+}

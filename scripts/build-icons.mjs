@@ -8,6 +8,7 @@ const names = [
   "eye",
   "pencil",
   "code",
+  "kebab-horizontal",
   "git-pull-request",
   "git-pull-request-draft",
   "git-pull-request-closed",

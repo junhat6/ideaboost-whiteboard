@@ -1,3 +1,4 @@
+import { editableLinks } from "./links.js";
 import { disclosures } from "./disclosures.js";
 import { prepareDiagrams, releaseDiagrams } from "./diagrams.js";
 import { observeThumbnails, releaseThumbnails } from "./thumbnail-loader.js";
@@ -428,6 +429,7 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
       ...historyKeymap,
     ]),
     EditorView.lineWrapping,
+    editableLinks(),
     editable.of([EditorView.editable.of(true), EditorState.readOnly.of(false)]),
     EditorView.contentAttributes.of({
       "aria-label": "本文（Markdown）",
@@ -445,7 +447,7 @@ export function createEditor(parent, initial, onChange, onComposition, onSave) {
         { tag: tags.strong, fontWeight: "700" },
         { tag: tags.emphasis, fontStyle: "italic" },
         { tag: tags.strikethrough, textDecoration: "line-through" },
-        { tag: tags.link, color: "var(--green)", textDecoration: "underline" },
+        { tag: tags.link, color: "var(--accent)", textDecoration: "underline" },
         {
           tag: [tags.monospace, tags.url],
           fontFamily: "ui-monospace, monospace",

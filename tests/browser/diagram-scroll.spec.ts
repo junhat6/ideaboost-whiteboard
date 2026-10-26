@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { setup } from "./fixtures";
+import { setup, renderReadHarness } from "./fixtures";
 test("real wheel over fit/zoomed diagram flows to parent, explicit drag and Fit remain usable", async ({
   page,
 }) => {
@@ -18,7 +18,7 @@ test("real wheel over fit/zoomed diagram flows to parent, explicit drag and Fit 
   );
   await page.locator(".task-title").first().click();
   for (const mode of ["live", "read"]) {
-    if (mode === "read") await page.locator("#markdown-preview").click();
+    if (mode === "read") await renderReadHarness(page);
     const fig = page.locator(".diagram-shell:visible").first(),
       canvas = fig.locator(".diagram-canvas");
     await expect(canvas.locator("svg")).toBeVisible();
@@ -188,7 +188,9 @@ test("unchanged author keeps avatar DOM through fresh reads, changed author upda
     name: "更新された作者",
   } as any;
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.locator("#issue-author")).toContainText("更新された作者");
+  await expect(page.locator("#issue-author")).toContainText("更新された作者", {
+    timeout: 10000,
+  });
   expect(s.posts()).toBe(0);
 });
 

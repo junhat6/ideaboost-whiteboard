@@ -698,8 +698,7 @@ let editorLatest = null,
   editorOutcome = null;
 let editorBusy = false,
   editorPosting = false,
-  composing = false,
-  previewMode = false;
+  composing = false;
 let editorSession = 0;
 let editorBody = "";
 let titleEditing = false,
@@ -737,7 +736,6 @@ function writeField(key, value) {
     editorBody = value || "";
     $("#detail-body").value = value || "";
     composer?.set(value || "");
-    renderPreview();
   } else if (key === "assignees") {
     for (const login of value || [])
       if (![...$("#detail-assignee").options].some((o) => o.value === login))
@@ -814,27 +812,10 @@ function setComposition(value) {
   }
   updateDirty();
 }
-function renderPreview() {
-  if (previewMode && composerModule)
-    composerModule.preview(editorBody, $("#detail-body-view"));
-}
-function setPreview(value) {
-  if (!value) composerModule?.clearPreview($("#detail-body-view"));
-  previewMode = value;
-  composer?.source(value || sourceVisible);
-  $("#markdown-write").hidden = !value;
-  $("#markdown-preview").hidden = value;
-  $("#markdown-editor").hidden = value;
-  $("#detail-body").hidden = value || !!composer;
-  $("#detail-body-view").hidden = !value;
-  $("#markdown-write").setAttribute("aria-pressed", String(!value));
-  $("#markdown-preview").setAttribute("aria-pressed", String(value));
-  renderPreview();
-}
 async function ensureComposer() {
   try {
     composerModule ||= await (composerPromise ||= import("./editor-bundle.js"));
-    $("#markdown-preview").disabled = false;
+
     renderComments();
     if (!$("#details").open || composer || composing) return;
     // Do not replace a native editor while it owns caret/history or a draft.
@@ -850,11 +831,12 @@ async function ensureComposer() {
       setComposition,
       () => $("#detail-form").requestSubmit(),
     );
-    $("#markdown-preview").disabled = false;
-    setPreview(previewMode);
+
+    composer.source(sourceVisible);
+    $("#detail-body").hidden = true;
   } catch {
     composerPromise = null;
-    $("#markdown-preview").disabled = true;
+
     $(".editor-hint").hidden = false;
     $(".editor-hint").textContent =
       "本文はこの入力欄で編集できます。⌘/Ctrl + Enterで保存";
@@ -1044,6 +1026,7 @@ function progressMarkup(done, total) {
 function fillDetail() {
   sourceVisible = false;
   $("#markdown-source").setAttribute("aria-pressed", "false");
+  $("#markdown-source").innerHTML = "原文を確認 <kbd>F8</kbd>";
   composer?.source(false);
   const t = issue(editing.kind, editing.id);
   if (!t) return;
@@ -1643,7 +1626,6 @@ function openIssue(kind, id) {
   editorBusy = false;
   editorPosting = false;
   composing = false;
-  previewMode = false;
   detailUnavailable = false;
   editing = { kind, id };
   returnFocus = document.activeElement;
@@ -1652,7 +1634,8 @@ function openIssue(kind, id) {
   setupComments();
   setEdit(false);
   $("#details").showModal();
-  setPreview(false);
+  $("#markdown-editor").hidden = false;
+  $("#detail-body").hidden = !!composer;
   ensureComposer();
   loadComments();
   clearLinkedPrs();
@@ -1677,6 +1660,7 @@ function closeDetail() {
     .forEach((n) => composerModule?.clearPreview(n));
   editorSession++; // Accepted close cancels a pending preflight before animation.
   clearLinkedPrs();
+  $("#editor-tools").hidePopover();
   d.classList.add("closing");
   setTimeout(() => {
     d.close();
@@ -1856,15 +1840,39 @@ $("#detail-title").addEventListener("input", updateDirty);
 let sourceVisible = false;
 $("#markdown-source").onclick = () => {
   sourceVisible = !sourceVisible;
-  setPreview(false);
+  $("#markdown-editor").hidden = false;
+  $("#detail-body").hidden = !!composer;
   composer?.source(sourceVisible);
   $("#markdown-source").setAttribute("aria-pressed", String(sourceVisible));
-};
-$("#markdown-write").onclick = () => {
-  setPreview(false);
+  $("#markdown-source").innerHTML =
+    `${sourceVisible ? "ライブ表示へ戻る" : "原文を確認"} <kbd>F8</kbd>`;
+  $("#editor-tools").hidePopover();
+  $("#editor-options").dataset.tooltip = sourceVisible
+    ? "本文の補助操作（原文表示中）"
+    : "本文の補助操作";
   composer?.focus();
 };
-$("#markdown-preview").onclick = () => setPreview(true);
+document.addEventListener("keydown", (event) => {
+  if (
+    event.key !== "F8" ||
+    event.repeat ||
+    event.isComposing ||
+    composing ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.shiftKey ||
+    !$("#details").open ||
+    $("#details").classList.contains("closing") ||
+    !event.target.closest(
+      "#markdown-editor, #detail-body, #editor-options, #editor-tools",
+    )
+  )
+    return;
+  event.preventDefault();
+  $("#markdown-source").click();
+});
+
 $("#cancel-edit").onclick = () => {
   if (!confirm("未保存の変更を破棄しますか？")) return;
   const outcome = editorOutcome;
@@ -2405,17 +2413,16 @@ for (const [id, label, icon] of [
   ["theme", "配色切替", "moon"],
   ["about", "ヘルプ", "question"],
   ["comments-refresh", "コメントを更新", "sync"],
-  ["markdown-preview", "読み取り表示", "eye"],
-  ["markdown-write", "ライブ編集へ戻る", "pencil"],
-  ["markdown-source", "Markdown原文を表示", "code"],
+  ["editor-options", "本文の補助操作（原文切替: F8）", "kebab-horizontal"],
   ["rename-issue", "タイトルを変更", "pencil"],
 ]) {
   const b = document.getElementById(id);
   if (!b) continue;
   b.innerHTML = iconMarkup(icon);
-  b.title = label;
+  b.dataset.tooltip = label;
+  b.removeAttribute("title");
   b.setAttribute("aria-label", label);
   b.classList.add("compact-icon");
 }
-$("#choose-pbis").title = "表示するPBIを選択（最大6件）";
+$("#choose-pbis").dataset.tooltip = "表示するPBIを選択（最大6件）";
 $("#choose-pbis").setAttribute("aria-label", "表示するPBIを選択");

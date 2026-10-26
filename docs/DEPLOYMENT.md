@@ -189,3 +189,10 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 同一SHAのCI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40326588045 （69 backend、148 browser、9.1分）。先行f6e1f62のCI40324712286も成功。
 - 高詳細度のtoolbar/detail入力にinput-borderを適用。titleの三辺透明/下線形式は保ち、下線を同tokenへ。画像取得失敗時の小avatarはselected背景＋ink文字（12.28:1）。実本番で画像要求をabortした両サイズのcomputed styleとPOST0を確認。styles.cssのHTTP200/SHA256一致。
 - DESIGN errors0/warnings39。PBI面は淡青canvas、カードタイトルはinkの実値へ記述を修正。新規の権限・料金・secret変更なし。文書だけの後続commitではアプリを再配信しない。
+
+### GitHub慣例・関連PR・限定details・ライブ一本化
+
+- 先行7項目配信source `eea3bb5af5c84bbe1fba8c8c20d9f407a221de37`、Worker `aca1e08e-6109-4c41-ae7c-44ed5584aea2`。ローカル73 backend/166 browser成功。CI40333320431は通信中断1件のtimeoutで失敗（165成功）であり、成功runとは扱わない。
+- 同じ既存GitHub Appの本番GETで、#823→#836 MERGEDをHTTP200/1813ms、#737→関連なしをHTTP200/1348msで確認。PR readの権限拡張・再認可は不要だった。固定repoの公開PRだけを返し、本文のmentionsを正式リンクと推測しない。
+- 追補はライブリンクのCmd/Ctrlクリック・開くaffordance、live単一面＋その他/F8原文確認、Floating UIの即時tooltip。深いHTML3000段によるdetails再帰を反復走査/上限で安全fallbackへ変更。
+- source/liveは原文文字列と履歴を維持。previewは通常UIから外し、共有rendererの安全試験はtest-only harnessで実施。runtimeの任意HTML許可や権限/secret/課金変更はない。

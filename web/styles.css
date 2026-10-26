@@ -2503,3 +2503,25 @@ input[type="checkbox"] {
 .disclosure-body {
   padding: 0 12px 10px;
 }
+
+.cm-tooltip .editor-link-open,
+.editor-link-open.cm-tooltip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 2px 6px;
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  font: 18px/1 system-ui;
+  text-decoration: none;
+}
+
+/* Live is the default; source is an exceptional helper, not a third mode. */
+#editor-tools { inset: auto 20px auto auto; top: 140px; padding: 6px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--surface); color: var(--ink); box-shadow: 0 8px 24px #182b4926; }
+#editor-tools button { display: flex; align-items: center; gap: 24px; background: transparent; border: 0; color: var(--ink); padding: 8px 12px; }
+#editor-tools button[aria-pressed="true"] { background: var(--selected); }
+.instant-tooltip { position: fixed; visibility: hidden; z-index: 10000; width: max-content; max-width: min(360px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px; color: #fff; background: #252c36; font: 12px/1.5 system-ui, sans-serif; overflow-wrap: anywhere; box-shadow: 0 2px 6px #0002; pointer-events: auto; }

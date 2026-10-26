@@ -181,24 +181,22 @@
               role="toolbar"
               aria-label="本文の表示"
             >
-              <div class="editor-view-actions">
+              <button
+                type="button"
+                id="editor-options"
+                popovertarget="editor-tools"
+                aria-label="本文の補助操作"
+              >
+                …
+              </button>
+              <div id="editor-tools" popover="auto">
                 <button
                   type="button"
                   id="markdown-source"
-                  aria-label="Markdown原文を表示"
-                  title="Markdown原文を表示"
                   aria-pressed="false"
+                  aria-keyshortcuts="F8"
                 >
-                  &lt;/&gt;
-                </button>
-                <button type="button" id="markdown-write" aria-pressed="true">
-                  Markdown</button
-                ><button
-                  type="button"
-                  id="markdown-preview"
-                  aria-pressed="false"
-                >
-                  プレビュー
+                  原文を確認 <kbd>F8</kbd>
                 </button>
               </div>
             </div>
@@ -339,6 +337,7 @@
     <div id="announcement" role="status" aria-live="polite" class="toast"></div>
     <script src="icons.js"></script>
     <script src="app.js"></script>
+    <script src="ui-tools.js"></script>
     <script src="api-adapter.js"></script>
   </body>
 </html>

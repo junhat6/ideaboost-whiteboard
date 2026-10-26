@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { setup, fillEditor } from "./fixtures";
+import {
+  setup,
+  fillEditor,
+  renderReadHarness,
+  closeReadHarness,
+} from "./fixtures";
 
 async function open(page) {
   await page.locator(".task-title").first().click();
@@ -31,7 +36,7 @@ test("immediate Markdown editing preserves raw source, undo, safe GFM preview an
   await page.keyboard.type("XYZ");
   await page.keyboard.press("ControlOrMeta+z");
   await expect(page.locator("#detail-body")).toHaveValue(raw);
-  await page.locator("#markdown-preview").click();
+  await renderReadHarness(page);
   await expect(page.locator("#detail-body-view table")).toHaveCount(1);
   await expect(page.locator("#detail-body-view input")).toBeDisabled();
   await expect(
@@ -39,7 +44,7 @@ test("immediate Markdown editing preserves raw source, undo, safe GFM preview an
       '#detail-body-view script, #detail-body-view img, #detail-body-view a[href^="javascript:"]',
     ),
   ).toHaveCount(0);
-  await page.locator("#markdown-write").click();
+  await closeReadHarness(page);
   await expect(page.locator("#detail-body")).toHaveValue(raw);
   expect(s.posts()).toBe(0);
 });
@@ -246,7 +251,7 @@ test("late editor bundle never replaces a focused native draft or its caret and 
   await input.evaluate((e: HTMLTextAreaElement) => e.setSelectionRange(3, 3));
   release();
   await expect.poll(() => arrived).toBe(true);
-  await expect(page.locator("#markdown-preview")).toBeEnabled();
+  await expect(page.locator("#editor-options")).toBeEnabled();
   await expect(input).toBeVisible();
   await expect(page.locator(".cm-content")).toHaveCount(0);
   await page.waitForTimeout(600);

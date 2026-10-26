@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { setup } from "./fixtures";
+import { setup, renderReadHarness } from "./fixtures";
 test("safe disclosure renders whole Markdown only on expansion, keeps source and blocks hostile HTML", async ({
   page,
 }) => {
@@ -42,7 +42,7 @@ test("safe disclosure renders whole Markdown only on expansion, keeps source and
   await expect(page.locator("#save-issue")).toBeDisabled();
   await detail.locator(":scope > summary").click();
   await expect(detail.locator(":scope > .disclosure-body")).toBeEmpty();
-  await page.locator("#markdown-preview").click();
+  await renderReadHarness(page);
   await expect(page.locator("#detail-body-view .safe-disclosure")).toHaveCount(
     1,
   );

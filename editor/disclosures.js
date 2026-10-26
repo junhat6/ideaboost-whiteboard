@@ -42,34 +42,46 @@ export function disclosures(source) {
     );
     const summary = children[0],
       sl = summary?.sourceCodeLocation;
-    const count = (node, depth = 0) => {
-      if (depth > 4) return 1000;
-      return (
-        (node.tagName === "details" ? 1 : 0) +
-        (node.childNodes || []).reduce(
-          (sum, c) => sum + count(c, depth + (c.tagName === "details" ? 1 : 0)),
-          0,
-        )
-      );
-    };
+    // Bound every HTML node, not just disclosure nesting. No recursive JS walk.
+    let bounded = true,
+      nodes = 0,
+      detailCount = 0;
+    const stack = [[n, 0, 0]];
+    while (stack.length) {
+      const [node, depth, detailsDepth] = stack.pop();
+      const nextDetails = detailsDepth + (node.tagName === "details" ? 1 : 0);
+      if (++nodes > 2000 || depth > 64 || nextDetails > 4) {
+        bounded = false;
+        break;
+      }
+      if (node.tagName === "details" && ++detailCount > 20) {
+        bounded = false;
+        break;
+      }
+      for (const child of node.childNodes || [])
+        stack.push([child, depth + 1, nextDetails]);
+    }
     const valid =
-      !!loc.endTag &&
-      summary?.tagName === "summary" &&
-      !!sl?.endTag &&
-      count(n) <= 20;
-    const text = (node) =>
-      node.nodeName === "#text"
-        ? node.value
-        : ["script", "style", "svg", "math", "iframe", "object"].includes(
-              node.tagName,
-            )
-          ? ""
-          : (node.childNodes || []).map(text).join("");
+      bounded && !!loc.endTag && summary?.tagName === "summary" && !!sl?.endTag;
+    let summaryText = "";
+    if (valid) {
+      const pending = [summary];
+      while (pending.length) {
+        const node = pending.pop();
+        if (node.nodeName === "#text") summaryText += node.value;
+        else if (
+          !["script", "style", "svg", "math", "iframe", "object"].includes(
+            node.tagName,
+          )
+        )
+          pending.push(...[...(node.childNodes || [])].reverse());
+      }
+    }
     result.push({
       from: loc.startOffset,
       to: loc.endOffset,
       valid,
-      summary: valid ? text(summary) : "",
+      summary: summaryText,
       body: valid ? source.slice(sl.endOffset, loc.endTag.startOffset) : "",
       open: n.attrs?.some((a) => a.name === "open") || false,
       raw: source.slice(loc.startOffset, loc.endOffset),

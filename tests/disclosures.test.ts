@@ -23,3 +23,14 @@ test("disclosure source ranges are complete, inert and exclude fenced code", () 
     "\n</details>".repeat(6);
   assert.equal(disclosures(nested)[0].valid, false);
 });
+
+test("deep ordinary HTML and summary nodes fall back without recursive stack overflow", () => {
+  for (const insideSummary of [false, true]) {
+    const deep = "<div>".repeat(3000) + "x" + "</div>".repeat(3000);
+    const raw = insideSummary
+      ? `<details><summary>${deep}</summary>x</details>`
+      : `<details><summary>x</summary>${deep}</details>`;
+    assert.equal(disclosures(raw)[0].valid, false);
+    assert.equal(disclosures(raw)[0].raw, raw);
+  }
+});

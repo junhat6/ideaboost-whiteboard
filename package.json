@@ -16,7 +16,7 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "design:lint": "designmd lint DESIGN.md",
     "deploy": "wrangler deploy",
-    "build:editor": "node scripts/build-icons.mjs && esbuild editor/index.js --bundle --format=esm --minify --outfile=web/editor-bundle.js --legal-comments=inline && esbuild editor/diagram-worker.js --bundle --format=esm --minify --outfile=web/diagram-worker.js --legal-comments=inline",
+    "build:editor": "node scripts/build-icons.mjs && esbuild editor/index.js --bundle --format=esm --minify --outfile=web/editor-bundle.js --legal-comments=inline && esbuild editor/diagram-worker.js --bundle --format=esm --minify --outfile=web/diagram-worker.js --legal-comments=inline && esbuild editor/ui-tools.js --bundle --format=iife --minify --outfile=web/ui-tools.js --legal-comments=inline",
     "pretest:e2e": "npm run build:editor",
     "predev": "npm run build:editor",
     "predeploy": "npm run build:editor"
@@ -27,6 +27,7 @@
     "@codemirror/language": "^6.13.1",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
+    "@floating-ui/dom": "1.8.0",
     "@lezer/highlight": "^1.2.5",
     "@lezer/markdown": "^1.8.1",
     "dompurify": "^3.4.17",
