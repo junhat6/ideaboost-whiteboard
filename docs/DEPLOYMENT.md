@@ -52,3 +52,15 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 右80%のIssue画面、背景更新中の即時開閉、初期/背景同期/失敗/空状態の区別、再試行、reduced-motionを両解像度で確認。
 - 43件backend、48件browser、lint/typecheck/build成功。Google DESIGN.md lintはエラー0、未参照token警告17。
 - 実GitHub読取は15 PBI/26 tasks。表示6PBI/15cards、タイトル内スクロール0、ページ縦スクロールなし。実IssueのQA書き込み0件。秘密・認可・公開mode・料金設定の変更なし。
+
+## 自動同期補強版
+
+- 配信source: `f77777fd0db6e76e39852f568cd27d222e0b8717`
+- Active Worker version: `10f4dd54-3329-4f77-bdf8-e7a094de3e68`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40282197854
+- 43件backend、64件browser、lint/typecheck/build成功。DESIGN.md lintはエラー0、未参照token警告17。
+- 表示中45秒・focus・onlineで取得し、操作中に保留した同期は終了後に再開。開いた詳細/一覧/担当者候補の追従と初回エラー復帰を追加。
+- 本番の自然な定期取得46.094秒と実offline/online復帰を確認。実Issue変更の伝播はmockで検証し、本番QA書き込みは0件。
+- 追加のPBI問い合わせ統合は実測で改善しなかったため撤回。health/board並列化は維持。今回の追加短縮は確認できず、最終新規3回平均表示5.313秒。全測定値と制約はPERFORMANCE.md。
+- 両解像度で6PBI/14cards、ページスクロール・半端な行・JavaScriptエラーなし。1920では4タイトルに完全行スクロールの既存フォールバックが作動、2560では0件。詳細はPERFORMANCE.md。
+- 秘密・認証mode・公開範囲・料金・GitHub App設定の変更なし。既存デモも変更なし。

@@ -527,12 +527,10 @@ test("first load has six-row skeleton, honest slow state, reduced motion and no 
   await expect(page.locator("#board")).toHaveAttribute("aria-busy", "true");
   await expect(page.locator("#empty")).toContainText("GitHubから読み込み中");
   await expect(page.locator("#empty")).not.toContainText("ありません");
-  expect(
-    await page
-      .locator(".skeleton-note")
-      .first()
-      .evaluate((el) => getComputedStyle(el).animationName),
-  ).toBe("none");
+  await expect(page.locator(".skeleton-note").first()).toHaveCSS(
+    "animation-name",
+    "none",
+  );
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(
     page.viewportSize()!.height,
   );
