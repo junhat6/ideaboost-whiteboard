@@ -594,6 +594,15 @@ function stepCell(port, step) {
   rememberCell(port);
   updateCellRange(port);
 }
+function focusCellStart(port) {
+  const index = Math.min(
+    port.children.length - 1,
+    Math.floor((port.scrollTop + 1) / port.clientHeight),
+  );
+  (port.children[index]?.querySelector("[data-open]") || port).focus({
+    preventScroll: true,
+  });
+}
 function revealCard(target) {
   const port = target?.closest(".cell-viewport");
   if (!port) return;
@@ -1879,11 +1888,11 @@ $("#board").addEventListener("click", (e) => {
     more = e.target.closest("[data-cell-step]");
   if (task) openIssue("Task", task.dataset.open || task.dataset.task);
   if (pbi) openIssue("PBI", pbi.dataset.pbi || pbi.dataset.pbiRow);
-  if (more)
-    stepCell(
-      more.closest(".task-cell").querySelector(".cell-viewport"),
-      Number(more.dataset.cellStep),
-    );
+  if (more) {
+    const port = more.closest(".task-cell").querySelector(".cell-viewport");
+    stepCell(port, Number(more.dataset.cellStep));
+    if (e.detail === 0) focusCellStart(port);
+  }
 });
 $("#board").addEventListener("keydown", (e) => {
   const port = e.target.closest(".task-cell")?.querySelector(".cell-viewport");
@@ -1897,7 +1906,7 @@ $("#board").addEventListener("keydown", (e) => {
       rememberCell(port);
       updateCellRange(port);
     }
-    port.focus({ preventScroll: true });
+    focusCellStart(port);
   }
 });
 // Image errors do not bubble, so listen in capture phase across board rerenders.

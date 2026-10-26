@@ -207,3 +207,14 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 5assetsのHTTP200/SHA256一致を確認。最終追補のapp.js/styles.cssも再確認。本文DOM準備は最初のIssue190/194ms、次Issue12/13ms（取得済みboardからのopen、GitHub取得待ちを含まない）。board表示5077/1515msは各1回の観測で、cold/hit混在のため速度改善率を主張しない。
 - 本番はread-only QAのみ。実Issue/PR/コメントを書き換えていない。ネイティブ日本語IME実機は未検証、composition合成試験は通過。関連PRは固定repoの公開PRのみ、detailsは限定構文と安全fallback。匿名公開モード・secret・権限・料金は変更なし。リポジトリPRIVATEを再確認。
 - この後の記録追補は文書のみであり、アプリ再配信は不要。上記CIは配信sourceに対応する。
+
+### セル内の付箋・PBI担当者・描画軽量化
+
+- 配信source: `e3e9644df9077c7746995dcd4e76041a212b390d`
+- Worker version: `7ddfe6b9-d732-41d0-bc27-a836d8a1f033`
+- ローカルcheck成功（77 unit/integration）、両解像度186 browser成功（50.3秒）。DESIGN errors0/warnings39。CIの最終結果は下の追補を参照。
+- 同じ付箋のセル内scroll、範囲/総数と上下操作、詳細/同期/resize/filter復帰、PBI正本担当avatarを配信。元のドラッグ→Status更新と同列raw Status保持、6行/先頭4枚の完全表示を維持。
+- 本番1920×1080/2560×1440で実セルの5枚目へ移動し、Issue開閉後の位置・focus復帰、先頭4枚矩形包含、PBI担当と正本一致を確認。変更4assetsのHTTP200/SHA256一致、POST0、JSエラー0。画像も目視確認。
+- 各1回の本番観測: board表示6404/2011ms、続きIssueのクリック→CodeMirror準備825/220ms。cold/hitや初回bundle差が混ざるため改善率とは扱わない。GitHub読み取りの経路・鮮度は変更していない。
+- CPUの同条件比較は `OVERNIGHT-2026-10-27.md`。タイトルfitをバッチ化し、追加DOMを含むボード再描画中央値1920:88.9→24.9ms、2560:121.1→32.4ms。長文live同一行カーソル200transaction中央値29.6→6.2ms。いずれもローカル合成fixtureのCPU値。
+- ソースPRIVATEを再確認。既存public-temporary、秘密、権限、料金は変更なし。実Issue/PR/コメントのQA書込みなし。位置はセッション内のみ保持し、ブラウザーreloadを跨ぐ保存は導入しない。

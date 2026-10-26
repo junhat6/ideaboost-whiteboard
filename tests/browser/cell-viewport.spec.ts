@@ -32,6 +32,9 @@ test("continued sticky returns to the same position across detail, poll and resi
   await expect(cell.locator(".cell-range")).toHaveText("1–4 / 5");
   await page.keyboard.press("PageDown");
   await expect(cell.locator(".cell-range")).toHaveText("5–5 / 5");
+  await expect(last).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#details")).toBeVisible();
   expect(s.posts()).toBe(0);
 });
 
