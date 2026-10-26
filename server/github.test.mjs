@@ -68,7 +68,9 @@ test("paginates, preserves null status and formal parent outside project; filter
     "milestone:Sprint",
   );
   assert.equal(
-    f.calls.filter((c) => c.parsed?.query?.includes("BoardItems")).length,
+    f.calls.filter((c) =>
+      /BoardItems|BoardBootstrap/.test(c.parsed?.query ?? ""),
+    ).length,
     2,
   );
   assert.equal(JSON.stringify(b).includes("SECRET"), false);
@@ -175,9 +177,10 @@ test("contextual view filter is explicitly not applied", async () => {
   const d = await (await f.handler(req(), env)).json();
   assert.equal(d.scope.filterApplied, false);
   assert.equal(
-    f.calls.find((c) => c.parsed?.query?.includes("BoardItems")).parsed
-      .variables.filter,
-    "",
+    f.calls
+      .find((c) => c.parsed?.query?.includes("BoardBootstrap"))
+      .parsed.query.includes("query:$filter"),
+    false,
   );
 });
 test("parent PBI outside project status write is rejected", async () => {
@@ -288,9 +291,10 @@ test("type:PBI view selects rows, expands formal children and descendants, exclu
     filter,
   );
   assert.equal(
-    f.calls.find((c) => c.parsed?.query?.includes("BoardItems")).parsed
-      .variables.filter,
-    "",
+    f.calls
+      .find((c) => c.parsed?.query?.includes("BoardBootstrap"))
+      .parsed.query.includes("query:$filter"),
+    false,
   );
 });
 
@@ -326,7 +330,7 @@ test("independent reads overlap, cold token is single-flight, and parent hydrati
   const handler = createHandler({
     fetch: async (url, opt) => {
       const query = opt.body ? JSON.parse(opt.body).query || "" : "";
-      if (query.includes("BoardItems")) {
+      if (query.includes("BoardRelations")) {
         started.add("items");
         await itemsGate;
       }
@@ -348,7 +352,7 @@ test("independent reads overlap, cold token is single-flight, and parent hydrati
   );
   assert.equal(parents.length, 1);
   assert.deepEqual(parents[0].parsed.variables.ids, ["I1"]);
-  assert.match(response.headers.get("server-timing"), /items;dur=/);
+  assert.match(response.headers.get("server-timing"), /relations;dur=/);
   assert.equal((await response.json()).lanes[0].body, "original");
 });
 
@@ -358,7 +362,8 @@ test("lean Project index hydrates only selected formal descendants and never emi
     fetch: async (url, opt) => {
       const query = opt.body ? JSON.parse(opt.body).query || "" : "";
       const response = await f.fetch(url, opt);
-      if (!query.includes("BoardItems")) return response;
+      if (!query.includes("BoardBootstrap") && !query.includes("BoardItems"))
+        return response;
       assert.equal(query.includes("body"), false);
       assert.equal(query.includes("assignees"), false);
       assert.equal(query.includes("fieldValueByName"), false);
@@ -401,4 +406,93 @@ test("missing Issue hydration fails closed instead of returning an incomplete ed
   const r = await handler(req(), env);
   assert.equal(r.status, 502);
   assert.equal((await r.json()).error, "issue_details_unavailable");
+});
+
+test("opaque index pages stay sequential while relation batches overlap and preserve source order", async () => {
+  const f = fixture();
+  const parent = makeIssue(1, "PBI");
+  const issues = Array.from({ length: 201 }, (_, n) =>
+    makeIssue(n + 2, "Task", parent),
+  );
+  let active = 0,
+    peak = 0;
+  const handler = createHandler({
+    fetch: async (url, opt) => {
+      const b = opt.body ? JSON.parse(opt.body) : {};
+      const q = b.query || "";
+      if (/BoardBootstrap|BoardItems/.test(q)) {
+        const base = await (await f.fetch(url, opt)).json();
+        const start = Number(b.variables?.after || 0);
+        base.data.organization.projectV2.items = {
+          nodes: issues.slice(start, start + 100).map((i) => ({
+            id: "ITEM" + i.number,
+            isArchived: false,
+            content: { id: i.id, repository: i.repository },
+          })),
+          pageInfo: {
+            hasNextPage: start + 100 < issues.length,
+            endCursor: String(start + 100),
+          },
+        };
+        return Response.json(base);
+      }
+      if (q.includes("BoardRelations")) {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) =>
+          setTimeout(resolve, b.variables.ids[0] === "I2" ? 20 : 1),
+        );
+        active--;
+        return Response.json({
+          data: { nodes: issues.filter((i) => b.variables.ids.includes(i.id)) },
+        });
+      }
+      if (q.includes("IssueDetails"))
+        return Response.json({
+          data: {
+            nodes: [parent, ...issues].filter((i) =>
+              b.variables.ids.includes(i.id),
+            ),
+            statuses: b.variables.items.map((id) => ({
+              id,
+              fieldValueByName: { name: "未整理" },
+            })),
+          },
+        });
+      return f.fetch(url, opt);
+    },
+  });
+  const r = await handler(req(), env);
+  assert.equal(r.status, 200);
+  const data = await r.json();
+  assert.equal(peak, 3);
+  assert.deepEqual(
+    data.tasks.map((i) => i.number),
+    issues.map((i) => i.number),
+  );
+  assert.equal(
+    data.tasks.every((i) => i.lane === "I1"),
+    true,
+  );
+  assert.equal(
+    data.tasks.every((i) => i.status === "未整理"),
+    true,
+  );
+});
+
+test("simultaneous cold board requests share one installation token exchange", async () => {
+  const f = fixture();
+  const handler = f.newHandler();
+  const responses = await Promise.all([
+    handler(req(), env),
+    handler(req(), env),
+  ]);
+  assert.equal(
+    responses.every((r) => r.status === 200),
+    true,
+  );
+  assert.equal(
+    f.calls.filter((c) => c.url.includes("/access_tokens")).length,
+    1,
+  );
 });

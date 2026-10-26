@@ -520,13 +520,13 @@ dialog dd {
 }
 .detail-dialog {
   position: fixed;
-  inset: 0 auto 0 0;
+  inset: 0 0 0 auto;
   margin: 0;
   height: 100dvh;
   max-height: 100dvh;
   width: min(600px, 90vw);
-  border-radius: 0 12px 12px 0;
-  border-left: 0;
+  border-radius: 12px 0 0 12px;
+  border-right: 0;
   animation: drawer-in 0.22s ease-out;
 }
 .detail-dialog.closing {
@@ -645,7 +645,7 @@ dialog dd {
 }
 @keyframes drawer-in {
   from {
-    transform: translateX(-100%);
+    transform: translateX(100%);
     opacity: 0.5;
   }
   to {
@@ -655,7 +655,7 @@ dialog dd {
 }
 @keyframes drawer-out {
   to {
-    transform: translateX(-100%);
+    transform: translateX(100%);
     opacity: 0;
   }
 }
@@ -1338,4 +1338,83 @@ dialog dt,
 }
 .lane-progress {
   flex-shrink: 0;
+}
+
+/* Initial load has the same six-row geometry as the real board. */
+.skeleton-row .cell {
+  padding: 18px 12px;
+}
+.skeleton-line,
+.skeleton-note {
+  background: var(--line);
+  opacity: 0.45;
+  border-radius: 5px;
+}
+.skeleton-line {
+  height: 14px;
+  width: 85%;
+  margin-bottom: 12px;
+}
+.skeleton-line.short {
+  width: 60%;
+}
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  height: 75%;
+}
+.is-loading .skeleton-line,
+.is-loading .skeleton-note {
+  animation: skeleton-pulse 1.8s ease-in-out infinite alternate;
+}
+@keyframes skeleton-pulse {
+  to {
+    opacity: 0.2;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-loading .skeleton-line,
+  .is-loading .skeleton-note {
+    animation: none;
+  }
+  .detail-dialog,
+  .detail-dialog.closing {
+    animation: none;
+  }
+}
+#empty {
+  max-width: min(620px, 80vw);
+  color: var(--ink);
+  box-shadow: 0 6px 24px #20252b14;
+}
+#empty-message {
+  margin: 4px 0;
+  font-size: 14px;
+}
+#retry-load {
+  margin-top: 12px;
+}
+.connection {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+#sync-warning {
+  position: fixed;
+  z-index: 12;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(620px, 80vw);
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  box-shadow: 0 6px 24px #20252b14;
+}
+#sync-warning button {
+  margin-left: 12px;
 }

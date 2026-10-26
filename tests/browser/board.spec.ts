@@ -432,7 +432,7 @@ test("long PBI stays within cell with complete lines and visible progress", asyn
   ).toBeLessThan(0.001);
 });
 
-test("left 80% viewer opens and closes immediately during background read, then reconciles", async ({
+test("right 80% viewer opens and closes immediately during background read, then reconciles", async ({
   page,
 }) => {
   const s = await setup(page);
@@ -457,7 +457,7 @@ test("left 80% viewer opens and closes immediately during background read, then 
   await expect(page.locator("#edit-issue")).toBeDisabled();
   await page.waitForTimeout(250);
   const box = await page.locator("#details").boundingBox();
-  expect(box!.x).toBeCloseTo(0, 0);
+  expect(box!.x).toBeCloseTo(page.viewportSize()!.width * 0.2, 0);
   expect(box!.width).toBeCloseTo(page.viewportSize()!.width * 0.8, 0);
   await page.keyboard.press("Escape");
   await expect(page.locator("#details")).not.toBeVisible();
@@ -472,11 +472,11 @@ test("left 80% viewer opens and closes immediately during background read, then 
   await page.locator("#edit-issue").click();
   await page.locator("#detail-body").fill("未保存");
   page.once("dialog", (d) => d.dismiss());
-  await page.mouse.click(page.viewportSize()!.width - 20, 200);
+  await page.mouse.click(20, 200);
   await expect(page.locator("#details")).toBeVisible();
   await expect(page.locator("#detail-body")).toHaveValue("未保存");
   page.once("dialog", (d) => d.accept());
-  await page.mouse.click(page.viewportSize()!.width - 20, 200);
+  await page.mouse.click(20, 200);
   await expect(page.locator("#details")).not.toBeVisible();
   expect(s.posts()).toBe(0);
 });
@@ -499,4 +499,108 @@ test("viewer remains usable on interrupted refresh and explicit retry restores f
   await page.keyboard.press("Escape");
   await expect(page.locator("#details")).not.toBeVisible();
   expect(s.posts()).toBe(0);
+});
+
+test("first load has six-row skeleton, honest slow state, reduced motion and no false empty state", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  await page.route("**/api/health", (r) =>
+    r.fulfill({ json: { configured: true } }),
+  );
+  await page.route("**/api/board", async (r) => {
+    await gate;
+    await r.fulfill({ json: snapshot() });
+  });
+  await page.goto("/");
+  await expect(page.locator(".skeleton-row")).toHaveCount(6);
+  await expect(page.locator("#board")).toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#empty")).toContainText("GitHubから読み込み中");
+  await expect(page.locator("#empty")).not.toContainText("ありません");
+  expect(
+    await page
+      .locator(".skeleton-note")
+      .first()
+      .evaluate((el) => getComputedStyle(el).animationName),
+  ).toBe("none");
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(
+    page.viewportSize()!.height,
+  );
+  await page.clock.fastForward(8000);
+  await expect(page.locator("#empty")).toContainText("通常より時間");
+  await expect(page.locator("#retry-load")).toBeHidden();
+  release();
+  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator(".skeleton-row")).toHaveCount(0);
+  await expect(page.locator("#board")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#empty")).toBeHidden();
+});
+
+test("initial failure survives resize and retries into distinct empty data state", async ({
+  page,
+}) => {
+  await page.route("**/api/health", (r) =>
+    r.fulfill({ json: { configured: true } }),
+  );
+  await page.route("**/api/board", (r) =>
+    r.fulfill({ status: 502, json: { error: "github_request_failed" } }),
+  );
+  await page.goto("/");
+  await expect(page.locator("#empty")).toContainText("502");
+  await expect(page.locator("#retry-load")).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+  await expect(page.locator("#empty")).toContainText("502");
+  await expect(page.locator("#board")).toHaveAttribute("aria-busy", "false");
+  await page.route("**/api/board", (r) =>
+    r.fulfill({ json: { ...snapshot(), lanes: [], tasks: [] } }),
+  );
+  await page.locator("#retry-load").click();
+  await expect(page.locator("#empty")).toContainText("表示するPBIがありません");
+  await expect(page.locator("#empty")).not.toContainText("読み込み中");
+  await expect(page.locator("#retry-load")).toBeHidden();
+  await expect(page.locator(".skeleton-row")).toHaveCount(0);
+});
+
+test("failed background sync preserves cards with an actionable error and last success time", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  await page.route("**/api/board", (r) => r.abort("connectionreset"));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator("#sync-warning")).toBeVisible();
+  await expect(page.locator("#sync-warning")).toContainText("前回の表示を保持");
+  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator("#connection")).toContainText("最終取得");
+  await page.route("**/api/board", (r) => r.fulfill({ json: s.board }));
+  await page.locator("#retry-sync").click();
+  await expect(page.locator("#sync-warning")).toBeHidden();
+  await expect(page.locator("#connection")).not.toContainText("接続エラー");
+  expect(s.posts()).toBe(0);
+});
+
+test("hanging initial read reaches timeout reason and can retry without a reload", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    AbortSignal.timeout = () => nativeTimeout(500);
+  });
+  await page.route("**/api/health", (r) =>
+    r.fulfill({ json: { configured: true } }),
+  );
+  await page.route("**/api/board", () => {});
+  await page.goto("/");
+  await expect(page.locator("#empty")).toContainText(
+    "制限時間内に届きませんでした",
+  );
+  await expect(page.locator("#retry-load")).toBeVisible();
+  await page.route("**/api/board", (r) => r.fulfill({ json: snapshot() }));
+  await page.locator("#retry-load").click();
+  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator("#empty")).toBeHidden();
 });

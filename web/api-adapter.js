@@ -35,11 +35,13 @@
           headers: { Accept: "application/json", ...options.headers },
         },
       );
-    } catch {
+    } catch (cause) {
       const e = new Error(
         options.method === "POST"
           ? "通信が途切れ、保存結果が不明です。再送せず「最新を取得」で確認してください。"
-          : "GitHub連携サーバーに接続できません。表示内容は最新未確認です。",
+          : cause.name === "TimeoutError"
+            ? "GitHubの応答が制限時間内に届きませんでした。もう一度読み込んでください。"
+            : "GitHub連携サーバーに接続できません。通信状態を確認して、もう一度読み込んでください。",
       );
       e.ambiguous = options.method === "POST";
       throw e;
@@ -80,6 +82,7 @@
     if (connected) return;
     if (connecting) return connecting;
     connecting = (async () => {
+      window.Whiteboard.beginConnection();
       const health = await request("/api/health");
       if (!health.configured) throw new Error(messages.github_not_configured);
       let latest = null,

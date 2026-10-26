@@ -14,8 +14,10 @@ const BASE = "https://api.github.com";
 const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:100) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
 const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
-const META = `query BoardMeta { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { id url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter } } } }`;
-const ITEMS = `query BoardItems($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { id isArchived content { ... on Issue { ${ISSUE} } } } pageInfo { hasNextPage endCursor } } } } }`;
+const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } } } } pageInfo { hasNextPage endCursor }`;
+const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter }`;
+const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100) { ${INDEX} } } } }`;
+const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after) { ${INDEX} } } } }`;
 class ApiError extends Error {
   constructor(status, code, extra = {}) {
     super(code);
@@ -352,11 +354,15 @@ export function createHandler({
         timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`);
       }
     };
-    await read("visibility", () => assertPublic(env));
+    const bootstrap = await read("bootstrap", () => gql(env, BOOTSTRAP));
+    const meta = bootstrap?.organization?.projectV2;
+    if (
+      env.AUTH_MODE === "public-temporary" &&
+      (bootstrap?.repository?.isPrivate !== false || meta?.public !== true)
+    )
+      throw new ApiError(403, "scope_not_public");
+    if (!meta) throw new ApiError(502, "project_unavailable");
     const loadMetadata = async () => {
-      const meta = (await read("meta", () => gql(env, META)))?.organization
-        ?.projectV2;
-      if (!meta) throw new ApiError(502, "project_unavailable");
       const viewFilter = meta.view?.filter ?? null;
       const filterApplied =
         applyView && !!meta.view && !/@/.test(viewFilter ?? "");
@@ -403,22 +409,20 @@ export function createHandler({
           "view 16 のフィルターはPBI行に適用しています。カードは選択PBIの正式な子IssueをProject全体から展開しているため、カード自体にはこのフィルターを適用していません。",
         );
       }
-      return { meta, viewFilter, filterApplied, warnings, rowIDs };
+      return { viewFilter, filterApplied, warnings, rowIDs };
     };
     const loadItems = async () => {
       const all = new Map(),
-        parents = new Map();
+        parents = new Map(),
+        index = new Map();
       let after = null,
         done = false;
       for (let page = 0; page < 100; page++) {
-        const connection = (
-          await read("items", () =>
-            gql(env, ITEMS, {
-              after,
-              filter: "",
-            }),
-          )
-        )?.organization?.projectV2?.items;
+        const connection =
+          page === 0
+            ? meta.items
+            : (await read("index", () => gql(env, ITEMS, { after })))
+                ?.organization?.projectV2?.items;
         if (!connection) throw new ApiError(502, "project_items_unavailable");
         for (const item of connection.nodes) {
           const i = item?.content;
@@ -428,9 +432,7 @@ export function createHandler({
             i.repository?.nameWithOwner !== `${OWNER}/${REPO}`
           )
             continue;
-          all.set(i.id, normalize(i, item));
-          if (i.parent?.repository?.nameWithOwner === `${OWNER}/${REPO}`)
-            parents.set(i.parent.id, i.parent);
+          index.set(i.id, item);
         }
         if (!connection.pageInfo.hasNextPage) {
           done = true;
@@ -444,6 +446,41 @@ export function createHandler({
         after = connection.pageInfo.endCursor;
       }
       if (!done) throw new ApiError(502, "project_too_large");
+      // Decouple opaque Project pagination from expensive Issue resolvers. Keep
+      // source order when merging parallel relation batches (never completion order).
+      const ids = [...index.keys()],
+        relations = new Map();
+      for (let offset = 0; offset < ids.length; offset += 400) {
+        const groups = [];
+        for (
+          let at = offset;
+          at < Math.min(ids.length, offset + 400);
+          at += 100
+        )
+          groups.push(ids.slice(at, at + 100));
+        const results = await Promise.all(
+          groups.map((group) =>
+            read("relations", () =>
+              gql(
+                env,
+                `query BoardRelations($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { ${ISSUE} } } }`,
+                { ids: group },
+              ),
+            ),
+          ),
+        );
+        for (const result of results)
+          for (const node of result?.nodes ?? [])
+            if (node?.id) relations.set(node.id, node);
+      }
+      for (const [id, item] of index) {
+        const i = relations.get(id);
+        if (!i || i.repository?.nameWithOwner !== `${OWNER}/${REPO}`)
+          throw new ApiError(502, "issue_relations_unavailable");
+        all.set(id, normalize(i, item));
+        if (i.parent?.repository?.nameWithOwner === `${OWNER}/${REPO}`)
+          parents.set(i.parent.id, i.parent);
+      }
       // Parent fields repeat across siblings. Hydrate only unique parents absent from the Project scan.
       const absent = [...parents.keys()].filter((id) => !all.has(id));
       for (let offset = 0; offset < absent.length; offset += 50) {
@@ -467,7 +504,7 @@ export function createHandler({
       return { all, parents };
     };
     const [
-      { meta, viewFilter, filterApplied, warnings, rowIDs },
+      { viewFilter, filterApplied, warnings, rowIDs },
       { all, parents },
       options,
     ] = await Promise.all([

@@ -44,6 +44,10 @@ let state = clone(initial),
   editorBaseline = null,
   adapter = null,
   connectionError = "",
+  initialLoading = true,
+  initialSlow = false,
+  initialTimer = null,
+  lastReadError = "",
   page = 0,
   editing = null,
   returnFocus = null,
@@ -380,6 +384,7 @@ function matching() {
   );
 }
 function markFresh() {
+  lastReadError = "";
   saveBlocked = false;
   $("#detail-error").hidden = true;
   stale = false;
@@ -392,7 +397,56 @@ function focusSelector(element) {
   }
   return null;
 }
+function renderInitial() {
+  $("#sync-warning").hidden = true;
+  const height = $("#board-scroll").clientHeight;
+  $("#board").style.setProperty("--rows", 6);
+  $("#board").style.setProperty("--row-height", `${(height - 44) / 6}px`);
+  $("#board").setAttribute("aria-busy", String(initialLoading));
+  $("#board").classList.toggle("is-loading", initialLoading);
+  $("#board").innerHTML =
+    `<div class="board-row board-head" role="row">${["PBI", ...columns, "Demo goal"].map((name) => `<div class="cell" role="columnheader">${name}</div>`).join("")}</div>` +
+    Array.from(
+      { length: 6 },
+      () =>
+        `<div class="board-row skeleton-row" aria-hidden="true">${Array.from({ length: 6 }, (_, col) => `<div class="cell">${col === 0 || col === 5 ? '<div class="skeleton-line"></div><div class="skeleton-line short"></div>' : '<div class="skeleton-grid"><div class="skeleton-note"></div><div class="skeleton-note"></div></div>'}</div>`).join("")}</div>`,
+    ).join("");
+  $("#empty").hidden = false;
+  $("#empty-message").textContent = initialLoading
+    ? initialSlow
+      ? "GitHubの応答を待っています。通常より時間がかかっています…"
+      : "GitHubから読み込み中…"
+    : connectionError || "GitHubに接続できません。もう一度読み込んでください。";
+  $("#retry-load").hidden = initialLoading;
+  $("#connection").textContent = initialLoading
+    ? "GitHubから読み込み中…"
+    : "接続できません · 再試行できます";
+  $("#choose-pbis").disabled = true;
+  $("#pagination").hidden = true;
+}
+function beginConnection() {
+  initialLoading = true;
+  initialSlow = false;
+  connectionError = "";
+  clearTimeout(initialTimer);
+  initialTimer = setTimeout(() => {
+    initialSlow = true;
+    if (!adapter && initialLoading) render();
+  }, 7000);
+  render();
+}
 function render() {
+  if (!adapter) {
+    renderInitial();
+    return;
+  }
+  $("#sync-warning").hidden = !stale || !lastReadError || loading;
+  $("#sync-warning-message").textContent = lastReadError
+    ? `同期できませんでした。前回の表示を保持しています。${lastReadError}`
+    : "";
+  $("#board").setAttribute("aria-busy", String(loading));
+  $("#board").classList.remove("is-loading");
+  $("#retry-load").hidden = true;
   const focused = focusSelector(document.activeElement);
   const milestones = state.scope?.milestones || [];
   $("#milestone-filter").hidden = !adapter || !milestones.length;
@@ -444,7 +498,7 @@ function render() {
   $("#connection").textContent = adapter
     ? pending
       ? loading
-        ? "最新データを取得中…"
+        ? "GitHubと同期中…"
         : "接続先に保存中…"
       : stale
         ? "接続エラー · 表示は最新未確認"
@@ -486,7 +540,7 @@ function render() {
   fitCardTitles();
   if (focused) document.querySelector(focused)?.focus({ preventScroll: true });
   $("#empty").hidden = !connectionError && tasks.length !== 0;
-  $("#empty").textContent =
+  $("#empty-message").textContent =
     connectionError ||
     (displayed.length
       ? "一致するタスクはありません。操作から検索条件を変更できます。"
@@ -898,6 +952,7 @@ async function refreshBoard(options, { silent = false } = {}) {
     if (!silent) announce("最新のデータを取得しました。");
     return true;
   } catch (e) {
+    lastReadError = e.message;
     stale = true;
     if (!silent) announce(`取得できませんでした：${e.message}`);
     return false;
@@ -1046,7 +1101,10 @@ window.Whiteboard = {
   statusColumn,
   goal,
   getSnapshot: () => clone(state),
+  beginConnection,
   setConnectionError(message) {
+    initialLoading = false;
+    clearTimeout(initialTimer);
     connectionError = String(message);
     render();
   },
@@ -1072,6 +1130,8 @@ window.Whiteboard = {
     }
     if (!valid(snapshot)) throw new Error("無効なIssueデータです");
     connectionError = "";
+    initialLoading = false;
+    clearTimeout(initialTimer);
     adapter = next;
     state = clone(snapshot);
     selectedMilestone = String(
@@ -1105,6 +1165,11 @@ window.Whiteboard = {
     return true;
   },
 };
+$("#retry-sync").onclick = () => refreshBoard();
+$("#retry-load").onclick = () =>
+  window.Whiteboard.connectApi().catch((e) =>
+    window.Whiteboard.setConnectionError("接続できません：" + e.message),
+  );
 // Read-only reconciliation of external GitHub edits; never replace an open draft.
 async function autoRefresh() {
   if (

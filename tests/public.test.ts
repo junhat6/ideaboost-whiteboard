@@ -114,13 +114,20 @@ test("public data rejects private repo/project and privacy change during board r
     const handler = createHandler({
       fetch: async (url: any, opt: any) => {
         const body = opt.body ? JSON.parse(opt.body) : {};
-        if (body.query?.includes("PublicScope")) {
+        if (
+          body.query?.includes("PublicScope") ||
+          body.query?.includes("BoardBootstrap")
+        ) {
           checks++;
+          const original = body.query.includes("BoardBootstrap")
+            ? await (await f.fetch(url, opt)).json()
+            : { data: { organization: { projectV2: {} } } };
           return Response.json({
             data: {
               repository: { isPrivate: mode === "private-repo" },
               organization: {
                 projectV2: {
+                  ...original.data.organization.projectV2,
                   public:
                     mode !== "private-project" &&
                     !(mode === "changed" && checks > 1),

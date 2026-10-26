@@ -62,12 +62,17 @@
       操作 ☰
     </button>
     <div id="connection" class="connection" role="status">GitHubへ接続中…</div>
+    <div id="sync-warning" role="alert" hidden>
+      <span id="sync-warning-message"></span
+      ><button id="retry-sync" type="button">再試行</button>
+    </div>
     <main>
       <div id="board-scroll" role="region" aria-label="PBI別タスクボード">
         <div id="board" role="table" aria-label="チームの作業状況"></div>
       </div>
-      <div id="empty" hidden>
-        一致するタスクはありません。操作から検索条件を変更できます。
+      <div id="empty" role="status" aria-live="polite" hidden>
+        <p id="empty-message"></p>
+        <button id="retry-load" type="button" hidden>もう一度読み込む</button>
       </div>
       <nav id="pagination" aria-label="PBIページ" hidden>
         <button id="prev-page">← 前</button><span id="page-info"></span

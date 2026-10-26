@@ -72,6 +72,17 @@ export function fixture({
           },
         },
       });
+    if (body.query.includes("BoardRelations"))
+      return Response.json({
+        data: {
+          nodes: [
+            parent,
+            issue,
+            makeIssue(3, "Task", issue),
+            makeIssue(4, "Task"),
+          ],
+        },
+      });
     if (body.query.includes("IssueDetails"))
       return Response.json({
         data: {
@@ -154,11 +165,17 @@ export function fixture({
     };
     return Response.json({
       data: {
+        repository: { isPrivate: false },
         organization: {
           projectV2: {
+            id: "P3",
+            public: true,
+            url: "https://github.com/orgs/engineer-first/projects/3",
+            field: { id: "STATUS", options: [{ id: "WORK", name: "作業中" }] },
+            view: { filter: viewFilter },
             items: {
               nodes:
-                paginate && !body.variables.after
+                paginate && !body.variables?.after
                   ? []
                   : [
                       item,
@@ -180,7 +197,7 @@ export function fixture({
                         : []),
                     ],
               pageInfo: {
-                hasNextPage: paginate && !body.variables.after,
+                hasNextPage: paginate && !body.variables?.after,
                 endCursor: "next",
               },
             },
