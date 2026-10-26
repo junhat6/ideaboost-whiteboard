@@ -659,19 +659,27 @@ function fillDetail() {
     $("#detail-note").textContent =
       "対象Project外の親PBIです。タイトル・本文・担当者は編集できます。Project Statusは変更できません。";
 }
+function updateDetailSync() {
+  const indicator = $("#detail-sync");
+  indicator.hidden = !loading && !stale;
+  indicator.textContent = loading
+    ? "最新を確認中です。取得済みのIssueを表示しています。"
+    : "最新の確認に失敗しました。前回取得した内容です。「最新を取得」で再確認してください。";
+}
 let returnFocusSelector = null;
 function openIssue(kind, id) {
-  if (pending || !adapter) return;
+  if ((pending && !loading) || !adapter || !issue(kind, id)) return;
   editing = { kind, id };
   returnFocus = document.activeElement;
   returnFocusSelector = focusSelector(returnFocus);
   fillDetail();
   setEdit(false);
   $("#details").showModal();
+  updateDetailSync();
   $("#close-detail").focus();
 }
 function closeDetail() {
-  if (pending) return;
+  if (pending && !loading) return;
   if (editMode && !confirm("未保存の変更を破棄して閉じますか？")) return;
   const d = $("#details");
   d.classList.add("closing");
@@ -783,6 +791,17 @@ $("#cancel-edit").onclick = () => {
   setEdit(false);
 };
 $("#close-detail").onclick = closeDetail;
+$("#details").addEventListener("click", (e) => {
+  if (e.target !== $("#details")) return;
+  const bounds = $("#details").getBoundingClientRect();
+  if (
+    e.clientX < bounds.left ||
+    e.clientX > bounds.right ||
+    e.clientY < bounds.top ||
+    e.clientY > bounds.bottom
+  )
+    closeDetail();
+});
 $("#details").addEventListener("cancel", (e) => {
   e.preventDefault();
   closeDetail();
@@ -889,6 +908,7 @@ async function refreshBoard(options, { silent = false } = {}) {
     $("#refresh").disabled = false;
     $("#milestone-filter").disabled = false;
     $("#edit-issue").disabled = false;
+    updateDetailSync();
     render();
   }
 }

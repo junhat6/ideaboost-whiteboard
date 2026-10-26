@@ -177,7 +177,7 @@ test("contextual view filter is explicitly not applied", async () => {
   assert.equal(
     f.calls.find((c) => c.parsed?.query?.includes("BoardItems")).parsed
       .variables.filter,
-    "",
+    "repo:engineer-first/idea-boost",
   );
 });
 test("parent PBI outside project status write is rejected", async () => {
@@ -290,7 +290,7 @@ test("type:PBI view selects rows, expands formal children and descendants, exclu
   assert.equal(
     f.calls.find((c) => c.parsed?.query?.includes("BoardItems")).parsed
       .variables.filter,
-    "",
+    "repo:engineer-first/idea-boost",
   );
 });
 
@@ -314,4 +314,40 @@ test("same-second external body change conflicts by content fingerprint", async 
     f.calls.some((c) => c.method === "PATCH"),
     false,
   );
+});
+
+test("independent reads overlap, cold token is single-flight, and parent hydration is deduplicated", async () => {
+  const f = fixture({ extraTasks: true });
+  let releaseItems;
+  const itemsGate = new Promise((resolve) => {
+    releaseItems = resolve;
+  });
+  const started = new Set();
+  const handler = createHandler({
+    fetch: async (url, opt) => {
+      const query = opt.body ? JSON.parse(opt.body).query || "" : "";
+      if (query.includes("BoardItems")) {
+        started.add("items");
+        await itemsGate;
+      }
+      if (query.includes("BoardRows")) started.add("rows");
+      if (url.includes("/assignees")) started.add("assignees");
+      if (started.has("rows") && started.has("assignees")) releaseItems();
+      return f.fetch(url, opt);
+    },
+  });
+  const response = await handler(req(), env);
+  assert.equal(response.status, 200);
+  assert.equal(started.size, 3);
+  assert.equal(
+    f.calls.filter((c) => c.url.includes("/access_tokens")).length,
+    1,
+  );
+  const parents = f.calls.filter((c) =>
+    c.parsed?.query?.includes("ParentDetails"),
+  );
+  assert.equal(parents.length, 1);
+  assert.deepEqual(parents[0].parsed.variables.ids, ["I1"]);
+  assert.match(response.headers.get("server-timing"), /items;dur=/);
+  assert.equal((await response.json()).lanes[0].body, "original");
 });

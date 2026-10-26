@@ -12,7 +12,7 @@ const STATUSES = [
 ];
 const BASE = "https://api.github.com";
 const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:100) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
-const ISSUE = `${CORE} parent { ${CORE} }`;
+const ISSUE = `${CORE} parent { id issueType { name } repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const META = `query BoardMeta { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { id url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter } } } }`;
 const ITEMS = `query BoardItems($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { id isArchived content { ... on Issue { ${ISSUE} } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name optionId } } } pageInfo { hasNextPage endCursor } } } } }`;
@@ -172,6 +172,7 @@ export function createHandler({
   crypto: crypt = globalThis.crypto,
   now = () => Date.now(),
 } = {}) {
+  const tokenFlights = new Map();
   const tokens = new Map(),
     locks = new Set(),
     requests = new Map();
@@ -184,6 +185,16 @@ export function createHandler({
       env.GITHUB_APP_PRIVATE_KEY;
     const old = tokens.get(key);
     if (old && old.until > now() + 60000) return old.value;
+    if (tokenFlights.has(key)) return tokenFlights.get(key);
+    const flight = issueToken(env, key);
+    tokenFlights.set(key, flight);
+    try {
+      return await flight;
+    } finally {
+      if (tokenFlights.get(key) === flight) tokenFlights.delete(key);
+    }
+  }
+  async function issueToken(env, key) {
     const t = Math.floor(now() / 1000),
       head = b64(bytes(JSON.stringify({ alg: "RS256", typ: "JWT" }))),
       body = b64(
@@ -342,45 +353,128 @@ export function createHandler({
       }
     };
     await read("visibility", () => assertPublic(env));
-    const meta = (await read("meta", () => gql(env, META)))?.organization
-      ?.projectV2;
-    if (!meta) throw new ApiError(502, "project_unavailable");
-    const viewFilter = meta.view?.filter ?? null;
-    const filterApplied =
-      applyView && !!meta.view && !/@/.test(viewFilter ?? "");
-    const all = new Map(),
-      parents = new Map();
-    let after = null,
-      done = false;
-    for (let page = 0; page < 100; page++) {
-      const connection = (
-        await read("items", () => gql(env, ITEMS, { after, filter: "" }))
-      )?.organization?.projectV2?.items;
-      if (!connection) throw new ApiError(502, "project_items_unavailable");
-      for (const item of connection.nodes) {
-        const i = item?.content;
+    const loadMetadata = async () => {
+      const meta = (await read("meta", () => gql(env, META)))?.organization
+        ?.projectV2;
+      if (!meta) throw new ApiError(502, "project_unavailable");
+      const viewFilter = meta.view?.filter ?? null;
+      const filterApplied =
+        applyView && !!meta.view && !/@/.test(viewFilter ?? "");
+      const warnings = [];
+      if (viewFilter && !filterApplied)
+        warnings.push(
+          "GitHub view 16 のフィルターは未適用です。リポジトリ内の非アーカイブ Project 項目を表示しています。",
+        );
+      if (!meta.view)
+        warnings.push("GitHub view 16 の定義を取得できませんでした。");
+      // The saved view selects PBI ROWS, not the child workflow cards.
+      let rowIDs = null;
+      if (filterApplied) {
+        rowIDs = new Set();
+        let cursor = null,
+          complete = false;
+        const query = `query BoardRows($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { isArchived content { ... on Issue { id issueType { name } repository { nameWithOwner } } } } pageInfo { hasNextPage endCursor } } } } }`;
+        for (let page = 0; page < 100; page++) {
+          const c = (
+            await read("rows", () =>
+              gql(env, query, { after: cursor, filter: viewFilter ?? "" }),
+            )
+          )?.organization?.projectV2?.items;
+          if (!c) throw new ApiError(502, "view_rows_unavailable");
+          for (const item of c.nodes) {
+            const i = item?.content;
+            if (
+              !item?.isArchived &&
+              i?.issueType?.name === "PBI" &&
+              i.repository?.nameWithOwner === `${OWNER}/${REPO}`
+            )
+              rowIDs.add(i.id);
+          }
+          if (!c.pageInfo.hasNextPage) {
+            complete = true;
+            break;
+          }
+          if (!c.pageInfo.endCursor || c.pageInfo.endCursor === cursor)
+            throw new ApiError(502, "pagination_error");
+          cursor = c.pageInfo.endCursor;
+        }
+        if (!complete) throw new ApiError(502, "project_too_large");
+        warnings.push(
+          "view 16 のフィルターはPBI行に適用しています。カードは選択PBIの正式な子IssueをProject全体から展開しているため、カード自体にはこのフィルターを適用していません。",
+        );
+      }
+      return { meta, viewFilter, filterApplied, warnings, rowIDs };
+    };
+    const loadItems = async () => {
+      const all = new Map(),
+        parents = new Map();
+      let after = null,
+        done = false;
+      for (let page = 0; page < 100; page++) {
+        const connection = (
+          await read("items", () =>
+            gql(env, ITEMS, {
+              after,
+              filter: "repo:engineer-first/idea-boost",
+            }),
+          )
+        )?.organization?.projectV2?.items;
+        if (!connection) throw new ApiError(502, "project_items_unavailable");
+        for (const item of connection.nodes) {
+          const i = item?.content;
+          if (
+            item.isArchived ||
+            !i?.id ||
+            i.repository?.nameWithOwner !== `${OWNER}/${REPO}`
+          )
+            continue;
+          all.set(i.id, normalize(i, item));
+          if (i.parent?.repository?.nameWithOwner === `${OWNER}/${REPO}`)
+            parents.set(i.parent.id, i.parent);
+        }
+        if (!connection.pageInfo.hasNextPage) {
+          done = true;
+          break;
+        }
         if (
-          item.isArchived ||
-          !i?.id ||
-          i.repository?.nameWithOwner !== `${OWNER}/${REPO}`
+          !connection.pageInfo.endCursor ||
+          connection.pageInfo.endCursor === after
         )
-          continue;
-        all.set(i.id, normalize(i, item));
-        if (i.parent?.repository?.nameWithOwner === `${OWNER}/${REPO}`)
-          parents.set(i.parent.id, normalize(i.parent));
+          throw new ApiError(502, "pagination_error");
+        after = connection.pageInfo.endCursor;
       }
-      if (!connection.pageInfo.hasNextPage) {
-        done = true;
-        break;
+      if (!done) throw new ApiError(502, "project_too_large");
+      // Parent fields repeat across siblings. Hydrate only unique parents absent from the Project scan.
+      const absent = [...parents.keys()].filter((id) => !all.has(id));
+      for (let offset = 0; offset < absent.length; offset += 50) {
+        const ids = absent.slice(offset, offset + 50);
+        const data = await read("parents", () =>
+          gql(
+            env,
+            `query ParentDetails($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { ${CORE} } } }`,
+            { ids },
+          ),
+        );
+        for (const id of ids) {
+          const node = data?.nodes?.find((n) => n?.id === id);
+          if (!node || node.repository?.nameWithOwner !== `${OWNER}/${REPO}`)
+            throw new ApiError(502, "parent_details_unavailable");
+          parents.set(id, normalize(node));
+        }
       }
-      if (
-        !connection.pageInfo.endCursor ||
-        connection.pageInfo.endCursor === after
-      )
-        throw new ApiError(502, "pagination_error");
-      after = connection.pageInfo.endCursor;
-    }
-    if (!done) throw new ApiError(502, "project_too_large");
+      for (const id of parents.keys())
+        if (all.has(id)) parents.set(id, all.get(id));
+      return { all, parents };
+    };
+    const [
+      { meta, viewFilter, filterApplied, warnings, rowIDs },
+      { all, parents },
+      options,
+    ] = await Promise.all([
+      loadMetadata(),
+      loadItems(),
+      read("assignees", () => assignees(env)),
+    ]);
     // A parent excluded by the view may still be in Project 3: fetch its real membership/status.
     const missing = [...parents.values()].filter(
       (p) => p.type === "PBI" && !all.has(p.id),
@@ -407,49 +501,6 @@ export function createHandler({
       }
     }
 
-    const warnings = [];
-    if (viewFilter && !filterApplied)
-      warnings.push(
-        "GitHub view 16 のフィルターは未適用です。リポジトリ内の非アーカイブ Project 項目を表示しています。",
-      );
-    if (!meta.view)
-      warnings.push("GitHub view 16 の定義を取得できませんでした。");
-    // The saved view selects PBI ROWS, not the child workflow cards.
-    let rowIDs = null;
-    if (filterApplied) {
-      rowIDs = new Set();
-      let cursor = null,
-        complete = false;
-      const query = `query BoardRows($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { isArchived content { ... on Issue { id issueType { name } repository { nameWithOwner } } } } pageInfo { hasNextPage endCursor } } } } }`;
-      for (let page = 0; page < 100; page++) {
-        const c = (
-          await read("rows", () =>
-            gql(env, query, { after: cursor, filter: viewFilter ?? "" }),
-          )
-        )?.organization?.projectV2?.items;
-        if (!c) throw new ApiError(502, "view_rows_unavailable");
-        for (const item of c.nodes) {
-          const i = item?.content;
-          if (
-            !item?.isArchived &&
-            i?.issueType?.name === "PBI" &&
-            i.repository?.nameWithOwner === `${OWNER}/${REPO}`
-          )
-            rowIDs.add(i.id);
-        }
-        if (!c.pageInfo.hasNextPage) {
-          complete = true;
-          break;
-        }
-        if (!c.pageInfo.endCursor || c.pageInfo.endCursor === cursor)
-          throw new ApiError(502, "pagination_error");
-        cursor = c.pageInfo.endCursor;
-      }
-      if (!complete) throw new ApiError(502, "project_too_large");
-      warnings.push(
-        "view 16 のフィルターはPBI行に適用しています。カードは選択PBIの正式な子IssueをProject全体から展開しているため、カード自体にはこのフィルターを適用していません。",
-      );
-    }
     const milestones = [
       ...new Map(
         [...all.values()]
@@ -505,9 +556,11 @@ export function createHandler({
       const p = parents.get(task.parentId);
       if (p?.type === "PBI" && !all.has(p.id)) all.set(p.id, p);
     }
-    for (const item of new Set([...all.values(), ...lanes, ...tasks]))
-      item.fingerprint = await fingerprint(item);
-    const options = await read("assignees", () => assignees(env));
+    await Promise.all(
+      [...new Set([...all.values(), ...lanes, ...tasks])].map(async (item) => {
+        item.fingerprint = await fingerprint(item);
+      }),
+    );
     const output = {
       lanes,
       tasks,

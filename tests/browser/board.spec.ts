@@ -431,3 +431,52 @@ test("long PBI stays within cell with complete lines and visible progress", asyn
     Math.abs(result.wholeLines - Math.round(result.wholeLines)),
   ).toBeLessThan(0.001);
 });
+
+test("left 80% viewer opens and closes immediately during background read, then reconciles", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let started = false;
+  await page.route("**/api/board", async (route) => {
+    started = true;
+    await gate;
+    await route.fulfill({ json: s.board });
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => started).toBe(true);
+  await page
+    .locator(".task")
+    .first()
+    .click({ position: { x: 8, y: 8 } });
+  await expect(page.locator("#details")).toBeVisible();
+  await expect(page.locator("#detail-sync")).toContainText("最新を確認中");
+  await expect(page.locator("#edit-issue")).toBeDisabled();
+  await page.waitForTimeout(250);
+  const box = await page.locator("#details").boundingBox();
+  expect(box!.x).toBeCloseTo(0, 0);
+  expect(box!.width).toBeCloseTo(page.viewportSize()!.width * 0.8, 0);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#details")).not.toBeVisible();
+  await page.locator(".pbi-title").first().click();
+  await expect(page.locator("#details")).toBeVisible();
+  s.board.lanes[0].body = "再取得後の正本本文";
+  release();
+  await expect(page.locator("#detail-body-view")).toHaveText(
+    "再取得後の正本本文",
+  );
+  await expect(page.locator("#detail-sync")).toBeHidden();
+  await page.locator("#edit-issue").click();
+  await page.locator("#detail-body").fill("未保存");
+  page.once("dialog", (d) => d.dismiss());
+  await page.mouse.click(page.viewportSize()!.width - 20, 200);
+  await expect(page.locator("#details")).toBeVisible();
+  await expect(page.locator("#detail-body")).toHaveValue("未保存");
+  page.once("dialog", (d) => d.accept());
+  await page.mouse.click(page.viewportSize()!.width - 20, 200);
+  await expect(page.locator("#details")).not.toBeVisible();
+  expect(s.posts()).toBe(0);
+});
