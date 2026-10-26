@@ -256,3 +256,30 @@ test("late editor bundle never replaces a focused native draft or its caret and 
   await expect(input).toHaveValue("日本語の下書き");
   expect(s.posts()).toBe(0);
 });
+test("new submit after accepted close cannot save inside animation and reopening stays usable", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  await open(page);
+  await page.locator(".cm-content").fill("閉じた後には送らない");
+  page.once("dialog", (d) => d.accept());
+  // 同一ブラウザーtaskで閉じる承認直後に新規submit。160ms timer前を確実に通す。
+  const closing = await page.evaluate(() => {
+    (document.querySelector("#close-detail") as HTMLButtonElement).click();
+    const dialog = document.querySelector("#details") as HTMLDialogElement;
+    const state = {
+      open: dialog.open,
+      closing: dialog.classList.contains("closing"),
+    };
+    (document.querySelector("#detail-form") as HTMLFormElement).requestSubmit();
+    return state;
+  });
+  expect(closing).toEqual({ open: true, closing: true });
+  await page.locator("#details").waitFor({ state: "hidden" });
+  expect(s.posts()).toBe(0);
+  await open(page);
+  await page.locator(".cm-content").fill("開き直した後の明示保存");
+  await page.locator("#save-issue").click();
+  await expect.poll(s.posts).toBe(1);
+  await expect(page.locator("#detail-sync")).toContainText("保存しました");
+});

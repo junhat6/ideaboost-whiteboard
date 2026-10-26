@@ -1273,6 +1273,8 @@ $("#detail-form").addEventListener("keydown", (e) => {
 $("#detail-form").onsubmit = async (e) => {
   e.preventDefault();
   if (
+    !$("#details").open ||
+    $("#details").classList.contains("closing") ||
     !editMode ||
     composing ||
     editorBusy ||
@@ -1287,7 +1289,12 @@ $("#detail-form").onsubmit = async (e) => {
   syncEditorControls();
   try {
     const fresh = await refreshBoard(undefined, { silent: true });
-    if (!$("#details").open || editorSession !== session) return;
+    if (
+      !$("#details").open ||
+      $("#details").classList.contains("closing") ||
+      editorSession !== session
+    )
+      return;
     if (
       !fresh ||
       detailUnavailable ||
