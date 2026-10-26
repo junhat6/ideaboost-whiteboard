@@ -151,7 +151,14 @@
           </button>
         </div>
         <div class="editor-statusbar">
-          <span id="detail-sync" role="status"></span>
+          <div class="detail-context">
+            <span id="detail-sync" role="status" hidden></span>
+            <div
+              id="linked-prs"
+              aria-label="関連するプルリクエスト"
+              hidden
+            ></div>
+          </div>
           <div class="dialog-actions">
             <button type="button" id="cancel-edit" hidden>変更を破棄</button
             ><button type="submit" id="save-issue" class="primary" disabled>
@@ -330,6 +337,7 @@
       >
     </dialog>
     <div id="announcement" role="status" aria-live="polite" class="toast"></div>
+    <script src="icons.js"></script>
     <script src="app.js"></script>
     <script src="api-adapter.js"></script>
   </body>

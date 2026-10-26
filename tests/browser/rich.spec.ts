@@ -66,7 +66,7 @@ test("author is distinct, avatar tiles preserve multiple and outside assignments
   ).toBe(
     await page
       .locator(".board-head .status-dot.wait")
-      .evaluate((el) => getComputedStyle(el).backgroundColor),
+      .evaluate((el) => getComputedStyle(el).borderTopColor),
   );
   expect(s.posts()).toBe(0);
   page.once("dialog", (d) => d.accept());
@@ -334,4 +334,131 @@ test("diagram deadline terminates worker and retains source; author bot and null
   );
   await expect(page.locator("#issue-author")).toContainText("削除済み・不明");
   await expect(page.locator("#issue-author")).not.toContainText("tester");
+});
+
+test("column status chips match Issue choices and follow canonical color refresh with neutral fallback", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  const pairs = [
+    ["todo", "未整理", "GRAY"],
+    ["doing", "作業中", "YELLOW"],
+    ["wait", "レビュー中", "ORANGE"],
+    ["done", "完了", "GREEN"],
+  ];
+  const height = await page
+    .locator(".board-head")
+    .evaluate((e) => e.getBoundingClientRect().height);
+  for (const changed of [false, true]) {
+    (s.board.scope as any).statusColors = pairs.map(([, name, color]) => ({
+      name,
+      color: changed ? (name === "作業中" ? "PURPLE" : "UNRECOGNIZED") : color,
+    }));
+    await page.evaluate(
+      (b) => (window as any).Whiteboard.applySnapshot(b),
+      s.board,
+    );
+    await page.locator(".task-title").first().click();
+    for (const [column, raw] of pairs) {
+      const styles = (e: Element) => {
+        const c = getComputedStyle(e),
+          dot = getComputedStyle(e.querySelector("i")!);
+        return {
+          surface: c.backgroundColor,
+          radius: c.borderRadius,
+          ink: c.color,
+          ring: dot.borderTopColor,
+          fill: dot.backgroundColor,
+          size: dot.width,
+          stroke: dot.borderTopWidth,
+        };
+      };
+      const header = page.locator(
+        `.board-head .board-status-label:has(.${column})`,
+      );
+      const choice = page.locator(`#status-choices [data-status="${raw}"]`);
+      // Selected control alone has a check and selected surface; compare its shared marker separately.
+      const actual = await header.evaluate(styles),
+        expected = await choice.evaluate(styles);
+      expect(actual).toMatchObject({
+        radius: expected.radius,
+        ink: expected.ink,
+        ring: expected.ring,
+        fill: expected.fill,
+        size: "14px",
+        stroke: "2px",
+      });
+      expect(await header.getAttribute("aria-pressed")).toBeNull();
+      if (changed && raw !== "作業中")
+        expect(actual.ring).toBe("rgb(87, 96, 106)");
+      if (changed && raw === "作業中")
+        expect(actual.ring).toBe("rgb(130, 80, 223)");
+    }
+    await page.locator("#close-detail").click();
+    await expect(page.locator("#details")).not.toBeVisible();
+    expect(
+      await page
+        .locator(".board-head")
+        .evaluate((e) => e.getBoundingClientRect().height),
+    ).toBe(height);
+  }
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollHeight <= innerHeight,
+    ),
+  ).toBe(true);
+  expect(s.posts()).toBe(0);
+  await page.screenshot({
+    path: `.wrangler/status-match-${page.viewportSize()!.width}.png`,
+  });
+});
+
+test("assignee badges and focus fit inside the scroll viewport at first row and both edges", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  s.board.assigneeOptions = Array.from({ length: 6 }, (_, i) => ({
+    login: `member${i}`,
+    name: `チームメンバー ${i}`,
+    avatarUrl: `https://avatars.githubusercontent.com/u/${i + 1}`,
+  }));
+  s.board.tasks[0].assignees = [...s.board.assigneeOptions];
+  await page.evaluate(
+    (b) => (window as any).Whiteboard.applySnapshot(b),
+    s.board,
+  );
+  await page.locator(".task-title").first().click();
+  const tiles = page.locator(".assignee-tile");
+  for (const tile of await tiles.all()) {
+    await tile.focus();
+    const geometry = await tile.evaluate((e) => {
+      const c = getComputedStyle(e),
+        a = getComputedStyle(e, "::after"),
+        r = e.getBoundingClientRect(),
+        p = e.parentElement!.getBoundingClientRect();
+      const right =
+          r.right - parseFloat(c.borderRightWidth) - parseFloat(a.right),
+        top = r.top + parseFloat(c.borderTopWidth) + parseFloat(a.top);
+      return {
+        left: right - parseFloat(a.width),
+        right,
+        top,
+        bottom: top + parseFloat(a.height),
+        r: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+        p: { left: p.left, right: p.right, top: p.top, bottom: p.bottom },
+      };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(geometry.r.left);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.r.right);
+    expect(geometry.top).toBeGreaterThanOrEqual(geometry.p.top);
+    expect(geometry.bottom).toBeLessThanOrEqual(geometry.p.bottom);
+    await page.keyboard.press("Space");
+    await expect(tile).toHaveAttribute("aria-pressed", "false");
+    await page.keyboard.press("Space");
+    await expect(tile).toHaveAttribute("aria-pressed", "true");
+  }
+  expect(s.posts()).toBe(0);
+  await page.screenshot({
+    path: `.wrangler/assignee-contained-${page.viewportSize()!.width}.png`,
+  });
 });

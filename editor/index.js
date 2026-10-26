@@ -1,3 +1,4 @@
+import { disclosures } from "./disclosures.js";
 import { prepareDiagrams, releaseDiagrams } from "./diagrams.js";
 import { observeThumbnails, releaseThumbnails } from "./thumbnail-loader.js";
 import { observeImages, releaseImages } from "./media-loader.js";
@@ -19,12 +20,26 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 
 const renderedSources = new WeakMap();
-export function preview(source, target) {
+const disclosureChildren = new WeakMap();
+export function preview(source, target, depth = 0) {
   if (renderedSources.get(target) === source) return;
   clearPreview(target);
   renderedSources.set(target, source);
+  const found = disclosures(source);
+  const placeholders = found.map((value) => ({
+    ...value,
+    key: "disclosure-" + crypto.randomUUID(),
+  }));
+  let renderSource = source;
+  for (const d of [...placeholders].reverse())
+    renderSource =
+      renderSource.slice(0, d.from) +
+      "\n\n" +
+      d.key +
+      "\n\n" +
+      renderSource.slice(d.to);
   const fragment = DOMPurify.sanitize(
-    marked.parse(source, { gfm: true, breaks: false }),
+    marked.parse(renderSource, { gfm: true, breaks: false }),
     {
       ALLOWED_TAGS: [
         "p",
@@ -56,6 +71,8 @@ export function preview(source, target) {
         "img",
       ],
       RETURN_DOM_FRAGMENT: true,
+      ALLOW_DATA_ATTR: false,
+      ALLOW_ARIA_ATTR: false,
       ALLOWED_ATTR: [
         "class",
         "href",
@@ -69,7 +86,10 @@ export function preview(source, target) {
       ],
     },
   );
-  fragment.querySelectorAll("[class]").forEach(el=>{if(el.tagName!=="CODE"||el.className!=="language-mermaid")el.removeAttribute("class");});
+  fragment.querySelectorAll("[class]").forEach((el) => {
+    if (el.tagName !== "CODE" || el.className !== "language-mermaid")
+      el.removeAttribute("class");
+  });
   const images = [];
   const thumbnails = [];
   fragment.querySelectorAll("img").forEach((img) => {
@@ -119,6 +139,34 @@ export function preview(source, target) {
     i.type = "checkbox";
     i.disabled = true;
   });
+  const children = new Set();
+  disclosureChildren.set(target, children);
+  for (const d of placeholders) {
+    const marker = [...fragment.querySelectorAll("p")].find(
+      (p) => p.textContent === d.key,
+    );
+    if (!marker) continue;
+    if (!d.valid || depth >= 4) {
+      const pre = document.createElement("pre");
+      pre.textContent = d.raw;
+      marker.replaceWith(pre);
+      continue;
+    }
+    const details = document.createElement("details"),
+      summary = document.createElement("summary"),
+      body = document.createElement("div");
+    details.className = "safe-disclosure";
+    summary.textContent = d.summary || "詳細";
+    body.className = "disclosure-body";
+    details.append(summary, body);
+    marker.replaceWith(details);
+    children.add(body);
+    details.ontoggle = () => {
+      if (details.open) preview(d.body, body, depth + 1);
+      else clearPreview(body);
+    };
+    if (d.open) details.open = true;
+  }
   target.replaceChildren(fragment);
   prepareDiagrams(target);
   observeImages(target, images);
@@ -126,6 +174,11 @@ export function preview(source, target) {
 }
 export function clearPreview(target) {
   renderedSources.delete(target);
+  for (const child of disclosureChildren.get(target) || []) clearPreview(child);
+  disclosureChildren.delete(target);
+  target
+    .querySelectorAll("details.safe-disclosure")
+    .forEach((d) => (d.ontoggle = null));
   releaseDiagrams(target);
   releaseThumbnails(target);
   releaseImages(target);

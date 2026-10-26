@@ -1,3 +1,4 @@
+import { disclosures } from "./disclosures.js";
 import { StateField, StateEffect } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
@@ -57,6 +58,8 @@ class Block extends WidgetType {
   }
 }
 export function livePreview(render, clear) {
+  let disclosureDoc = null,
+    disclosureRanges = [];
   const field = StateField.define({
     create(state) {
       return {
@@ -97,8 +100,22 @@ export function livePreview(render, clear) {
           Decoration.replace(widget ? { widget } : {}).range(from, to),
         );
     };
+    if (disclosureDoc !== state.doc) {
+      disclosureDoc = state.doc;
+      disclosureRanges = disclosures(state.doc.toString());
+    }
+    for (const d of disclosureRanges)
+      if (!active(d.from, d.to))
+        ranges.push(
+          Decoration.replace({
+            block: true,
+            widget: new Block(state.sliceDoc(d.from, d.to), render, clear),
+          }).range(d.from, d.to),
+        );
     syntaxTree(state).iterate({
       enter(n) {
+        if (disclosureRanges.some((d) => n.from >= d.from && n.to <= d.to))
+          return false;
         const name = n.name,
           text = state.sliceDoc(n.from, n.to);
         if (name === "HTMLBlock" && !/^<img\s/i.test(text.trim())) return false;

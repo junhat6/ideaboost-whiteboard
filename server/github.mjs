@@ -1,3 +1,4 @@
+import { normalizeLinkedPrs } from "./linked-prs.mjs";
 import { createComments, validateComment } from "./comments.mjs";
 const OWNER = "engineer-first",
   REPO = "idea-boost",
@@ -1210,6 +1211,41 @@ export function createHandler({
         const options = await assignees(env);
         await assertPublic(env);
         return reply({ assigneeOptions: options });
+      }
+      const linkedMatch = url.pathname.match(
+        /^\/api\/issues\/([1-9]\d{0,8})\/pull-requests$/,
+      );
+      if (linkedMatch && request.method === "GET") {
+        const after = url.searchParams.get("after");
+        if (
+          [...url.searchParams.keys()].some((k) => k !== "after") ||
+          url.searchParams.getAll("after").length > 1 ||
+          (after !== null && !/^[A-Za-z0-9_+/=-]{1,500}$/.test(after))
+        )
+          throw new ApiError(400, "invalid_query");
+        const number = Number(linkedMatch[1]);
+        await commentScope(env, number);
+        const data = await gql(
+          env,
+          `query LinkedPullRequests($number:Int!,$after:String) {
+          repository(owner:"${OWNER}",name:"${REPO}") { isPrivate issue(number:$number) { number
+            closedByPullRequestsReferences(first:50,after:$after,includeClosedPrs:true,excludeUserLinked:false) {
+              nodes { number title url state isDraft repository { nameWithOwner isPrivate } }
+              pageInfo { hasNextPage endCursor }
+            }
+          } }
+        }`,
+          { number, after },
+        );
+        if (data?.repository?.isPrivate !== false)
+          throw new ApiError(403, "scope_not_public");
+        if (data?.repository?.issue?.number !== number)
+          throw new ApiError(404, "issue_out_of_scope");
+        const result = normalizeLinkedPrs(
+          data.repository.issue.closedByPullRequestsReferences,
+        );
+        await assertPublic(env);
+        return reply({ ...result, fetchedAt: new Date().toISOString() });
       }
       const commentMatch = url.pathname.match(
         /^\/api\/issues\/([1-9]\d{0,8})\/comments$/,

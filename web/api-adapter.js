@@ -122,6 +122,12 @@
           latest = loaded;
           return latest;
         },
+        async loadPullRequests(number, after = null) {
+          return request(
+            `/api/issues/${number}/pull-requests` +
+              (after ? "?after=" + encodeURIComponent(after) : ""),
+          );
+        },
         async loadComments(number, page = 1) {
           return request(`/api/issues/${number}/comments?page=${page}`);
         },

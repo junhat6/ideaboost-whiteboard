@@ -16,7 +16,7 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "design:lint": "designmd lint DESIGN.md",
     "deploy": "wrangler deploy",
-    "build:editor": "esbuild editor/index.js --bundle --format=esm --minify --outfile=web/editor-bundle.js --legal-comments=inline && esbuild editor/diagram-worker.js --bundle --format=esm --minify --outfile=web/diagram-worker.js --legal-comments=inline",
+    "build:editor": "node scripts/build-icons.mjs && esbuild editor/index.js --bundle --format=esm --minify --outfile=web/editor-bundle.js --legal-comments=inline && esbuild editor/diagram-worker.js --bundle --format=esm --minify --outfile=web/diagram-worker.js --legal-comments=inline",
     "pretest:e2e": "npm run build:editor",
     "predev": "npm run build:editor",
     "predeploy": "npm run build:editor"
@@ -32,6 +32,7 @@
     "dompurify": "^3.4.17",
     "jose": "^6.1.0",
     "marked": "^18.1.1",
+    "parse5": "8.0.1",
     "pele": "1.10.0"
   },
   "devDependencies": {
@@ -39,6 +40,7 @@
     "@eslint/js": "^9.39.0",
     "@google/design.md": "*",
     "@playwright/test": "^1.56.0",
+    "@primer/octicons": "19.42.0",
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.0",

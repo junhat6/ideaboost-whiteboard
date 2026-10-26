@@ -350,7 +350,7 @@ test("right 88% viewer opens and closes immediately during background read, then
     .first()
     .click({ position: { x: 8, y: 8 } });
   await expect(page.locator("#details")).toBeVisible();
-  await expect(page.locator("#detail-sync")).toContainText("同期中");
+  await expect(page.locator("#detail-sync")).toBeHidden();
   await expect(page.locator("#detail-fields")).toBeEnabled();
   await page.waitForTimeout(250);
   const box = await page.locator("#details").boundingBox();
@@ -363,10 +363,7 @@ test("right 88% viewer opens and closes immediately during background read, then
   s.board.lanes[0].body = "再取得後の正本本文";
   release();
   await expect(page.locator("#detail-body")).toHaveValue("再取得後の正本本文");
-  await expect(page.locator("#detail-sync")).toHaveAttribute(
-    "aria-label",
-    /変更を反映/,
-  );
+  await expect(page.locator("#detail-sync")).toBeHidden();
   await page.locator("#rename-issue").click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("ControlOrMeta+A");
@@ -395,7 +392,7 @@ test("viewer remains usable on interrupted refresh and explicit retry restores f
   );
   await page.route("**/api/board", (route) => route.fulfill({ json: s.board }));
   await page.locator("#recover-edit").click();
-  await expect(page.locator("#detail-sync")).toContainText("保存済み");
+  await expect(page.locator("#detail-sync")).toBeHidden();
   await page.locator("#rename-issue").click();
   await expect(page.locator("#detail-title")).toBeEnabled();
   await page.keyboard.press("Escape"); // タイトル変更だけを取消
@@ -540,10 +537,7 @@ test("polling applies upstream fields, a new child and closed PBI without naviga
   await expect(page.locator("#detail-body")).toHaveValue(target.body);
   await expect(page.locator("#detail-status")).toHaveValue("レビュー中");
   await expect(page.locator("#detail-assignee")).toHaveValues(["new-user"]);
-  await expect(page.locator("#detail-sync")).toHaveAttribute(
-    "aria-label",
-    /変更を反映/,
-  );
+  await expect(page.locator("#detail-sync")).toBeHidden();
   await expect(page.locator('[data-task="new-child"]')).toBeVisible();
   await page.keyboard.press("Escape");
   await page.clock.fastForward(200);
@@ -782,8 +776,7 @@ test("shared snapshot paints actual cards then refreshes immediately, with age a
   });
   await page.goto("/");
   await expect(page.locator(".task")).toHaveCount(96);
-  await expect(page.locator("#connection")).toContainText("直近の取得結果");
-  await expect(page.locator("#connection")).toContainText("秒前");
+  await expect(page.locator("#connection")).toBeHidden();
   await expect.poll(() => freshReads).toBe(1);
   await page.locator(".task-title").first().click();
   await expect(page.locator("#details")).toBeVisible();

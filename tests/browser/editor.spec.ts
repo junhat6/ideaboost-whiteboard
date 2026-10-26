@@ -77,10 +77,7 @@ test("typing during a gated refresh survives; separate remote field merges, same
   await expect(page.locator("#save-issue")).toBeEnabled();
   await page.locator("#save-issue").click();
   await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toHaveAttribute(
-    "aria-label",
-    "保存しました",
-  );
+  await expect(page.locator("#detail-sync")).toBeHidden();
 });
 test("synthetic composition suppresses save and Escape, double submit sends once", async ({
   page,
@@ -101,10 +98,7 @@ test("synthetic composition suppresses save and Escape, double submit sends once
     f.requestSubmit();
   });
   await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toHaveAttribute(
-    "aria-label",
-    "保存しました",
-  );
+  await expect(page.locator("#detail-sync")).toBeHidden();
   expect(s.posts()).toBe(1);
 });
 test("durable unknown-outcome fence survives successful background GET and keeps typing available", async ({
@@ -145,7 +139,7 @@ test("confirmed save stays saved when following GET fails; removed Issue retains
   await fillEditor(page, "保存する本文");
   await page.locator("#save-issue").click();
   await expect(page.locator("#detail-sync")).toContainText(
-    "保存しました。ボードの再同期",
+    "保存は完了しましたが、最新データを取得できません",
   );
   await expect(page.locator("#save-issue")).toBeDisabled();
   await fillEditor(page, "消さない下書き");
@@ -174,10 +168,7 @@ test("cached data can be edited while fresh confirmation waits without overwriti
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await fillEditor(page, "確認中に入力");
   await page.locator("#save-issue").click();
-  await expect(page.locator("#detail-sync")).toHaveAttribute(
-    "aria-label",
-    /保存前/,
-  );
+  await expect(page.locator("#detail-sync")).toBeHidden();
   await fillEditor(page, "確認中にも続けて入力");
   expect(s.posts()).toBe(0);
   release();
@@ -185,10 +176,7 @@ test("cached data can be edited while fresh confirmation waits without overwriti
   await expect(page.locator("#detail-body")).toHaveValue(
     "確認中にも続けて入力",
   );
-  await expect(page.locator("#detail-sync")).toHaveAttribute(
-    "aria-label",
-    "保存しました",
-  );
+  await expect(page.locator("#detail-sync")).toBeHidden();
 });
 test("CRLF original stays clean and title-only save does not rewrite Markdown", async ({
   page,
@@ -237,10 +225,7 @@ test("accepted close cancels preflight immediately even when GET returns inside 
   await fillEditor(page, "次の編集は正常");
   await page.locator("#save-issue").click();
   await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toHaveAttribute(
-    "aria-label",
-    "保存しました",
-  );
+  await expect(page.locator("#detail-sync")).toBeHidden();
 });
 test("late editor bundle never replaces a focused native draft or its caret and undo", async ({
   page,
@@ -296,8 +281,48 @@ test("new submit after accepted close cannot save inside animation and reopening
   await fillEditor(page, "開き直した後の明示保存");
   await page.locator("#save-issue").click();
   await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toHaveAttribute(
-    "aria-label",
-    "保存しました",
+  await expect(page.locator("#detail-sync")).toBeHidden();
+});
+
+test("normal sync stays quiet and typing during POST remains an unsaved draft after confirmation", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  await open(page);
+  await expect(page.locator("#detail-sync")).toBeHidden();
+  await expect(page.locator("#connection")).toBeHidden();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let posts = 0;
+  let sent: any;
+  await page.route("**/api/issues/100", async (route) => {
+    posts++;
+    sent = route.request().postDataJSON();
+    await gate;
+    Object.assign(s.board.tasks[0], sent, { revision: "2026-10-26T00:00:02Z" });
+    await route.fulfill({ json: { ok: true, issue: s.board.tasks[0] } });
+  });
+  await fillEditor(page, "送信する本文");
+  await page.locator("#save-issue").click();
+  await expect.poll(() => posts).toBe(1);
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await expect(page.locator("#detail-fields")).toBeEnabled();
+  await expect(page.locator("#detail-sync")).toBeHidden();
+  await fillEditor(page, "送信後に続けた下書き");
+  await page.getByRole("button", { name: "レビュー中", exact: true }).click();
+  await page.keyboard.press("ControlOrMeta+Enter");
+  expect(posts).toBe(1);
+  expect(sent.body).toBe("送信する本文");
+  release();
+  await expect(page.locator("#save-issue")).toBeEnabled();
+  await expect(page.locator("#detail-body")).toHaveValue(
+    "送信後に続けた下書き",
   );
+  await expect(page.locator("#detail-status")).toHaveValue("レビュー中");
+  await expect(page.locator("#editor-conflicts")).toBeHidden();
+  await expect(page.locator("#detail-sync")).toBeHidden();
+  page.once("dialog", (d) => d.dismiss());
+  await page.locator("#close-detail").click();
+  await expect(page.locator("#details")).toBeVisible();
+  expect(posts).toBe(1);
 });

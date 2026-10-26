@@ -92,7 +92,7 @@ test("real wheel over fit/zoomed diagram flows to parent, explicit drag and Fit 
   }
   expect(s.posts()).toBe(0);
 });
-test("progress has consistent segments, inset track and readable count across edge cases", async ({
+test("progress has flat segments, rounded ends and readable count across edge cases", async ({
   page,
 }) => {
   const s = await setup(page);
@@ -129,7 +129,14 @@ test("progress has consistent segments, inset track and readable count across ed
     await expect(track.locator(".complete")).toHaveCount(
       total <= 40 ? done : 0,
     );
-    await expect(track).toHaveCSS("height", "12px");
+    await expect(track).toHaveCSS("height", "8px");
+    await expect(track).toHaveCSS("box-shadow", "none");
+    await expect(track).toHaveCSS("padding", "0px");
+    await expect(track).toHaveCSS("border-radius", "999px");
+    for (const segment of await track.locator(".progress-segment").all()) {
+      await expect(segment).toHaveCSS("box-shadow", "none");
+      await expect(segment).toHaveCSS("border-radius", "0px");
+    }
     if (total === 6 && done === 1)
       await page.screenshot({
         path: `.wrangler/progress-refined-${page.viewportSize()!.width}.png`,

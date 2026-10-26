@@ -10,6 +10,7 @@ function fixture({
   privateStart = false,
   privateEnd = false,
   malformed = false,
+  linked = false,
 } = {}) {
   let reads = 0,
     scopeReads = 0;
@@ -25,6 +26,25 @@ function fixture({
         return Response.json([]);
       }
       const { query, variables } = JSON.parse(opt.body);
+      if (query.includes("query LinkedPullRequests")) {
+        reads++;
+        assert.ok(query.includes("includeClosedPrs:true"));
+        assert.ok(query.includes("excludeUserLinked:false"));
+        return Response.json({
+          data: {
+            repository: {
+              isPrivate: false,
+              issue: {
+                number: 1,
+                closedByPullRequestsReferences: {
+                  nodes: [],
+                  pageInfo: { hasNextPage: false },
+                },
+              },
+            },
+          },
+        });
+      }
       if (query.includes("query CommentScope")) {
         scopeReads++;
         assert.ok(query.includes("includeArchived:false"));
@@ -82,10 +102,13 @@ function fixture({
   });
   return {
     run: () =>
-      handler(req("/api/issues/1/comments"), {
-        ...env,
-        AUTH_MODE: "public-temporary",
-      }),
+      handler(
+        req(linked ? "/api/issues/1/pull-requests" : "/api/issues/1/comments"),
+        {
+          ...env,
+          AUTH_MODE: "public-temporary",
+        },
+      ),
     reads: () => reads,
     scopeReads: () => scopeReads,
   };
@@ -157,4 +180,17 @@ test("comment public checks fail closed before and after REST read", async () =>
   assert.equal(r.status, 403);
   assert.equal((await r.json()).error, "scope_not_public");
   assert.equal(after.reads(), 1);
+});
+
+test("linked PR endpoint uses narrow scope and final visibility without full board", async () => {
+  const members = [{ isArchived: false, project: { id: "P3" } }];
+  for (const privateEnd of [false, true]) {
+    const f = fixture({ members, linked: true, privateEnd });
+    const r = await f.run();
+    assert.equal(r.status, privateEnd ? 403 : 200);
+    assert.equal(f.reads(), 1);
+  }
+  const denied = fixture({ linked: true });
+  assert.equal((await denied.run()).status, 403);
+  assert.equal(denied.reads(), 0);
 });

@@ -86,6 +86,8 @@ export async function setup(
     }
     if (p.endsWith("/comments") && route.request().method() === "GET")
       return route.fulfill({ json: { comments: [], nextPage: null } });
+    if (p.endsWith("/pull-requests") && route.request().method() === "GET")
+      return route.fulfill({ json: { prs: [], nextCursor: null } });
     posts++;
     if (conflict)
       return route.fulfill({

@@ -1,4 +1,7 @@
 "use strict";
+const iconMarkup = (name) => window.BoardIcons[name] || "";
+const isMacKeyboard = /Mac|iPhone|iPad/.test(navigator.platform);
+const saveKeys = `<span class="keycaps" aria-hidden="true"><kbd>${isMacKeyboard ? "⌘" : "Ctrl"}</kbd><kbd>↵</kbd></span>`;
 const columns = ["ToDo", "Doing", "Wait", "Done"];
 const rawStatuses = [
   "未整理",
@@ -61,7 +64,6 @@ let state = clone(initial),
   autoRefreshRequested = false,
   autoTimer = null,
   bootstrapAttempt = false,
-  detailUpdated = false,
   detailUnavailable = false,
   listContext = null,
   snapshotPending = false;
@@ -544,42 +546,24 @@ function render() {
         .filter(Boolean)
         .join(" · ")
     : "GitHubからの読み込みを待っています。";
-  $("#connection").textContent = adapter
-    ? pending
-      ? loading
-        ? "GitHubと同期中…"
-        : "接続先に保存中…"
-      : editMode
-        ? "編集中 · 入力を保持して自動同期"
-        : stale
-          ? "接続エラー · 表示は最新未確認"
-          : state.scope?.filterApplied === false ||
-              state.filterApplied === false
-            ? "GitHub接続 · ビュー絞り込み未適用"
-            : adapter.label || "GitHub接続済み"
-    : "GitHub 未接続";
-  if (snapshotPending)
-    $("#connection").textContent = lastReadError
-      ? "直近の取得結果 · 最新確認失敗"
-      : "直近の取得結果 · 最新確認中";
-  if (!navigator.onLine)
-    $("#connection").textContent = "オフライン · 表示は最新未確認";
-  if (adapter) {
-    const fetched = state.fetchedAt || lastReceivedAt;
-    if (fetched && !Number.isNaN(Date.parse(fetched))) {
-      $("#connection").textContent +=
-        ` · 最終取得 ${new Date(fetched).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
-      if (snapshotPending)
-        $("#connection").textContent +=
-          `（${Math.max(0, Math.floor((Date.now() - Date.parse(fetched)) / 1000))}秒前）`;
-      $("#connection").title =
-        `最終取得: ${fetched}${stale ? "（最新未確認）" : ""}`;
-    }
-  }
+  const connectionMessage = !navigator.onLine
+    ? "オフライン · 表示は最新未確認"
+    : lastReadError
+      ? "接続エラー · 表示は最新未確認"
+      : state.scope?.filterApplied === false || state.filterApplied === false
+        ? "注意：GitHubビューの絞り込みは未適用"
+        : "";
+  $("#connection").hidden = !connectionMessage;
+  $("#connection").textContent = connectionMessage;
+  $("#connection").removeAttribute("title");
+  const fetched = state.fetchedAt || lastReceivedAt;
+  if (connectionMessage && fetched && !Number.isNaN(Date.parse(fetched)))
+    $("#connection").textContent +=
+      ` · 最終取得 ${new Date(fetched).toLocaleTimeString("ja-JP")}`;
   $("#visible-count").textContent =
     `${tasks.filter((t) => statusColumn(t.status)).length} タスク · 見送り ${tasks.filter((t) => t.status === "見送り").length}`;
   $("#board").innerHTML =
-    `<div class="board-row board-head" role="row"><div class="cell" role="columnheader">PBI <span>${displayed.length}</span></div>${columns.map((s) => `<div class="cell" role="columnheader"><i class="status-dot ${s.toLowerCase()}" style="background-color:${statusColor(targetStatus[s])}"></i>${s}<span>${tasks.filter((t) => statusColumn(t.status) === s).length}</span></div>`).join("")}<div class="cell" role="columnheader">Demo goal</div></div>` +
+    `<div class="board-row board-head" role="row"><div class="cell" role="columnheader">PBI <span>${displayed.length}</span></div>${columns.map((s) => `<div class="cell" role="columnheader"><b class="status-chip board-status-label"><i aria-hidden="true" class="status-dot ${s.toLowerCase()}" style="--status-color:${statusColor(targetStatus[s])}"></i>${s}</b><span>${tasks.filter((t) => statusColumn(t.status) === s).length}</span></div>`).join("")}<div class="cell" role="columnheader">Demo goal</div></div>` +
     lanes
       .map((l) => {
         const own = tasks.filter((t) => t.lane === l.id),
@@ -793,16 +777,22 @@ function syncEditorControls() {
     detailUnavailable ||
     !!editorOutcome ||
     Object.keys(editorConflicts).length > 0;
-  $("#save-issue").innerHTML = editorPosting
+  const saveContent = editorPosting
     ? "保存中…"
     : editorBusy
       ? "確認中…"
-      : "保存 <kbd>⌘↵</kbd>";
+      : `保存 ${saveKeys}`;
+  if ($("#save-issue").innerHTML !== saveContent)
+    $("#save-issue").innerHTML = saveContent;
+  $("#save-issue").setAttribute(
+    "aria-label",
+    `保存（${isMacKeyboard ? "Command Return" : "Ctrl Enter"}）`,
+  );
   $("#cancel-edit").hidden = !dirty;
   $("#cancel-edit").disabled = editorPosting;
-  $("#detail-fields").disabled = editorPosting;
-  $("#detail-title").disabled = editorPosting;
-  composer?.disabled(editorPosting);
+  $("#detail-fields").disabled = false;
+  $("#detail-title").disabled = false;
+  composer?.disabled(false);
   $("#recover-edit").hidden = !editorOutcome && !lastReadError;
   $("#recover-edit").disabled = editorBusy || loading;
   $("#recover-edit").textContent = editorOutcome?.durable
@@ -985,7 +975,6 @@ function renderDetailChoices() {
       root.append(button);
     }
     button.onclick = () => {
-      if (editorPosting) return;
       option.selected = !option.selected;
       select.dispatchEvent(new Event("change", { bubbles: true }));
     };
@@ -1013,7 +1002,7 @@ function renderDetailChoices() {
       button = document.createElement("button");
       button.type = "button";
       button.dataset.status = value;
-      button.className = "status-choice";
+      button.className = "status-choice status-chip";
       const dot = document.createElement("i"),
         label = document.createElement("span");
       dot.className = "status-dot";
@@ -1021,7 +1010,7 @@ function renderDetailChoices() {
       button.append(dot, label);
       choices.append(button);
       button.onclick = () => {
-        if (editorPosting || status.disabled) return;
+        if (status.disabled) return;
         status.value = value;
         status.dispatchEvent(new Event("change", { bubbles: true }));
       };
@@ -1098,63 +1087,22 @@ function fillDetail() {
 }
 function updateDetailSync() {
   const indicator = $("#detail-sync");
-  indicator.hidden = false;
-  indicator.textContent = editorPosting
-    ? "GitHubに保存中…"
-    : editorBusy
-      ? "保存前に最新の内容を確認しています…"
-      : editorOutcome
-        ? "入力を保持しています。保存結果の確認が必要です。"
-        : detailUnavailable
-          ? "現在の表示範囲から外れています。入力は保持しています。"
-          : Object.keys(editorConflicts).length
-            ? "同じ項目にGitHub側の変更があります。内容を選んでください。"
-            : composing || editMode
-              ? "未保存の変更" + (loading ? " · 同期中（入力は保持）" : "")
-              : snapshotPending
-                ? "直近の取得結果 · 最新確認中（入力できます）"
-                : loading
-                  ? "同期中（入力できます）"
-                  : lastReadError
-                    ? editorSaved
-                      ? "保存しました。ボードの再同期は接続回復後に行います。"
-                      : "同期できませんでした。入力は続けられます。"
-                    : editorSaved
-                      ? "保存しました"
-                      : detailUpdated
-                        ? "GitHub側の変更を反映しました"
-                        : "すべての変更を保存済み";
-  indicator.title = indicator.textContent;
-  indicator.setAttribute("aria-label", indicator.textContent);
-  if (
-    !editorOutcome &&
-    !detailUnavailable &&
-    !Object.keys(editorConflicts).length &&
-    !lastReadError
-  ) {
-    indicator.textContent = editorPosting
-      ? "保存中…"
-      : editorBusy
-        ? "確認中…"
-        : editMode || composing
-          ? "● 未保存"
-          : loading || snapshotPending
-            ? "↻ 同期中"
-            : "✓ 保存済み";
-  }
-}
-function detailVersion(i) {
-  return (
-    i &&
-    JSON.stringify([
-      i.revision,
-      i.fingerprint,
-      i.title,
-      i.body,
-      i.status,
-      i.assignees,
-    ])
-  );
+  const message = editorOutcome
+    ? "入力を保持しています。保存結果の確認が必要です。"
+    : detailUnavailable
+      ? "現在の表示範囲から外れています。入力は保持しています。"
+      : Object.keys(editorConflicts).length
+        ? "同じ項目にGitHub側の変更があります。内容を選んでください。"
+        : lastReadError
+          ? editorSaved
+            ? "保存は完了しましたが、最新データを取得できません。接続を再確認してください。"
+            : "同期できませんでした。入力は続けられます。"
+          : "";
+  indicator.hidden = !message;
+  indicator.textContent = message;
+  indicator.title = message;
+  if (message) indicator.setAttribute("aria-label", message);
+  else indicator.removeAttribute("aria-label");
 }
 function reconcileEditor(current) {
   if (!$("#details").open) return;
@@ -1238,12 +1186,115 @@ function renderConflicts() {
     root.append(section);
   }
 }
-function reconcileDetail(previous) {
+function reconcileDetail() {
   if (!$("#details").open) return;
   const current = issue(editing.kind, editing.id);
-  detailUpdated =
-    detailUpdated || detailVersion(previous) !== detailVersion(current);
   reconcileEditor(current);
+}
+let linkedPrFlight = null,
+  linkedPrItems = [],
+  linkedPrCursor = null;
+function clearLinkedPrs() {
+  linkedPrFlight = null;
+  linkedPrItems = [];
+  linkedPrCursor = null;
+  $("#linked-prs").replaceChildren();
+  $("#linked-prs").hidden = true;
+}
+async function loadLinkedPrs(more = false) {
+  if (!adapter?.loadPullRequests || !$("#details").open || linkedPrFlight)
+    return;
+  const session = editorSession,
+    root = $("#linked-prs"),
+    token = {};
+  linkedPrFlight = token;
+  if (!linkedPrItems.length) {
+    root.hidden = false;
+    root.textContent = "PR…";
+  }
+  try {
+    const data = await adapter.loadPullRequests(
+      editorLatest.number,
+      more ? linkedPrCursor : null,
+    );
+    if (session !== editorSession || linkedPrFlight !== token) return;
+    if (!Array.isArray(data.prs)) throw Error("invalid_pr_response");
+    const safe = data.prs.filter(
+      (p) =>
+        Number.isSafeInteger(p.number) &&
+        p.number > 0 &&
+        p.url ===
+          `https://github.com/engineer-first/idea-boost/pull/${p.number}` &&
+        typeof p.title === "string" &&
+        ["OPEN", "CLOSED", "MERGED"].includes(p.state),
+    );
+    linkedPrItems = [
+      ...new Map(
+        [...(more ? linkedPrItems : []), ...safe].map((p) => [p.number, p]),
+      ).values(),
+    ];
+    linkedPrCursor = data.nextCursor || null;
+    root.replaceChildren();
+    for (const p of linkedPrItems) {
+      const a = document.createElement("a"),
+        label = document.createElement("span");
+      const kind =
+        p.state === "MERGED"
+          ? "merged"
+          : p.state === "CLOSED"
+            ? "closed"
+            : p.isDraft
+              ? "draft"
+              : "open";
+      const names = {
+        merged: "マージ済み",
+        closed: "未マージでクローズ",
+        draft: "ドラフト",
+        open: "オープン",
+      };
+      a.className = "linked-pr pr-" + kind;
+      a.href = p.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.title = `${names[kind]} · #${p.number} ${p.title}`;
+      a.setAttribute("aria-label", a.title + "（新しいタブ）");
+      const icons = {
+        open: "git-pull-request",
+        draft: "git-pull-request-draft",
+        closed: "git-pull-request-closed",
+        merged: "git-merge",
+      };
+      a.innerHTML = iconMarkup(icons[kind]);
+      label.textContent = `#${p.number} ${p.title}`;
+      a.append(label);
+      root.append(a);
+    }
+    if (linkedPrCursor) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "ほかのPR";
+      b.onclick = () => loadLinkedPrs(true);
+      root.append(b);
+    }
+    root.hidden = !linkedPrItems.length && !linkedPrCursor;
+  } catch (error) {
+    if (session !== editorSession || linkedPrFlight !== token) return;
+    if (error.code === "scope_not_public") {
+      stopPrivateScope(error.message);
+      return;
+    }
+    root.hidden = false;
+    root.replaceChildren();
+    const text = document.createElement("span"),
+      retry = document.createElement("button");
+    text.textContent = "関連PRを取得できません。";
+    retry.type = "button";
+    retry.textContent = "再試行";
+    retry.onclick = () => loadLinkedPrs();
+    root.append(text, retry);
+  } finally {
+    if (linkedPrFlight === token) linkedPrFlight = null;
+  }
 }
 const commentDrafts = new Map();
 let commentConfirmed = new Map();
@@ -1291,6 +1342,7 @@ function syncCommentControls() {
   $("#post-comment").disabled =
     !entry.body.trim() ||
     !!entry.posting ||
+    editorPosting ||
     !!entry.outcome ||
     commentComposing ||
     detailUnavailable ||
@@ -1299,6 +1351,7 @@ function syncCommentControls() {
   $("#comment-error").hidden = !entry.outcome;
   $("#comment-error").textContent = entry.outcome || "";
   $("#comments-refresh").disabled = commentsLoading;
+  $("#comments-refresh").setAttribute("aria-busy", String(commentsLoading));
   $("#comments-more").hidden = !commentNext;
   $("#comments-more").disabled = commentsLoading;
 }
@@ -1411,6 +1464,7 @@ function stopPrivateScope(message) {
   pending = false;
   loading = false;
   editorSession++;
+  clearLinkedPrs();
   composerModule?.clearPreview($("#detail-body-view"));
   $("#comments-list")
     .querySelectorAll(".comment-content")
@@ -1443,7 +1497,7 @@ async function loadComments(more = false) {
   $("#comments-skeleton").hidden = commentItems.length > 0;
   $("#comments-list").setAttribute("aria-busy", "true");
   $("#comments-status").textContent = commentItems.length
-    ? "コメントを更新中…"
+    ? ""
     : "コメントを読み込み中…";
   syncCommentControls();
   try {
@@ -1538,7 +1592,7 @@ $("#comment-form").onsubmit = async (e) => {
     entry.outcome = null;
     if (session === editorSession) {
       $("#comment-body").value = "";
-      $("#comment-state").textContent = "投稿しました";
+      $("#comment-state").textContent = "";
       if (result.comment) {
         commentConfirmed.set(result.comment.id, result.comment);
         while (commentConfirmed.size > 10)
@@ -1590,7 +1644,6 @@ function openIssue(kind, id) {
   editorPosting = false;
   composing = false;
   previewMode = false;
-  detailUpdated = false;
   detailUnavailable = false;
   editing = { kind, id };
   returnFocus = document.activeElement;
@@ -1602,6 +1655,8 @@ function openIssue(kind, id) {
   setPreview(false);
   ensureComposer();
   loadComments();
+  clearLinkedPrs();
+  loadLinkedPrs();
   updateDetailSync();
   $("#close-detail").focus();
 }
@@ -1621,6 +1676,7 @@ function closeDetail() {
     .querySelectorAll(".comment-content")
     .forEach((n) => composerModule?.clearPreview(n));
   editorSession++; // Accepted close cancels a pending preflight before animation.
+  clearLinkedPrs();
   d.classList.add("closing");
   setTimeout(() => {
     d.close();
@@ -1906,6 +1962,8 @@ $("#detail-form").onsubmit = async (e) => {
       });
     const current = issue(target.kind, target.id);
     if (current) Object.assign(current, result);
+    // Confirm only the sent baseline; edits made during POST remain local drafts.
+    for (const key of editorFields) setBaseField(key, draft[key]);
     reconcileEditor(result);
     editorSaved = true;
     editorOutcome = null;
@@ -1980,13 +2038,12 @@ async function performRefresh(options, { silent = false } = {}) {
   try {
     const next = await adapter.load(options);
     if (!valid(next)) throw new Error("無効なIssueデータです");
-    const previous = editing && issue(editing.kind, editing.id);
     state = clone(next);
     if (options && Object.hasOwn(options, "milestone"))
       selectedMilestone = String(options.milestone ?? "");
     markFresh();
-    reconcileDetail(previous);
-    if (!silent) announce("最新のデータを取得しました。");
+    reconcileDetail();
+    if ($("#details").open) loadLinkedPrs();
     return true;
   } catch (e) {
     lastReadError = e.message;
@@ -2342,33 +2399,20 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Conventional icons retain explicit names and keyboard focus, without permanent prose.
-for (const [id, label, path] of [
-  [
-    "refresh",
-    "最新を取得",
-    "M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2",
-  ],
-  ["fullscreen", "全画面切替（F）", "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"],
-  ["theme", "配色切替", "M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11Z"],
-  [
-    "about",
-    "ヘルプ",
-    "M12 17v.1M9 8a3 3 0 0 1 6 0c0 2-3 2-3 5M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20",
-  ],
-  ["comments-refresh", "コメントを更新", "M20 7v5h-5M6 7a7 7 0 1 1-1 9"],
-  [
-    "markdown-preview",
-    "読み取り表示",
-    "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
-  ],
-  [
-    "markdown-write",
-    "ライブ編集へ戻る",
-    "m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z",
-  ],
+for (const [id, label, icon] of [
+  ["refresh", "最新を取得", "sync"],
+  ["fullscreen", "全画面切替（F）", "screen-full"],
+  ["theme", "配色切替", "moon"],
+  ["about", "ヘルプ", "question"],
+  ["comments-refresh", "コメントを更新", "sync"],
+  ["markdown-preview", "読み取り表示", "eye"],
+  ["markdown-write", "ライブ編集へ戻る", "pencil"],
+  ["markdown-source", "Markdown原文を表示", "code"],
+  ["rename-issue", "タイトルを変更", "pencil"],
 ]) {
   const b = document.getElementById(id);
-  b.innerHTML = `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+  if (!b) continue;
+  b.innerHTML = iconMarkup(icon);
   b.title = label;
   b.setAttribute("aria-label", label);
   b.classList.add("compact-icon");

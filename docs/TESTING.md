@@ -119,3 +119,10 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 限定レビュー追補: toolbar/detailの入力境界をcomputed styleで確認し、titleは三辺透明＋下線の意図した形を保って下線をinput-borderへ。GitHub avatar取得をabortし、fallback背景selected/文字inkを確認。既存146ケース成功後、追加2ケース（両サイズ）も成功。全148ケースをCI対象にする。
 
 最終配信SHA ca687e7 のCI40326588045で、追加分を含む全148 browserケースと69 backendが成功。本番の入力境界/画像失敗fallbackも両サイズで一致した。
+
+### Statusラベルとflat進捗
+詳細のstatus-chipと列見出しの輪郭/内側/文字/角丸の一致、canonical option色の更新と未知色neutral fallback、固定ヘッダー高を両サイズで確認。進捗は0/1/6/40/41件・全完了について件数/要素数、8px・padding0・shadowなし・外端丸・内部直線を検証。読み取り検証のみ、実IssueへのQA書込みなし。
+
+正常な同期/保存済みはhiddenでlive通知しない。POSTをgateした合成試験で、送信本文と後続入力を分離し、後続本文・Status変更・dirty-close警告を保持、重複POSTなしを確認する。担当者checkは全6候補の矩形がtile/scroll領域内に収まりSpaceで選択解除/再選択可能であることを両サイズで検証。
+
+関連PRは正式relationのみ・固定repo/public・全状態・50件cursor・unsafeURL・遅延切替・非公開で消去を確認。OcticonsのviewBox/filled path、MacとWindows keycapsの22px同寸、refresh中の16px維持を確認。detailsはcomplete source範囲、CRLF/コードフェンス/不正終端/ネスト過多、展開前の媒体0、展開後Markdown/Mermaid、malicious属性/HTML、close cleanupを検証。ライブラリは非DOM parse5を使い、構造解析で外部通信しない。

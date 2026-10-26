@@ -101,7 +101,7 @@ test("comments load separately, preserve drafts on refresh, post explicitly as A
     f.requestSubmit();
   });
   await expect.poll(() => posts).toBe(1);
-  await expect(page.locator("#comment-state")).toContainText("投稿しました");
+  await expect(page.locator("#comment-state")).toHaveText("");
   await expect(page.locator("#comment-body")).toHaveValue("");
   await expect(page.locator(".issue-comment")).toHaveCount(2);
   expect(s.posts()).toBe(0);
@@ -325,12 +325,12 @@ test("older first comment page never hides confirmed new post during overlapping
   await open(page);
   await page.locator("#comment-body").fill("今投稿した内容");
   await page.locator("#post-comment").click();
-  await expect(page.locator("#comment-state")).toContainText("投稿しました");
+  await expect(page.locator("#comment-state")).toHaveText("");
   release();
   await expect(page.locator(".issue-comment")).toHaveCount(51);
   await expect(page.locator("#comments-list")).toContainText("今投稿した内容");
   await expect(page.locator("#comments-list")).toContainText("投稿時の内容");
-  await expect(page.locator("#comment-state")).toContainText("投稿しました");
+  await expect(page.locator("#comment-state")).toHaveText("");
 });
 test("post acknowledgement with private transition clears previous content and media immediately", async ({
   page,
