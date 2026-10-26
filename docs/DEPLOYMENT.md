@@ -136,7 +136,8 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 
 - 配信source: `34a0b228c0c5722cc53633754c9296c7765b8f59`
 - Active Worker version: `712753db-2e52-49fb-927a-b4505cad71b9`
-- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40308752176
+- 成功CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40309886457 （検証head `38843dae6d10af969edd43609f6a0082c0334aa4`、配信sourceからアプリコード差分なし）
+- 初回run `40308752176` は117/118成功。残る画像試験はライブ面と読み取り面の明示切替による1〜2要求を区別するよう修正し、成功runで67 backend・118 browserすべて通過。動画の操作前通信0条件は維持。
 - compositionstart/endから独立したセッション状態を持ち、最初の本文変更までview.composingがfalseでも装飾を解除。原文モードはremote body更新によるsetState後も保持する。
 - ローカルcheck（67 backend、lint/typecheck/build）と118 browser成功。開始時本文変更なし→合成IME入力→終了、IME中保存/close抑止、原文表示中のremote更新とaria-pressed整合を両サイズで検証。
 - 本番1920/2560の合成compositionイベント・原文切替・開閉で原文不変、POST0・JS error0。4配信assetsのHTTP200/SHA256一致。実GitHub書き込み・native OS IME検証は未実施。
