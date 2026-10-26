@@ -1039,6 +1039,7 @@ function reconcileDetail(previous) {
   reconcileEditor(current);
 }
 const commentDrafts = new Map();
+let commentConfirmed = new Map();
 let commentItems = [],
   commentNext = null,
   commentsLoading = false,
@@ -1063,6 +1064,7 @@ function setupComments() {
       posting: false,
     });
   commentItems = [];
+  commentConfirmed.clear();
   commentNext = null;
   commentsLoading = false;
   commentComposing = false;
@@ -1099,7 +1101,12 @@ function renderComments() {
     .querySelectorAll(".comment-content")
     .forEach((n) => composerModule?.clearPreview(n));
   root.replaceChildren();
-  for (const c of commentItems) {
+  const loadedIds = new Set(commentItems.map((c) => c.id));
+  const displayed = [
+    ...commentItems,
+    ...[...commentConfirmed.values()].filter((c) => !loadedIds.has(c.id)),
+  ].sort((a, b) => a.id - b.id);
+  for (const c of displayed) {
     const article = document.createElement("article"),
       header = document.createElement("header"),
       author = document.createElement("strong"),
@@ -1134,6 +1141,11 @@ function renderComments() {
       link.rel = "noopener noreferrer";
     }
     header.append(author, link);
+    if (!loadedIds.has(c.id)) {
+      const note = document.createElement("span");
+      note.textContent = "投稿したコメント（投稿時の内容）";
+      header.append(note);
+    }
     if (c.author?.type === "Bot") {
       const bot = document.createElement("span");
       bot.textContent = "GitHub App / Bot";
@@ -1144,6 +1156,39 @@ function renderComments() {
     article.append(header, body);
     root.append(article);
   }
+}
+function stopPrivateScope(message) {
+  state = clone(initial);
+  adapter = null;
+  connectionError = message;
+  initialLoading = false;
+  saveBlocked = true;
+  pending = false;
+  loading = false;
+  editorSession++;
+  composerModule?.clearPreview($("#detail-body-view"));
+  $("#comments-list")
+    .querySelectorAll(".comment-content")
+    .forEach((n) => composerModule?.clearPreview(n));
+  $("#comments-list").replaceChildren();
+  commentItems = [];
+  commentConfirmed.clear();
+  commentDrafts.clear();
+  editorBody = "";
+  editorBaseline = null;
+  editorLatest = null;
+  editMode = false;
+  composing = false;
+  commentComposing = false;
+  composer?.destroy();
+  composer = null;
+  $("#markdown-editor").replaceChildren();
+  $("#detail-body").value = "";
+  $("#detail-title").value = "";
+  $("#comment-body").value = "";
+  $("#details").close();
+  $("#list-dialog").close();
+  render();
 }
 async function loadComments(more = false) {
   if (commentsLoading || !adapter?.loadComments || !$("#details").open) return;
@@ -1172,6 +1217,10 @@ async function loadComments(more = false) {
       ? `${commentItems.length}件のコメント`
       : "まだコメントはありません。";
   } catch (error) {
+    if (error.code === "scope_not_public") {
+      stopPrivateScope(error.message);
+      return;
+    }
     if (session === editorSession)
       $("#comments-status").textContent =
         "コメントを取得できませんでした。「更新」で再確認できます。";
@@ -1241,6 +1290,9 @@ $("#comment-form").onsubmit = async (e) => {
       $("#comment-body").value = "";
       $("#comment-state").textContent = "投稿しました";
       if (result.comment) {
+        commentConfirmed.set(result.comment.id, result.comment);
+        while (commentConfirmed.size > 10)
+          commentConfirmed.delete(commentConfirmed.keys().next().value);
         commentItems.push(result.comment);
         renderComments();
       }
@@ -1261,6 +1313,7 @@ $("#comment-form").onsubmit = async (e) => {
         $("#comment-state").textContent =
           "投稿できませんでした。下書きは保持しています。内容・接続を確認して再度操作してください。";
     }
+    if (error.code === "scope_not_public") stopPrivateScope(error.message);
   } finally {
     entry.posting = false;
     if (session === editorSession) syncCommentControls();
@@ -1630,6 +1683,7 @@ $("#detail-form").onsubmit = async (e) => {
         ? " 管理者がGitHubの状態を確認するまで追加保存できません。"
         : " 入力は保持しています。自動再送はしません。");
     $("#detail-error").hidden = false;
+    if (error.code === "scope_not_public") stopPrivateScope(error.message);
   } finally {
     if (editorSession === session && $("#details").open) {
       editorPosting = false;
@@ -1692,13 +1746,7 @@ async function performRefresh(options, { silent = false } = {}) {
     lastReadError = e.message;
     stale = true;
     if (e.code === "scope_not_public") {
-      state = clone(initial);
-      adapter = null;
-      connectionError = e.message;
-      initialLoading = false;
-      saveBlocked = true;
-      $("#details").close();
-      $("#list-dialog").close();
+      stopPrivateScope(e.message);
     }
     if (!silent) announce(`取得できませんでした：${e.message}`);
     return false;
@@ -1857,6 +1905,7 @@ document.addEventListener("keydown", (e) => {
     e.ctrlKey ||
     e.metaKey ||
     e.altKey ||
+    e.shiftKey ||
     e.isComposing ||
     composing ||
     commentComposing ||

@@ -21,3 +21,9 @@ HTTPS、正確なhost/path、userinfo/nondefault port/query/hashなしを検証�
 実Issue688の既存公開添付はGET Range 1 byteでvideo/quicktimeを確認。HEADは署名メソッド差で403になり得るためUIの型判定に使わない。これは再生の保証ではなく、配信ブラウザーで別途確認する。実動画のアップロード・変更はしていない。
 
 参考: https://docs.github.com/en/rest/issues/comments / https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files
+
+## 追加の失敗境界
+
+WorkerからDOへdispatchした後の通信断も503/ambiguousとして扱い、新しいrequestIdでの再投稿を促さない。投稿受付後の公開確認でscope_not_publicが判明した場合は、そのコードと曖昧結果fenceを両方保持する。UIはコメント経路からの非公開判明でも既表示board/detail・下書き・媒体・observerを即時破棄する。
+
+古いページ取得が確定投稿を消さないよう、現在の詳細表示中に確認した直近10投稿をメモリーに保持する。取得ページに未収録なら「投稿したコメント（投稿時の内容）」と明記し、現在の取得結果と区別する。詳細の再表示で破棄し、永続コメントキャッシュにはしない。

@@ -236,7 +236,20 @@ test("type colors are stable across Status moves and update for actual type chan
   await expect
     .poll(() => page.evaluate(() => !!document.fullscreenElement))
     .toBe(false);
-  await open(page);
+  await page.keyboard.press("Shift+f");
+  expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+  await page.locator("#operations").click();
+  await page.locator("#search").fill("f");
+  await page.keyboard.press("f");
+  expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+  await page.locator("#search").fill("");
+  await page.locator(".task-title").nth(20).click();
+  await expect(page.locator(".cm-content")).toBeVisible();
+  await page.locator("#rename-issue").click();
+  await page.locator("#detail-title").fill("f");
+  await page.keyboard.press("f");
+  expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+  await page.keyboard.press("Escape");
   await page.locator(".cm-content").fill("f");
   await page.keyboard.press("f");
   expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
@@ -254,11 +267,77 @@ test("toolbar opens across actual header upper half and respects dismissal until
   await expect(page.locator("#chrome")).not.toHaveClass(/controls-open/);
   await page.mouse.move(x, box!.y + box!.height * 0.45);
   await expect(page.locator("#chrome")).toHaveClass(/controls-open/);
-  await page.locator(".task-title").first().click();
+  await page.locator(".task-title").nth(20).click();
   await expect(page.locator("#chrome")).not.toHaveClass(/controls-open/);
   await page.keyboard.press("Escape");
   await page.locator("#details").waitFor({ state: "hidden" });
   await page.mouse.move(x, box!.y + box!.height + 50);
   await page.mouse.move(x, box!.y + box!.height * 0.4);
   await expect(page.locator("#chrome")).toHaveClass(/controls-open/);
+});
+test("known private transition through comment read clears prior board and detail", async ({
+  page,
+}) => {
+  await setup(page);
+  await open(page);
+  await page.route("**/api/issues/*/comments*", (route) =>
+    route.fulfill({ status: 403, json: { error: "scope_not_public" } }),
+  );
+  await page.locator("#comments-refresh").click();
+  await expect(page.locator("#details")).not.toBeVisible();
+  await expect(page.locator(".task")).toHaveCount(0);
+});
+test("older first comment page never hides confirmed new post during overlapping GET", async ({
+  page,
+}) => {
+  await setup(page);
+  let release;
+  const gate = new Promise<void>((r) => (release = r));
+  const old = Array.from({ length: 50 }, (_, i) => ({
+    ...comment,
+    id: i + 1,
+    body: `以前のコメント${i + 1}`,
+  }));
+  await page.route("**/api/issues/*/comments*", async (route) => {
+    if (route.request().method() === "GET") {
+      await gate;
+      return route.fulfill({ json: { comments: old, nextPage: 2 } });
+    }
+    return route.fulfill({
+      status: 201,
+      json: {
+        ok: true,
+        comment: { ...comment, id: 100, body: "今投稿した内容" },
+      },
+    });
+  });
+  await open(page);
+  await page.locator("#comment-body").fill("今投稿した内容");
+  await page.locator("#post-comment").click();
+  await expect(page.locator("#comment-state")).toContainText("投稿しました");
+  release();
+  await expect(page.locator(".issue-comment")).toHaveCount(51);
+  await expect(page.locator("#comments-list")).toContainText("今投稿した内容");
+  await expect(page.locator("#comments-list")).toContainText("投稿時の内容");
+  await expect(page.locator("#comment-state")).toContainText("投稿しました");
+});
+test("post acknowledgement with private transition clears previous content and media immediately", async ({
+  page,
+}) => {
+  await setup(page);
+  await open(page);
+  await page.route("**/api/issues/*/comments*", (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({
+          status: 502,
+          json: { error: "scope_not_public", ambiguous: true },
+        })
+      : route.fulfill({ json: { comments: [], nextPage: null } }),
+  );
+  await page.locator("#comment-body").fill("投稿時に公開範囲変更");
+  await page.locator("#post-comment").click();
+  await expect(page.locator("#details")).not.toBeVisible();
+  await expect(page.locator(".task")).toHaveCount(0);
+  await expect(page.locator("#comment-body")).toHaveValue("");
+  await expect(page.locator("video")).toHaveCount(0);
 });

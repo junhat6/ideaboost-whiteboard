@@ -348,3 +348,37 @@ test("Worker comment POST routes to the same Issue DO and rejects cross-origin",
     1,
   );
 });
+test("transport failure after coordinator dispatch is ambiguous for comments and Issue writes", async () => {
+  let dispatches = 0;
+  const worker = createWorker(async () => ({
+    id: "owner",
+    email: "owner@example.com",
+  }));
+  const bindings = {
+    ...env,
+    APP_ORIGIN: "https://board.example",
+    MUTATIONS: {
+      getByName: () => ({
+        fetch: async () => {
+          dispatches++;
+          throw Error("response lost after remote commit");
+        },
+      }),
+    },
+    ASSETS: {},
+  } as any;
+  for (const [path, data] of [
+    [
+      "/api/issues/2/comments",
+      { body: "comment", requestId: "comment_0123456789" },
+    ],
+    ["/api/issues/2", patch()],
+  ] as const) {
+    const r = await worker.fetch(req(path, data), bindings);
+    assert.equal(r.status, 503);
+    const b = await r.json();
+    assert.equal(b.ambiguous, true);
+    assert.equal(b.error, "mutation_outcome_unresolved");
+  }
+  assert.equal(dispatches, 2);
+});

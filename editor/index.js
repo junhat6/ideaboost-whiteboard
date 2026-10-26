@@ -124,6 +124,7 @@ const observers = new WeakMap();
 export function clearPreview(target) {
   observers.get(target)?.disconnect();
   observers.delete(target);
+  target.querySelectorAll("img").forEach((img) => img.removeAttribute("src"));
   target.querySelectorAll("video").forEach((video) => {
     video.pause();
     video.removeAttribute("src");

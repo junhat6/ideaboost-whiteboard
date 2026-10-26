@@ -75,4 +75,8 @@ PBI起点と全走査の同値性、子・孫の各ページ、元のProject順�
 
 ## タイトル・コメント・遅延メディア・type・操作範囲
 
-60 backend + 100 browser（50シナリオ×2サイズ）。コメント専用入力検証/正式Issue範囲/公開前後確認/Origin/同じDO/成功receipt/曖昧結果fence、タイトルEnter/Escape/blur、16px表示、コメント取得遅延中の本文操作・独立下書き・二重投稿防止、合成WebM/GIFの遅延読み込み・unsafe URL/HTML拒否・close cleanup、type変更/Status移動/unknown配色、Fキー入力除外、実header上半分での操作バー検知を確認。実コメント投稿は行わない。
+62 backend + 106 browser（53シナリオ×2サイズ）。コメント専用入力検証/正式Issue範囲/公開前後確認/Origin/同じDO/成功receipt/曖昧結果fence、タイトルEnter/Escape/blur、16px表示、コメント取得遅延中の本文操作・独立下書き・二重投稿防止、合成WebM/GIFの遅延読み込み・unsafe URL/HTML拒否・close cleanup、type変更/Status移動/unknown配色、Fキー入力除外、実header上半分での操作バー検知を確認。実コメント投稿は行わない。
+
+コメント経路でscope_not_publicが判明した場合にも、既表示board/detailを即時停止する回帰を追加。Fの除外はShift/検索/タイトル/本文/コメントも対象。
+
+投稿受付直後の非公開化でも明示scopeコードとambiguousを保持し即時消去する。50件ページ取得中の投稿成功を古いGETで消さない。WorkerからDOへdispatch後の通信例外も結果不明として同じrequestIdを保持する回帰を追加。

@@ -92,3 +92,29 @@ test("comments visibility checked after read and before post; input bounds and p
   );
   assert.equal((await h(req("/api/issues/2/comments?page=0"), 2)).status, 400);
 });
+test("private transition after accepted POST retains scope signal and ambiguous fence", async () => {
+  let posted = false;
+  const h = createComments({
+    scope: async () => {},
+    visibility: async () => {
+      if (posted)
+        throw Object.assign(Error("private"), { code: "scope_not_public" });
+    },
+    read: async () => [],
+    write: async () => {
+      posted = true;
+      return {
+        id: 1,
+        body: "body",
+        created_at: "2026-10-26T00:00:00Z",
+        user: { login: "app" },
+        html_url:
+          "https://github.com/engineer-first/idea-boost/issues/2#issuecomment-1",
+      };
+    },
+  });
+  const r = await h(req("/api/issues/2/comments", payload), 2, payload);
+  const b = await r.json();
+  assert.equal(b.error, "scope_not_public");
+  assert.equal(b.ambiguous, true);
+});

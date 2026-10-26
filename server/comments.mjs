@@ -70,7 +70,14 @@ export function createComments({ scope, read, write, visibility }) {
       // Successful POST followed by invalid response/visibility failure is also uncertain to this caller.
       const ambiguous = !!created || error.extra?.uncertain !== false;
       return Response.json(
-        { ok: false, error: "comment_post_failed", ambiguous },
+        {
+          ok: false,
+          error:
+            error.code === "scope_not_public"
+              ? "scope_not_public"
+              : "comment_post_failed",
+          ambiguous,
+        },
         { status: 502 },
       );
     }

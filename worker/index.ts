@@ -92,7 +92,21 @@ export function createWorker(auth = authenticate, api = handleApi) {
           const coordinator = env.MUTATIONS.getByName(
             `engineer-first/idea-boost:${issue[1]}`,
           );
-          return secure(await coordinator.fetch(internal));
+          try {
+            return secure(await coordinator.fetch(internal));
+          } catch {
+            // Dispatch may have committed remotely before transport failed. Never imply a safe retry.
+            return secure(
+              Response.json(
+                {
+                  ok: false,
+                  error: "mutation_outcome_unresolved",
+                  ambiguous: true,
+                },
+                { status: 503 },
+              ),
+            );
+          }
         }
         if (
           request.method === "GET" &&
