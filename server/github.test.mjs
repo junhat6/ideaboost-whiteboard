@@ -361,6 +361,7 @@ test("lean Project index hydrates only selected formal descendants and never emi
       if (!query.includes("BoardItems")) return response;
       assert.equal(query.includes("body"), false);
       assert.equal(query.includes("assignees"), false);
+      assert.equal(query.includes("fieldValueByName"), false);
       const data = await response.json();
       for (const item of data.data.organization.projectV2.items.nodes) {
         delete item.content.body;

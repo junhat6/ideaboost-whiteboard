@@ -15,7 +15,7 @@ const CORE = `id number url title body updatedAt state repository { nameWithOwne
 const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const META = `query BoardMeta { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { id url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter } } } }`;
-const ITEMS = `query BoardItems($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { id isArchived content { ... on Issue { ${ISSUE} } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name optionId } } } pageInfo { hasNextPage endCursor } } } } }`;
+const ITEMS = `query BoardItems($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { id isArchived content { ... on Issue { ${ISSUE} } } } pageInfo { hasNextPage endCursor } } } } }`;
 class ApiError extends Error {
   constructor(status, code, extra = {}) {
     super(code);
@@ -570,8 +570,11 @@ export function createHandler({
       const data = await read("details", () =>
         gql(
           env,
-          `query IssueDetails($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { ${CORE} } } }`,
-          { ids: group.map((i) => i.id) },
+          `query IssueDetails($ids:[ID!]!,$items:[ID!]!) { nodes(ids:$ids) { ... on Issue { ${CORE} } } statuses:nodes(ids:$items) { ... on ProjectV2Item { id fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } }`,
+          {
+            ids: group.map((i) => i.id),
+            items: group.map((i) => i.projectItemId).filter(Boolean),
+          },
         ),
       );
       for (const item of group) {
@@ -584,6 +587,13 @@ export function createHandler({
           !node.assignees?.nodes
         )
           throw new ApiError(502, "issue_details_unavailable");
+        if (item.projectItemId) {
+          const statusNode = data.statuses?.find(
+            (n) => n?.id === item.projectItemId,
+          );
+          if (!statusNode) throw new ApiError(502, "issue_status_unavailable");
+          item.status = statusNode.fieldValueByName?.name ?? null;
+        }
         const full = normalize(node);
         // Keep membership and formal parent from the Project scan.
         for (const key of [

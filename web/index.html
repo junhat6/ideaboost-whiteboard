@@ -117,6 +117,14 @@
         <a id="detail-source" target="_blank" rel="noopener noreferrer" hidden
           >元のIssueを開く ↗</a
         >
+        <div class="dialog-actions">
+          <button type="button" id="edit-issue">編集</button
+          ><button type="button" id="cancel-edit" hidden>キャンセル</button
+          ><button type="submit" id="save-issue" class="primary" hidden>
+            変更を保存
+          </button>
+        </div>
+        <p id="detail-sync" role="status" hidden></p>
         <fieldset id="detail-fields" disabled>
           <label
             >タイトル<input id="detail-title" required maxlength="256"
@@ -135,17 +143,9 @@
           Demo goal は本文の「##
           ユーザーに提供する体験」セクションから表示します。
         </p>
-        <p id="detail-sync" role="status" hidden></p>
         <p id="detail-error" class="error" role="alert" hidden></p>
         <button type="button" id="recover-edit">最新を取得</button>
         <p id="detail-note" class="local-note"></p>
-        <div class="dialog-actions">
-          <button type="button" id="edit-issue">編集</button
-          ><button type="button" id="cancel-edit" hidden>キャンセル</button
-          ><button type="submit" id="save-issue" class="primary" hidden>
-            変更を保存
-          </button>
-        </div>
       </form>
     </dialog>
     <dialog id="list-dialog" aria-labelledby="list-heading">

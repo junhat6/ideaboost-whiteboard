@@ -81,6 +81,15 @@ export function fixture({
             makeIssue(3, "Task", issue),
             makeIssue(4, "Task"),
           ],
+          statuses: [
+            { id: "ITEM1", fieldValueByName: { name: "レビュー中" } },
+            {
+              id: "ITEM2",
+              fieldValueByName: status === null ? null : { name: status },
+            },
+            { id: "ITEM3", fieldValueByName: { name: "作業中" } },
+            { id: "ITEM4", fieldValueByName: null },
+          ],
         },
       });
     if (body.query.includes("ParentDetails"))
