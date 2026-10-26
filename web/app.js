@@ -882,6 +882,7 @@ async function refreshBoard(options, { silent = false } = {}) {
   $("#refresh").disabled = true;
   $("#milestone-filter").disabled = true;
   $("#edit-issue").disabled = true;
+  updateDetailSync();
   render();
   try {
     const next = await adapter.load(options);
@@ -894,12 +895,10 @@ async function refreshBoard(options, { silent = false } = {}) {
       if (issue(editing.kind, editing.id)) fillDetail();
       else $("#details").close();
     }
-    render();
     if (!silent) announce("最新のデータを取得しました。");
     return true;
   } catch (e) {
     stale = true;
-    render();
     if (!silent) announce(`取得できませんでした：${e.message}`);
     return false;
   } finally {

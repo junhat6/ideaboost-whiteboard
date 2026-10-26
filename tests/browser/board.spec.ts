@@ -480,3 +480,23 @@ test("left 80% viewer opens and closes immediately during background read, then 
   await expect(page.locator("#details")).not.toBeVisible();
   expect(s.posts()).toBe(0);
 });
+
+test("viewer remains usable on interrupted refresh and explicit retry restores freshness", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  await page.route("**/api/board", (route) => route.abort("connectionreset"));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.locator(".task-title").first().click();
+  await expect(page.locator("#details")).toBeVisible();
+  await expect(page.locator("#detail-sync")).toContainText("前回取得した内容");
+  await page.route("**/api/board", (route) => route.fulfill({ json: s.board }));
+  await page.locator("#recover-edit").click();
+  await expect(page.locator("#detail-sync")).toBeHidden();
+  await page.locator("#edit-issue").click();
+  await expect(page.locator("#detail-title")).toBeEnabled();
+  page.once("dialog", (d) => d.accept());
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#details")).not.toBeVisible();
+  expect(s.posts()).toBe(0);
+});

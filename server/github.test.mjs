@@ -351,3 +351,53 @@ test("independent reads overlap, cold token is single-flight, and parent hydrati
   assert.match(response.headers.get("server-timing"), /items;dur=/);
   assert.equal((await response.json()).lanes[0].body, "original");
 });
+
+test("lean Project index hydrates only selected formal descendants and never emits missing content", async () => {
+  const f = fixture({ extraTasks: true });
+  const handler = createHandler({
+    fetch: async (url, opt) => {
+      const query = opt.body ? JSON.parse(opt.body).query || "" : "";
+      const response = await f.fetch(url, opt);
+      if (!query.includes("BoardItems")) return response;
+      assert.equal(query.includes("body"), false);
+      assert.equal(query.includes("assignees"), false);
+      const data = await response.json();
+      for (const item of data.data.organization.projectV2.items.nodes) {
+        delete item.content.body;
+        delete item.content.title;
+        delete item.content.assignees;
+      }
+      return Response.json(data);
+    },
+  });
+  const r = await handler(req(), env);
+  assert.equal(r.status, 200);
+  const b = await r.json();
+  assert.deepEqual(
+    b.tasks.map((t) => t.id),
+    ["I2", "I3"],
+  );
+  for (const i of [...b.lanes, ...b.tasks]) {
+    assert.equal(i.body, "original");
+    assert.ok(i.title);
+    assert.match(i.fingerprint, /^[a-f0-9]{64}$/);
+  }
+  const details = f.calls.filter((c) =>
+    c.parsed?.query?.includes("IssueDetails"),
+  );
+  assert.deepEqual(details[0].parsed.variables.ids, ["I1", "I2", "I3"]);
+});
+
+test("missing Issue hydration fails closed instead of returning an incomplete editable card", async () => {
+  const f = fixture();
+  const handler = createHandler({
+    fetch: async (url, opt) => {
+      if (opt.body && JSON.parse(opt.body).query?.includes("IssueDetails"))
+        return Response.json({ data: { nodes: [] } });
+      return f.fetch(url, opt);
+    },
+  });
+  const r = await handler(req(), env);
+  assert.equal(r.status, 502);
+  assert.equal((await r.json()).error, "issue_details_unavailable");
+});

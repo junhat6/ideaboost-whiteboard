@@ -12,7 +12,7 @@ const STATUSES = [
 ];
 const BASE = "https://api.github.com";
 const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:100) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
-const ISSUE = `${CORE} parent { id issueType { name } repository { nameWithOwner } }`;
+const ISSUE = `id number url updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } parent { id issueType { name } repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const META = `query BoardMeta { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { id url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name } } } view(number:16) { filter } } } }`;
 const ITEMS = `query BoardItems($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { id isArchived content { ... on Issue { ${ISSUE} } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name optionId } } } pageInfo { hasNextPage endCursor } } } } }`;
@@ -322,7 +322,7 @@ export function createHandler({
     throw new ApiError(502, "assignees_limit");
   }
   function normalize(i, item = null) {
-    if (i.assignees.pageInfo?.hasNextPage)
+    if (i.assignees?.pageInfo?.hasNextPage)
       throw new ApiError(502, "assignees_truncated");
     return {
       id: i.id,
@@ -332,7 +332,7 @@ export function createHandler({
       title: i.title,
       body: i.body,
       type: i.issueType?.name ?? null,
-      assignees: i.assignees.nodes,
+      assignees: i.assignees?.nodes,
       status: item?.fieldValueByName?.name ?? null,
       revision: i.updatedAt,
       projectItemId: item?.id ?? null,
@@ -556,8 +556,49 @@ export function createHandler({
       const p = parents.get(task.parentId);
       if (p?.type === "PBI" && !all.has(p.id)) all.set(p.id, p);
     }
+    // The scan establishes hierarchy/status/scope. Fetch full content only for returned
+    // Issues; mutation preflight still hydrates the complete unfiltered write scope.
+    const detailed = [
+      ...new Set(
+        applyView
+          ? [...lanes, ...tasks]
+          : [...all.values(), ...lanes, ...tasks],
+      ),
+    ];
+    for (let offset = 0; offset < detailed.length; offset += 50) {
+      const group = detailed.slice(offset, offset + 50);
+      const data = await read("details", () =>
+        gql(
+          env,
+          `query IssueDetails($ids:[ID!]!) { nodes(ids:$ids) { ... on Issue { ${CORE} } } }`,
+          { ids: group.map((i) => i.id) },
+        ),
+      );
+      for (const item of group) {
+        const node = data?.nodes?.find((n) => n?.id === item.id);
+        if (
+          !node ||
+          node.repository?.nameWithOwner !== `${OWNER}/${REPO}` ||
+          typeof node.title !== "string" ||
+          typeof node.body !== "string" ||
+          !node.assignees?.nodes
+        )
+          throw new ApiError(502, "issue_details_unavailable");
+        const full = normalize(node);
+        // Keep membership and formal parent from the Project scan.
+        for (const key of [
+          "title",
+          "body",
+          "assignees",
+          "revision",
+          "state",
+          "url",
+        ])
+          item[key] = full[key];
+      }
+    }
     await Promise.all(
-      [...new Set([...all.values(), ...lanes, ...tasks])].map(async (item) => {
+      detailed.map(async (item) => {
         item.fingerprint = await fingerprint(item);
       }),
     );

@@ -72,6 +72,17 @@ export function fixture({
           },
         },
       });
+    if (body.query.includes("IssueDetails"))
+      return Response.json({
+        data: {
+          nodes: [
+            parent,
+            issue,
+            makeIssue(3, "Task", issue),
+            makeIssue(4, "Task"),
+          ],
+        },
+      });
     if (body.query.includes("ParentDetails"))
       return Response.json({ data: { nodes: [parent] } });
     if (body.query.includes("ParentMembership"))
