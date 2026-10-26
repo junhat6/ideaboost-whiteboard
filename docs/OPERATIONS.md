@@ -6,7 +6,7 @@
 
 既存GitHub App「Idea Boost Whiteboard」App ID 5473658 / installation 175301060に本番鍵を1本追加し、Cloudflare Worker secretへ保存する操作も承認済み。既存デモ鍵は保持し、Sites secretを抽出しない。別App Project Status Syncは変更しない。
 
-Cloudflare OAuthを公式Wranglerで開始したが、本人ログイン未完了で待機タイムアウト。GitHubのApp設定もConfirm access（@junhat6のPasskey等）で本人確認待ち。鍵追加・secret登録・本番デプロイは未実行。GitHub CLIの既存junhat6認証は確認済み。リポジトリとProject 3のpublicフラグを読み取り確認した。
+Cloudflare OAuthとGitHub sudo本人確認は完了。指定アカウントだけで4 scopeを付与し、Freeプランのまま配信済み。追加鍵はCloudflareのGITHUB_APP_PRIVATE_KEYへ登録済みで、一時ダウンロードは公開fingerprint照合後に削除した。既存デモ鍵は保持。GitHub正本の読取と本番UIを検証済み。配信版と検証範囲はDEPLOYMENT.mdを参照。
 
 ## 導入手順
 
