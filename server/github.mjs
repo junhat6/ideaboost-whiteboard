@@ -11,7 +11,7 @@ const STATUSES = [
   "見送り",
 ];
 const BASE = "https://api.github.com";
-const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:100) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
+const CORE = `id number url title body updatedAt state repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:10) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
 const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state } } } } pageInfo { hasNextPage endCursor }`;
@@ -695,7 +695,7 @@ export function createHandler({
         const data = await read(name, () =>
           gql(
             env,
-            `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { ${fullFields} } } } }`,
+            `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter) { ${fullFields} } } } }`,
             { after, filter },
           ),
         );
@@ -913,7 +913,7 @@ export function createHandler({
       }
     }
     // Narrow final preflight after the paginated board/assignee read. Still not atomic CAS.
-    const freshQuery = `query SavePreflight($number:Int!,$item:ID!) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id updatedAt title body assignees(first:100) { nodes { login } pageInfo { hasNextPage } } } } node(id:$item) { ... on ProjectV2Item { id fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } }`;
+    const freshQuery = `query SavePreflight($number:Int!,$item:ID!) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id updatedAt title body assignees(first:10) { nodes { login } pageInfo { hasNextPage } } } } node(id:$item) { ... on ProjectV2Item { id fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } }`;
     const fresh = await gql(env, freshQuery, {
       number,
       item: current.projectItemId ?? current.id,

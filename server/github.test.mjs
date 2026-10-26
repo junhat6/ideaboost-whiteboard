@@ -595,3 +595,20 @@ test("focused hierarchy paginates each level, rejects unrelated/foreign/archived
     4,
   );
 });
+
+test("focused full data never silently truncates assignees at the GitHub limit", async () => {
+  const f = fixture({ viewFilter: "type:PBI" });
+  const handler = createHandler({
+    fetch: async (url, opt) => {
+      const r = await f.fetch(url, opt);
+      if (!opt.body || !JSON.parse(opt.body).query?.includes("BoardRowsFull"))
+        return r;
+      const data = await r.json();
+      data.data.organization.projectV2.items.nodes[0].content.assignees.pageInfo.hasNextPage = true;
+      return Response.json(data);
+    },
+  });
+  const r = await handler(req(), env);
+  assert.equal(r.status, 502);
+  assert.equal((await r.json()).error, "assignees_truncated");
+});
