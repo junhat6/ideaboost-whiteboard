@@ -218,3 +218,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 各1回の本番観測: board表示6404/2011ms、続きIssueのクリック→CodeMirror準備825/220ms。cold/hitや初回bundle差が混ざるため改善率とは扱わない。GitHub読み取りの経路・鮮度は変更していない。
 - CPUの同条件比較は `OVERNIGHT-2026-10-27.md`。タイトルfitをバッチ化し、追加DOMを含むボード再描画中央値1920:88.9→24.9ms、2560:121.1→32.4ms。長文live同一行カーソル200transaction中央値29.6→6.2ms。いずれもローカル合成fixtureのCPU値。
 - ソースPRIVATEを再確認。既存public-temporary、秘密、権限、料金は変更なし。実Issue/PR/コメントのQA書込みなし。位置はセッション内のみ保持し、ブラウザーreloadを跨ぐ保存は導入しない。
+
+#### キーボード導線の最終追補
+
+- 最終配信source: `258179978f6fe4bd5feafec1cc7b422521d167bb`
+- Worker version: `dee2b10a-6435-44dc-87c0-8563252ae97e`
+- Page Up/Down/Home/Endとキーボードによる上下ボタン操作では、表示した先頭付箋へfocusを移す。EnterでそのままIssueを開ける。マウス操作はボタン上のfocusを維持する。
+- check（77 unit/integration）と対象12 browserを再確認。先行e3e9644の全186 browser/CI40346620217も成功。最終同一SHA CIは下記に記録する。
+- 最終本番両サイズでPage Down→Enter→閉じる、同位置/focus復帰、4枚完全表示、正本PBI担当、4assets hash一致を再確認。POST0/JSエラー0。各1回のboard表示4966/1498ms、詳細CodeMirror準備312/189msで、cold/hit混在のため性能改善率には使わない。関連PR#823→#836 MERGEDもHTTP200で正常取得。
+- 最終同一SHA CI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40347654631 。checkと全186 browserが成功。先行40346620217も成功。残るブロッカーなし。
+- この後の文書追補はアプリを変更せず、再配信しない。最終配信source/Workerは上記2581799/dee2b10aのまま。
