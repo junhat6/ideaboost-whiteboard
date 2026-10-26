@@ -167,9 +167,7 @@
     } catch (e) {
       const note = document.querySelector("#scope-note");
       if (note) note.textContent = "GitHub未接続：" + e.message;
-      document.querySelector("#empty").hidden = false;
-      document.querySelector("#empty").textContent =
-        "接続できません：" + e.message;
+      window.Whiteboard.setConnectionError("接続できません：" + e.message);
     }
   }
   if (document.readyState === "loading")

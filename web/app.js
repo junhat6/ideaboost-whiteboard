@@ -43,6 +43,7 @@ let state = clone(initial),
   selectedMilestone = "",
   editorBaseline = null,
   adapter = null,
+  connectionError = "",
   page = 0,
   editing = null,
   returnFocus = null,
@@ -484,10 +485,12 @@ function render() {
       .join("");
   fitCardTitles();
   if (focused) document.querySelector(focused)?.focus({ preventScroll: true });
-  $("#empty").hidden = tasks.length !== 0;
-  $("#empty").textContent = displayed.length
-    ? "一致するタスクはありません。操作から検索条件を変更できます。"
-    : "表示するPBIがありません。操作 →「表示するPBI」で選択できます。";
+  $("#empty").hidden = !connectionError && tasks.length !== 0;
+  $("#empty").textContent =
+    connectionError ||
+    (displayed.length
+      ? "一致するタスクはありません。操作から検索条件を変更できます。"
+      : "表示するPBIがありません。操作 →「表示するPBI」で選択できます。");
   $("#deferred-count").textContent = tasks.filter(
     (t) => t.status === "見送り",
   ).length;
@@ -1024,6 +1027,10 @@ window.Whiteboard = {
   statusColumn,
   goal,
   getSnapshot: () => clone(state),
+  setConnectionError(message) {
+    connectionError = String(message);
+    render();
+  },
   async setAdapter(next) {
     if (pending || pickerDraft || ($("#details").open && editMode))
       throw new Error(
@@ -1045,6 +1052,7 @@ window.Whiteboard = {
       loading = false;
     }
     if (!valid(snapshot)) throw new Error("無効なIssueデータです");
+    connectionError = "";
     adapter = next;
     state = clone(snapshot);
     selectedMilestone = String(
