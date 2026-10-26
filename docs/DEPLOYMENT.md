@@ -164,3 +164,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 合成ブラウザーで両サイズ再現: 接続済みlive画像6件（active3/waiting3）を閉じ、160ms破棄前にloadイベントを到着させると、旧実装は待機1件へsrcを設定した。追補後は0。queue pumpはclosing/非open dialogの全jobを取消し、初期observeも同条件で開始しない。
 - ローカルcheck成功（67 backend、lint/typecheck/build）、126 browser成功。DESIGN validator errors0/warnings16。追補配信の本番両サイズで本文71/75ms、媒体操作前要求0・POST0・JSエラー0、開閉成功。editor-bundle.jsのHTTP200/SHA256一致。
 - 本番live添付面853/857msは新しいbundle取得等を含み、速度短縮の証拠ではない。今回の限定修正は破棄中の不要な新規転送を防ぐもので、実Issueの変更・コメント投稿は行っていない。
+
+### 自動previewと詳細の視覚化
+
+- 配信source: `5b509c2d0e280f191be17e8bf5c8d6d4ea3d19af`
+- Worker version: `486cb771-5a4f-408e-ab1f-eec9e65e1e4b`
+- ローカルcheck: lint/typecheck/build、68 backend成功。browser138成功（両解像度）。DESIGN errors0/warnings16。
+- 近傍で画像/paused動画を自動表示、canonical author、avatar担当者タイル、canonical Status enum色と列色、Pele図の遅延Worker、分割進捗、右88%、書式列削除を配信。
+- 本番両サイズで実動画の先頭frame・作者・Status色・幅を確認。POST0/JSエラー0。4配信assets（app/style/editor/diagram-worker）のHTTP200とSHA256一致。実公開5図も配信rendererで描画確認。
+- 初期本文/媒体計測と転送量の制約はPERFORMANCE.md。未知添付の型判定とnative metadata取得は厳密なbytes上限ではない。実Issue/コメントへのQA変更なし。既存匿名公開モード/資格情報/権限/料金は変更なし。CSPにはローカルrenderer用worker-src selfのみ追加。
+- 同一配信SHAのCI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40320639817 。check成功、browser138件成功（Linux上7.8分）。

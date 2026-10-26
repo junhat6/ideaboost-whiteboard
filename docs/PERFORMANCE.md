@@ -133,3 +133,13 @@ GET中央値は約88.5%短縮。初回/再訪はいずれもfresh scopeとコメ
 
 
 配信後の実本番確認（各サイズ2回）: 本文パネル1920=64/73ms、2560=65/61ms。ライブ添付面1920=842/250ms、2560=148/146ms。全回で媒体操作前の要求0・転送0bytes・POST0・JSエラー0。最初のbundle読込を含むライブ面にはばらつきがあり、今回ここが速くなったとは結論しない。今回の改善は合成で再現した不要な破棄と画像同時要求の削減。実添付の再生後帯域、native OS IME、全codec、長時間heap推移の追加測定は行っていない。
+
+## 自動サムネと図の配信測定（2026-10-26、5b509c2）
+
+旧契約は動画の操作前表示なし。最新要件では近傍で自動previewを取得し、再生は手動にした。本文の表示速度改善を主張する変更ではない。
+
+本番の公開Issue688を新しいブラウザーcontextで各1回、POSTを遮断して観測。1920ではclick→panel80ms、live媒体枠359ms、先頭frame3929ms。2560では82ms、172ms、2995ms。いずれもreadyState4、paused=true、autoplay=false、playイベント0、JSエラー0。作者と実Status色、88%幅、書式列なしを確認した。動画のcodec一般保証ではない。
+
+CDPの媒体dataReceived.encodedDataLength合計は4,275,995 / 4,295,926 bytes。loadingFinishedだけの合計は67,595 / 84,409 bytesであり、取消・未完了要求を含まないため総転送量と扱わない。拡張子なし添付の画像判定やブラウザーのRange取得があり、metadataだけで数KBに制限できるとは主張しない。同時preview1、画面外開始なし、12秒timeout、型判定のみ64URL/5分cacheで無制限の並列取得を抑える。既知画像の別queueは3。
+
+Peleは本体とは別のworker asset（minify約677KB、gzip258,052 bytes）。editor bundleはgzip206,754 bytes。図の近傍到達までrendererを要求しない。実公開Issue360/362/128の計5図を読み取り、配信rendererのブラウザー内検証面へ投入した（GitHub本文は変更せず）。両解像度で5/5描画し、worker内描画CPUは1–17ms。これは実ボード選択内に図があったという証明ではなく、実公開原文と本番配信rendererの互換性確認である。全Mermaid構文の互換性は保証しない。合成flowchart/sequenceは通常のlive-editor経路でも検証済み。
