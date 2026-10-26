@@ -2,7 +2,7 @@
 
 IdeaBoost チーム専用の GitHub Issue / Projects ホワイトボード。ライトモードを中心に、6 PBI × 4状態列の俯瞰と Issue の編集を提供します。
 
-**現在の段階:** ローカル実装・自動試験済み。本番 Cloudflare の認証、Access allowlist、GitHub App 秘密鍵の移行は未設定。未設定のWorkerは503で拒否します。利用可能な本番サービスと誤認しないでください。
+**現在の段階:** ローカル実装・自動試験済み。本番 Cloudflare の認証、Access allowlist、GitHub App 本番用追加鍵の登録は未設定。未設定のWorkerは503で拒否します。利用可能な本番サービスと誤認しないでください。
 
 ## 開発
 
