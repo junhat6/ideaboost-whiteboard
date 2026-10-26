@@ -50,7 +50,7 @@ test("inline pencil rename accepts locally, cancels with Escape, and preview kee
   );
   await expect(page.locator("#detail-body-view p").first()).toHaveCSS(
     "color",
-    "rgb(32, 37, 43)",
+    "rgb(24, 43, 73)",
   );
   await page.locator("#markdown-write").click();
   await expect(page.locator(".cm-content")).toHaveCSS("font-size", "16px");

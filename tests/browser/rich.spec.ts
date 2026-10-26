@@ -62,7 +62,7 @@ test("author is distinct, avatar tiles preserve multiple and outside assignments
   expect(
     await page
       .locator('[data-status="レビュー中"] .status-dot')
-      .evaluate((el) => getComputedStyle(el).backgroundColor),
+      .evaluate((el) => getComputedStyle(el).borderTopColor),
   ).toBe(
     await page
       .locator(".board-head .status-dot.wait")

@@ -346,6 +346,16 @@ function card(t) {
 // Fit only the presentation, never the Issue title. If the available area is
 // genuinely too small at 10.5px, expose whole scrollable lines (and the drawer).
 function fitCardTitles() {
+  for (const button of document.querySelectorAll(".goal-text")) {
+    const parent = button.parentElement;
+    const css = getComputedStyle(parent);
+    const line = parseFloat(getComputedStyle(button).lineHeight);
+    const available =
+      parent.clientHeight -
+      parseFloat(css.paddingTop) -
+      parseFloat(css.paddingBottom);
+    button.style.maxHeight = `${Math.max(0, Math.floor(available / line)) * line}px`;
+  }
   for (const button of document.querySelectorAll(".pbi-title")) {
     const text = button.querySelector(".pbi-title-text");
     if (!text) continue;
@@ -872,14 +882,14 @@ function canonicalIssueUrl(t) {
   }
 }
 const statusPalette = {
-  GRAY: "#57606a",
-  BLUE: "#0969da",
-  GREEN: "#1a7f37",
-  YELLOW: "#9a6700",
-  ORANGE: "#bc4c00",
-  RED: "#cf222e",
-  PURPLE: "#8250df",
-  PINK: "#bf3989",
+  GRAY: "var(--status-gray)",
+  BLUE: "var(--status-blue)",
+  GREEN: "var(--status-green)",
+  YELLOW: "var(--status-yellow)",
+  ORANGE: "var(--status-orange)",
+  RED: "var(--status-red)",
+  PURPLE: "var(--status-purple)",
+  PINK: "var(--status-pink)",
 };
 function statusColor(name) {
   const color = state.scope?.statusColors?.find((o) => o.name === name)?.color;
@@ -909,9 +919,13 @@ function avatarNode(person) {
   } catch {}
   return fallback;
 }
+const authorRenderKeys = new WeakMap();
 function renderAuthor(t) {
   const root = $("#issue-author"),
     a = t?.author;
+  const key = JSON.stringify(a || null);
+  if (root.childElementCount && authorRenderKeys.get(root) === key) return;
+  authorRenderKeys.set(root, key);
   root.replaceChildren(avatarNode(a));
   const text = document.createElement("span");
   text.textContent = "作成者";
@@ -1012,7 +1026,9 @@ function renderDetailChoices() {
         status.dispatchEvent(new Event("change", { bubbles: true }));
       };
     }
-    button.querySelector("i").style.backgroundColor = statusColor(value);
+    button
+      .querySelector("i")
+      .style.setProperty("--status-color", statusColor(value));
     button.setAttribute("aria-pressed", String(value === status.value));
     button.disabled = status.disabled;
   }
@@ -1033,7 +1049,7 @@ function progressMarkup(done, total) {
             (_, i) =>
               `<span class="progress-segment${i < done ? " complete" : ""}"></span>`,
           ).join("");
-  return `<div class="lane-progress"><div class="progress-track${dense ? " dense-progress" : ""}" role="progressbar" aria-label="タスク完了数" aria-valuemin="0" aria-valuemax="${total || 1}" aria-valuenow="${done}" aria-valuetext="${explanation}" title="${explanation}" style="--progress-color:${statusColor("完了")}">${marks}</div>${done}/${total}</div>`;
+  return `<div class="lane-progress"><div class="progress-track${dense ? " dense-progress" : ""}" role="progressbar" aria-label="タスク完了数" aria-valuemin="0" aria-valuemax="${total || 1}" aria-valuenow="${done}" aria-valuetext="${explanation}" title="${explanation}">${marks}</div><span class="progress-count">${done}/${total}</span></div>`;
 }
 
 function fillDetail() {

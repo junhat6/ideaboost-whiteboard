@@ -1,15 +1,36 @@
 :root {
+  --accent: #3159c9;
+  --accent-hover: #2447a8;
+  --focus: #3159c9;
+  --selected: #e8effc;
+  --input-border: #7d8da8;
+  --raised: #ffffff;
+  --error: #a72a35;
+  --error-surface: #fff0f1;
+  --progress-complete: var(--accent);
+  /* Status and progress roles: DESIGN.md colors. */
+  --status-gray: #57606a;
+  --status-blue: #0969da;
+  --status-green: #1a7f37;
+  --status-yellow: #9a6700;
+  --status-orange: #bc4c00;
+  --status-red: #cf222e;
+  --status-purple: #8250df;
+  --status-pink: #bf3989;
+  --progress-track: #e7eefb;
+  --progress-pending: #c0cfea;
+  --status-selected: #e8effc;
+
   font-family:
     "Noto Sans JP",
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #30463b;
-  background: #f4f6f0;
+  color: var(--ink);
+  background: var(--canvas);
   font-synthesis: none;
-  --green: #285a49;
-  --line: #dce4d7;
+  --line: var(--line);
 }
 * {
   box-sizing: border-box;
@@ -36,16 +57,16 @@ a {
 }
 button {
   cursor: pointer;
-  border: 1px solid #d4ded2;
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: white;
-  color: #405a45;
+  color: var(--ink);
   padding: 8px 12px;
   font-size: 12px;
 }
 button:hover {
-  background: #edf3e9;
-  border-color: #9eb599;
+  background: var(--soft);
+  border-color: var(--input-border);
 }
 button:disabled {
   cursor: default;
@@ -53,10 +74,10 @@ button:disabled {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid #4f8063;
+  outline: 3px solid var(--focus);
 }
 a {
-  color: var(--green);
+  color: var(--accent);
 }
 [hidden] {
   display: none !important;
@@ -70,7 +91,7 @@ main {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  border: 1px solid #cbd8c7;
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
 }
@@ -168,19 +189,19 @@ main {
   width: 100%;
   margin-top: 19px;
   font-size: 10px;
-  color: #839276;
+  color: var(--muted);
 }
 .lane-progress i {
   flex: 1;
   height: 3px;
-  background: #dce6d4;
+  background: var(--progress-pending);
   border-radius: 3px;
   overflow: hidden;
 }
 .lane-progress b {
   height: 100%;
   display: block;
-  background: #91ab7e;
+  background: var(--progress-complete);
 }
 .task-cell {
   background: #fffefa;
@@ -188,8 +209,8 @@ main {
   overflow: hidden;
 }
 .task-cell.drag-over {
-  background: #edf5e8;
-  box-shadow: inset 0 0 0 2px #86a478;
+  background: var(--selected);
+  box-shadow: inset 0 0 0 2px var(--focus);
 }
 .task {
   height: 102px;
@@ -281,7 +302,7 @@ main {
   background: #8896b2;
 }
 .avatar.none {
-  background: #a8ab9d;
+  background: var(--soft);
 }
 .raw-status {
   font-size: 9px;
@@ -294,10 +315,10 @@ main {
   font-size: 10px;
   padding: 5px 8px;
   width: 100%;
-  background: #f6f8f1;
+  background: var(--soft);
 }
 .goal-cell {
-  background: #fafbf5;
+  background: var(--surface);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -316,7 +337,7 @@ main {
   text-align: left;
   line-height: 1.9;
   font-size: 13px;
-  color: #6a7d57;
+  color: var(--ink);
   max-height: 70%;
   overflow: auto;
 }
@@ -392,11 +413,11 @@ main {
 }
 .toolbar input,
 .toolbar select {
-  border: 1px solid #d4ded2;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px 10px;
   background: #fff;
-  color: #405a45;
+  color: var(--ink);
   font-size: 12px;
 }
 .toolbar input {
@@ -629,7 +650,7 @@ dialog dd {
   bottom: 30px;
   left: 50%;
   transform: translateX(-50%);
-  background: #2e5140;
+  background: var(--ink);
   color: white;
   font-size: 12px;
   padding: 12px 18px;
@@ -782,7 +803,7 @@ dialog dd {
   font-size: 15px;
   font-weight: 400;
   line-height: 1.9;
-  border: 1px solid #dce4d7;
+  border: 1px solid var(--line);
   border-radius: 7px;
   padding: 22px;
   min-height: 50dvh;
@@ -791,7 +812,7 @@ dialog dd {
 .detail-dialog #detail-badges {
   font-size: 12px;
   color: #788b6c;
-  border-bottom: 1px solid #dce4d7;
+  border-bottom: 1px solid var(--line);
   padding-bottom: 17px;
 }
 #detail-source {
@@ -994,8 +1015,8 @@ dialog dd {
   color: #756f5d;
 }
 .task-grid .avatar.none {
-  background: #e4e7df;
-  color: #7d8675;
+  background: var(--soft);
+  color: var(--muted);
 }
 .task-grid .raw-status {
   overflow: hidden;
@@ -1065,7 +1086,7 @@ dialog dd {
   flex: 1;
   min-width: 220px;
   padding: 10px;
-  border: 1px solid #d4ded2;
+  border: 1px solid var(--line);
   border-radius: 6px;
 }
 #pbi-options {
@@ -1089,7 +1110,7 @@ dialog dd {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  accent-color: var(--green);
+  accent-color: var(--accent);
 }
 .pbi-option small {
   color: #73856a;
@@ -1110,13 +1131,12 @@ dialog dd {
     "Yu Gothic",
     Meiryo,
     sans-serif;
-  --canvas: #f7f8fa;
+  --canvas: #f2f6fc;
   --surface: #fff;
-  --soft: #f3f4f6;
-  --ink: #20252b;
-  --muted: #5c6470;
-  --line: #d9dee5;
-  --green: #4657b8;
+  --soft: #edf3fc;
+  --ink: #182b49;
+  --muted: #475569;
+  --line: #c9d5e7;
   color: var(--ink);
   background: var(--canvas);
 }
@@ -1147,11 +1167,10 @@ button:hover {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid var(--green);
+  outline: 3px solid var(--accent);
 }
 .board-head,
-.pbi-cell,
-.goal-cell {
+.pbi-cell {
   background: var(--canvas);
 }
 .task-cell {
@@ -1207,7 +1226,7 @@ dialog dt,
   background: var(--line);
 }
 .lane-progress b {
-  background: #27735c;
+  background: var(--progress-complete);
 }
 .status-dot {
   background: #626c7a;
@@ -1219,7 +1238,7 @@ dialog dt,
   background: #77529e;
 }
 .status-dot.done {
-  background: #27735c;
+  background: var(--progress-complete);
 }
 .control-panel,
 .operations,
@@ -1231,12 +1250,12 @@ dialog dt,
 }
 .brand b,
 .primary {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 .primary:hover {
-  background: #354594;
+  background: var(--accent-hover);
   color: #fff;
 }
 .brand > span {
@@ -1291,7 +1310,6 @@ dialog dt,
   --ink: #eceef3;
   --muted: #b7bfcc;
   --line: #424b5b;
-  --green: #a8b6ff;
   color-scheme: dark;
 }
 [data-theme="dark"] .task {
@@ -1567,7 +1585,7 @@ dialog dt,
   overflow: hidden;
 }
 #markdown-editor:focus-within {
-  border-color: var(--green);
+  border-color: var(--accent);
 }
 .detail-dialog #detail-body {
   border-radius: 0 0 8px 8px;
@@ -1928,8 +1946,8 @@ dialog dt,
 }
 .compact-icon[aria-pressed="true"],
 #markdown-source[aria-pressed="true"] {
-  background: #4657b81a;
-  color: var(--green);
+  background: var(--selected);
+  color: var(--accent);
 }
 #refresh {
   margin-left: auto;
@@ -1963,7 +1981,7 @@ dialog dt,
   min-width: 1em;
 }
 .live-link {
-  color: var(--green);
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -2029,7 +2047,7 @@ dialog dt,
   padding: 10px 14px;
   font-size: 13px;
   color: var(--muted, #57606a);
-  border-bottom: 1px solid #d0d7de;
+  border-bottom: 1px solid var(--line);
   min-width: 0;
 }
 .issue-author a,
@@ -2047,8 +2065,8 @@ dialog dt,
   display: inline-grid;
   place-items: center;
   border-radius: 50%;
-  background: #e7e9ee;
-  color: #24292f;
+  background: var(--soft);
+  color: var(--ink);
   font-size: 12px;
   overflow: hidden;
 }
@@ -2073,7 +2091,7 @@ dialog dt,
   align-items: center;
   gap: 6px;
   padding: 7px 5px;
-  border: 1px solid #a0a7b0;
+  border: 1px solid var(--input-border);
   border-radius: 7px;
   background: var(--surface, #fff);
   color: inherit;
@@ -2087,16 +2105,16 @@ dialog dt,
   white-space: nowrap;
 }
 .assignee-tile[aria-pressed="true"] {
-  border: 2px solid #3457d5;
+  border: 2px solid var(--accent);
   padding: 6px 4px;
-  background: #edf2ff;
+  background: var(--selected);
 }
 .assignee-tile[aria-pressed="true"]::after {
   content: "✓";
   position: absolute;
   right: 1px;
   top: -5px;
-  background: #3457d5;
+  background: var(--accent);
   color: white;
   border-radius: 50%;
   font-size: 10px;
@@ -2117,19 +2135,19 @@ dialog dt,
   padding: 6px 8px;
   background: var(--surface, #fff);
   color: inherit;
-  border: 1px solid #a0a7b0;
+  border: 1px solid var(--input-border);
   border-radius: 7px;
   font-size: 12px;
   min-height: 32px;
 }
 .status-choice[aria-pressed="true"] {
-  border: 2px solid #3457d5;
+  border: 2px solid var(--accent);
   padding: 5px 7px;
-  background: #edf2ff;
+  background: var(--selected);
 }
 .status-choice[aria-pressed="true"]::after {
   content: "✓";
-  color: #3457d5;
+  color: var(--accent);
 }
 .status-choice .status-dot {
   width: 9px;
@@ -2140,31 +2158,41 @@ dialog dt,
 }
 .progress-track {
   display: flex;
-  gap: 2px;
+  gap: 3px;
   flex: 1;
   min-width: 0;
-  height: 7px;
+  height: 12px;
+  padding: 2px;
+  border-radius: 5px;
+  background: var(--progress-track);
+  box-shadow:
+    inset 0 1px 2px #24392d18,
+    0 1px 0 #ffffff;
 }
 .progress-segment {
   flex: 1;
   min-width: 0;
-  border: 1px solid #939ba5;
-  border-radius: 1px;
-  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  background: var(--progress-pending);
+  box-shadow: inset 0 1px 0 #ffffff55;
 }
 .progress-segment.complete {
-  background: var(--progress-color);
-  border-color: var(--progress-color);
+  background: var(--progress-complete);
+  box-shadow:
+    inset 0 1px 0 #ffffff26,
+    inset 0 -1px 0 #163e2426;
 }
 .progress-track.dense-progress {
   display: block;
-  background: #d0d7de;
+  background: var(--progress-pending);
+  padding: 0;
   overflow: hidden;
-  border-radius: 2px;
+  border-radius: 5px;
 }
 .progress-track.dense-progress b {
   height: 100%;
-  background: var(--progress-color);
+  background: var(--progress-complete);
 }
 [data-theme="dark"] .assignee-tile[aria-pressed="true"],
 [data-theme="dark"] .status-choice[aria-pressed="true"] {
@@ -2196,7 +2224,7 @@ dialog dt,
   border: 0;
 }
 .diagram-shell {
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--line);
   border-radius: 6px;
   margin: 12px 0;
   padding: 8px;
@@ -2219,20 +2247,20 @@ dialog dt,
 }
 .diagram-canvas {
   max-height: 520px;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
+  overscroll-behavior: auto;
   min-height: 0;
 }
 .diagram-canvas svg {
   display: block;
   --pele-bg: #fff;
-  --pele-fg: #24292f;
-  --pele-line: #57606a;
-  --pele-accent: #3457d5;
+  --pele-fg: var(--ink);
+  --pele-line: var(--muted);
+  --pele-accent: var(--accent);
 }
 .diagram-status {
   font-size: 13px;
-  color: #57606a;
+  color: var(--muted);
   padding: 14px;
 }
 .live-block:has(.diagram-shell) .diagram-tools {
@@ -2253,4 +2281,101 @@ dialog dt,
 #detail-body-view > p,
 .comment-content > p {
   max-width: 100ch;
+}
+
+.progress-count {
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  text-align: right;
+}
+[data-theme="dark"] .progress-track {
+  background: var(--progress-track);
+  box-shadow: inset 0 1px 2px #0005;
+}
+[data-theme="dark"] .progress-segment:not(.complete) {
+  background: var(--progress-pending);
+}
+.diagram-canvas[data-zoomed="true"] {
+  cursor: grab;
+}
+.diagram-canvas[data-zoomed="true"]:active {
+  cursor: grabbing;
+}
+
+.status-choice .status-dot {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--status-color, var(--status-gray));
+  background: color-mix(
+    in srgb,
+    var(--status-color, var(--status-gray)) 12%,
+    var(--surface)
+  );
+}
+.status-choice {
+  padding: 7px 9px;
+  gap: 7px;
+}
+.status-choice[aria-pressed="true"] {
+  background: var(--status-selected);
+  border-color: var(--muted);
+  color: var(--ink);
+}
+.status-choice[aria-pressed="true"]::after {
+  color: var(--ink);
+}
+[data-theme="dark"] {
+  --progress-track: #24324a;
+  --progress-pending: #596d91;
+  --status-selected: #303b49;
+}
+
+/* Semantic light reading surfaces: goals are body text, not metadata. */
+.goal-cell {
+  background: var(--surface);
+}
+.goal-text {
+  color: var(--ink);
+}
+.goal-text:hover {
+  color: var(--accent-hover);
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-color: var(--focus);
+}
+input,
+select,
+textarea,
+.assignee-tile {
+  border-color: var(--input-border);
+}
+.assignee-tile[aria-pressed="true"] {
+  background: var(--selected);
+  border-color: var(--accent);
+}
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+:root[data-theme="dark"] {
+  --accent: #a8b6ff;
+  --accent-hover: #c7d0ff;
+  --focus: #a8b6ff;
+  --selected: #283b5e;
+  --input-border: #8394b0;
+  --raised: #232730;
+  --progress-complete: #8aa9ff;
+}
+#board .cell.goal-cell {
+  padding: 6px 12px;
+  justify-content: flex-start;
+}
+#board .goal-text {
+  max-height: 100%;
+  margin: 0;
+  width: 100%;
+  flex-shrink: 0;
 }

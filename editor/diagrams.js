@@ -92,6 +92,7 @@ function pump() {
 }
 function fit(j) {
   j.scale = 1;
+  j.canvas.dataset.zoomed = "false";
   if (j.svg) {
     const box = j.svg.viewBox.baseVal;
     j.fitWidth = Math.min(
@@ -121,7 +122,7 @@ export function prepareDiagrams(target) {
     canvas.tabIndex = 0;
     canvas.setAttribute(
       "aria-label",
-      "Mermaid図。拡大後はスクロールして移動できます",
+      "Mermaid図。拡大はボタン、拡大後はドラッグで移動。ホイールは本文をスクロールします",
     );
     tools.className = "diagram-tools";
     tools.hidden = true;
@@ -230,6 +231,7 @@ function zoom(j, factor) {
   if (!j.svg) return;
   j.scale = Math.max(1, Math.min(4, j.scale * factor));
   j.svg.style.width = `${j.scale * j.fitWidth}px`;
+  j.canvas.dataset.zoomed = String(j.scale > 1);
 }
 export function releaseDiagrams(target) {
   for (const f of target.querySelectorAll(".diagram-shell")) {
