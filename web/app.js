@@ -1119,67 +1119,105 @@ function syncCommentControls() {
   $("#comments-more").hidden = !commentNext;
   $("#comments-more").disabled = commentsLoading;
 }
+const commentRenderKeys = new WeakMap();
 function renderComments() {
   const root = $("#comments-list");
-  root
-    .querySelectorAll(".comment-content")
-    .forEach((n) => composerModule?.clearPreview(n));
-  root.replaceChildren();
+  const existing = new Map(
+    [...root.children].map((n) => [Number(n.dataset.commentId), n]),
+  );
+  const kept = new Set();
+  let position = 0;
   const loadedIds = new Set(commentItems.map((c) => c.id));
   const displayed = [
     ...commentItems,
     ...[...commentConfirmed.values()].filter((c) => !loadedIds.has(c.id)),
   ].sort((a, b) => a.id - b.id);
-  for (const c of displayed) {
-    const article = document.createElement("article"),
-      header = document.createElement("header"),
-      author = document.createElement("strong"),
-      link = document.createElement("a"),
-      body = document.createElement("div");
-    article.className = "issue-comment";
-    body.className = "markdown-preview comment-content";
-    author.textContent = c.author?.login || "削除されたユーザー";
-    const avatar = c.author?.avatarUrl;
-    if (
-      typeof avatar === "string" &&
-      /^https:\/\/avatars\.githubusercontent\.com\//.test(avatar)
-    ) {
-      const img = document.createElement("img");
-      img.src = avatar;
-      img.alt = "";
-      img.width = 24;
-      img.height = 24;
-      header.append(img);
+  const wanted = new Set(displayed.map((c) => c.id));
+  for (const [id, article] of existing) {
+    if (!wanted.has(id)) {
+      composerModule?.clearPreview(article.querySelector(".comment-content"));
+      article.remove();
+      existing.delete(id);
     }
-    link.textContent = Number.isFinite(Date.parse(c.createdAt))
-      ? new Date(c.createdAt).toLocaleString("ja-JP")
-      : "GitHub";
-    if (
-      typeof c.url === "string" &&
-      /^https:\/\/github\.com\/engineer-first\/idea-boost\/issues\/[1-9]\d*#issuecomment-\d+$/.test(
-        c.url,
-      )
-    ) {
-      link.href = c.url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-    }
-    header.append(author, link);
-    if (!loadedIds.has(c.id)) {
-      const note = document.createElement("span");
-      note.textContent = "投稿したコメント（投稿時の内容）";
-      header.append(note);
-    }
-    if (c.author?.type === "Bot") {
-      const bot = document.createElement("span");
-      bot.textContent = "GitHub App / Bot";
-      header.append(bot);
-    }
-    if (composerModule) composerModule.preview(c.body, body);
-    else body.textContent = c.body;
-    article.append(header, body);
-    root.append(article);
   }
+  for (const c of displayed) {
+    const bodyKey = JSON.stringify([c.body, !!composerModule]);
+    const metaKey = JSON.stringify([
+      c.author,
+      c.url,
+      c.createdAt,
+      loadedIds.has(c.id),
+    ]);
+    const previous = existing.get(c.id);
+    const oldKeys = previous && commentRenderKeys.get(previous);
+    const article = previous || document.createElement("article");
+    const body =
+      previous?.querySelector(".comment-content") ||
+      document.createElement("div");
+    article.className = "issue-comment";
+    article.dataset.commentId = String(c.id);
+    if (oldKeys?.body !== bodyKey) {
+      if (composerModule) composerModule.preview(c.body, body);
+      else body.textContent = c.body;
+    }
+    if (oldKeys?.meta !== metaKey) {
+      const header = document.createElement("header"),
+        author = document.createElement("strong"),
+        link = document.createElement("a");
+      body.className = "markdown-preview comment-content";
+      author.textContent = c.author?.login || "削除されたユーザー";
+      const avatar = c.author?.avatarUrl;
+      if (
+        typeof avatar === "string" &&
+        /^https:\/\/avatars\.githubusercontent\.com\//.test(avatar)
+      ) {
+        const img = document.createElement("img");
+        img.src = avatar;
+        img.alt = "";
+        img.width = 24;
+        img.height = 24;
+        header.append(img);
+      }
+      link.textContent = Number.isFinite(Date.parse(c.createdAt))
+        ? new Date(c.createdAt).toLocaleString("ja-JP")
+        : "GitHub";
+      if (
+        typeof c.url === "string" &&
+        /^https:\/\/github\.com\/engineer-first\/idea-boost\/issues\/[1-9]\d*#issuecomment-\d+$/.test(
+          c.url,
+        )
+      ) {
+        link.href = c.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+      }
+      header.append(author, link);
+      if (!loadedIds.has(c.id)) {
+        const note = document.createElement("span");
+        note.textContent = "投稿したコメント（投稿時の内容）";
+        header.append(note);
+      }
+      if (c.author?.type === "Bot") {
+        const bot = document.createElement("span");
+        bot.textContent = "GitHub App / Bot";
+        header.append(bot);
+      }
+      const oldHeader = article.querySelector("header");
+      if (oldHeader) oldHeader.replaceWith(header);
+      else article.append(header, body);
+    }
+    commentRenderKeys.set(article, { body: bodyKey, meta: metaKey });
+    if (root.children[position] !== article)
+      root.insertBefore(article, root.children[position] || null);
+    kept.add(article);
+    position++;
+  }
+  for (const article of [...root.children])
+    if (!kept.has(article)) {
+      const body = article.querySelector(".comment-content");
+      if (body) composerModule?.clearPreview(body);
+      article.remove();
+    }
 }
 function stopPrivateScope(message) {
   state = clone(initial);

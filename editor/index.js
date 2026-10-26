@@ -1,3 +1,4 @@
+import { observeImages, releaseImages } from "./media-loader.js";
 import { patchRaw } from "./raw.js";
 import { livePreview, sourceMode } from "./live.js";
 import { GFM } from "@lezer/markdown";
@@ -15,8 +16,11 @@ import { tags } from "@lezer/highlight";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 
+const renderedSources = new WeakMap();
 export function preview(source, target) {
+  if (renderedSources.get(target) === source) return;
   clearPreview(target);
+  renderedSources.set(target, source);
   const fragment = DOMPurify.sanitize(
     marked.parse(source, { gfm: true, breaks: false }),
     {
@@ -111,29 +115,13 @@ export function preview(source, target) {
     i.disabled = true;
   });
   target.replaceChildren(fragment);
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries)
-        if (entry.isIntersecting) {
-          const img = entry.target;
-          observer.unobserve(img);
-          if (target.contains(img)) {
-            img.src = img.dataset.mediaSrc;
-            delete img.dataset.mediaSrc;
-          }
-        }
-    },
-    { root: target.closest("dialog"), rootMargin: "200px" },
-  );
-  observers.set(target, observer);
-  images.forEach((img) => observer.observe(img));
+  observeImages(target, images);
 }
-const observers = new WeakMap();
 export function clearPreview(target) {
-  observers.get(target)?.disconnect();
-  observers.delete(target);
-  target.querySelectorAll("img").forEach((img) => img.removeAttribute("src"));
+  renderedSources.delete(target);
+  releaseImages(target);
   target.querySelectorAll("video").forEach((video) => {
+    video.onerror = null;
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -199,11 +187,10 @@ function mediaFigure(url, alt, kind, images) {
       status.textContent = "画像を表示できません。元の添付をご確認ください。";
       img.remove();
     };
-    if (lazy) {
-      img.dataset.mediaSrc = url;
-      images.push(img);
-    } else img.src = url;
+    img.dataset.mediaSrc = url;
     frame.append(img);
+    if (lazy) images.push(img);
+    else observeImages(figure, [img], true);
   };
   if (kind === "image") addImage(true);
   else {
