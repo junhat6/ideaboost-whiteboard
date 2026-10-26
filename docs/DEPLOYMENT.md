@@ -66,3 +66,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 秘密・認証mode・公開範囲・料金・GitHub App設定の変更なし。既存デモも変更なし。
 
 最終CIでは43件backend・64件browserを通過。前段のrun 40282197854はwideのスケルトンCSS測定が再描画と競合して失敗したため、現在の要素を再評価する`toHaveCSS`へ修正した。最終配信後にもGitHub取得HTTP200（15 PBI/26 tasks）を確認。この記録修正はドキュメントのみで、配信sourceとは別commit。
+
+## 共有読み取り版（3.5秒目標への改善）
+
+- 配信source: `e146974bb5cd46443e51f267db413c5d3bb357c3`
+- Active Worker version: `207d947a-5b55-44fe-beab-f8b39a7cc8e4`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40285023335 （success、53 backend / 68 browser）
+- 新規client＋warm共有readerの実カード表示3回中央値2.049秒、範囲1.979–2.087秒。同client再訪中央値1.680秒。共有結果を使わないfresh path中央値3.995秒は未達。完全なfresh完了は別記し、冷えたサーバーの初回まで目標達成とは主張しない。
+- 初期共有結果は60秒以内のメモリーのみ。公開/view/Statusは毎回前後確認し、元の取得時刻・年齢と最新確認中を表示。直後のfresh取得完了まで編集/dragを無効化。永続board/CDN/browser cache、Webhook、鍵、namespace、有料契約は追加なし。
+- 1920/2560実配信で右80%（x384/幅1536、x512/幅2048）、完全な本文、最新取得後の編集解除、編集キャンセル2回、全画面、6PBI/14cardsを確認。1920の4タイトルは既存完全行スクロール、2560は0件。ページ縦スクロール・半端な行・JavaScriptエラーなし。実IssueのQA POST0。
+- 45秒/focus/online同期・dirty draft保護・再接続の回帰試験を維持。計測全値・条件と残るcold課題はPERFORMANCE.md、境界はADR004。
