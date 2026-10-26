@@ -181,3 +181,11 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - ローカルcheck成功（69 backend）、146 browser成功。DESIGN validator errors0/warnings38（CSS/本文から使うsemantic tokenの未参照警告を含む）。CSS/DESIGN色一致を単体試験。
 - 図のoverflow hidden/overscroll autoで通常wheelを親へ渡し、±/Fit/明示dragを保持。青進捗・白goal面・6px上下余白・Status輪郭・semantic token統一を配信。作者同一時DOM再作成を抑止。
 - 実本番両サイズでwheel親scroll0→220と図位置/scale不変を確認。実データのgoal可視高133→151px/152→216px。実Issue/コメントQA書込みなし。匿名モード/secret/権限/料金/取得鮮度は変更なし。
+
+#### 入力境界・avatar fallbackの限定追補（最終）
+
+- 最終配信source: `ca687e7534a0dc8313736fc8b4c5c4a80247653f`
+- Worker version: `7b6141f5-1c1a-45f5-a9b2-13b03cf0be32`
+- 同一SHAのCI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40326588045 （69 backend、148 browser、9.1分）。先行f6e1f62のCI40324712286も成功。
+- 高詳細度のtoolbar/detail入力にinput-borderを適用。titleの三辺透明/下線形式は保ち、下線を同tokenへ。画像取得失敗時の小avatarはselected背景＋ink文字（12.28:1）。実本番で画像要求をabortした両サイズのcomputed styleとPOST0を確認。styles.cssのHTTP200/SHA256一致。
+- DESIGN errors0/warnings39。PBI面は淡青canvas、カードタイトルはinkの実値へ記述を修正。新規の権限・料金・secret変更なし。文書だけの後続commitではアプリを再配信しない。

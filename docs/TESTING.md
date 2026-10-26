@@ -117,3 +117,5 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 同じ作者のfresh read3回は変更前3回DOM置換→変更後0回。変更した作者は即反映。これはfixtureのDOM削減であり、本番レイテンシ短縮率ではない。原文/保存/コメント/媒体/IME/右88%を含む全回帰も実行。
 
 限定レビュー追補: toolbar/detailの入力境界をcomputed styleで確認し、titleは三辺透明＋下線の意図した形を保って下線をinput-borderへ。GitHub avatar取得をabortし、fallback背景selected/文字inkを確認。既存146ケース成功後、追加2ケース（両サイズ）も成功。全148ケースをCI対象にする。
+
+最終配信SHA ca687e7 のCI40326588045で、追加分を含む全148 browserケースと69 backendが成功。本番の入力境界/画像失敗fallbackも両サイズで一致した。
