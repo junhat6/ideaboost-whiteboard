@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+.dev.vars*
+.env*
+!.env.example
+reference-source/
+airtable/
+notion/
+dist/
+test-results/
+playwright-report/
+*.pem
+*.key
+.DS_Store

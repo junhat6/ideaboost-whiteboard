@@ -1,0 +1,7 @@
+# ADR 002: GitHubの競合と部分保存
+
+保存は変更フィールドだけ送信。タイトル・本文・担当者のSHA-256、updatedAt とraw Project Statusの事前条件をサーバーが最新取得・狭い直前再検証する。保存後にGitHubを再取得する。Issue更新とProject更新は別リクエストで、GitHub APIに分散トランザクションやProject expected-version入力はない。
+
+現段階は同一isolate内のIssueロックと15分request IDメモリを使用。別isolate・GitHub直接編集・自動化は並行しうる。updatedAtは秒単位のため内容ハッシュも比較する。それでも最終比較後の外部変更は競合しうる。厳密なCAS/atomic/exactly-onceは主張しない。
+
+部分保存・応答喪失・readback不一致は明示して編集をロックし、読み直して新しい利用者操作を必要とする。ネットワークの自動mutation retryは無効。今後アプリ内同時書き込みの直列化が必要ならDurable Objectを導入するが、GitHub直接編集との競合を消せるとは扱わない。

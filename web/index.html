@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Idea Boost — 作業ボード</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="chrome" class="chrome">
+      <div class="top-edge" aria-hidden="true"></div>
+      <header class="control-panel">
+        <div class="brand">
+          <b>ib<span>・</span></b
+          ><strong>作業ボード</strong><span>IDEA BOOST</span>
+        </div>
+        <section class="toolbar" aria-label="ボード操作">
+          <input
+            type="search"
+            id="search"
+            placeholder="タスク・PBIを検索"
+            aria-label="タスク・PBIを検索"
+          /><select id="assignee-filter" aria-label="担当者で絞り込み">
+            <option value="">担当者：全員</option></select
+          ><select
+            id="milestone-filter"
+            aria-label="マイルストーンで絞り込み"
+            hidden
+          ></select
+          ><select id="fit-mode" aria-label="ボードの表示密度">
+            <option value="fit">全体を収める</option>
+            <option value="pages">読みやすさ優先（PBIページ）</option></select
+          ><span id="visible-count"></span
+          ><button id="show-deferred">
+            見送り <span id="deferred-count">0</span></button
+          ><button id="show-unmapped">
+            選択PBIの未分類 <span id="unmapped-count">0</span></button
+          ><button id="choose-pbis">表示するPBI</button
+          ><button id="refresh">最新を取得</button
+          ><button id="fullscreen">全画面</button
+          ><button id="theme">配色切替</button
+          ><button id="about">連携について</button>
+        </section>
+        <p id="scope-note" class="help"></p>
+        <p class="help">
+          付箋を横にドラッグして移動 · クリックでIssue詳細 ·
+          キーボードでは詳細の「編集」からステータスを変更 ·
+          表示するPBIは最大6件。全体表示で選択したPBIを1画面に配置。密な列は件数から全タスクを開けます。
+        </p>
+        <p class="help">
+          「全画面」はアプリの全画面表示です（Escで終了）。Macのウインドウ全画面とは別です。タブ・URL・ブックマークバーを隠すよう要求しますが、OSメニュー等の表示はブラウザー側で制御されます。
+        </p>
+      </header>
+    </div>
+    <button
+      id="operations"
+      class="operations"
+      aria-controls="chrome"
+      aria-expanded="false"
+    >
+      操作 ☰
+    </button>
+    <div id="connection" class="connection" role="status">GitHubへ接続中…</div>
+    <main>
+      <div id="board-scroll" role="region" aria-label="PBI別タスクボード">
+        <div id="board" role="table" aria-label="チームの作業状況"></div>
+      </div>
+      <div id="empty" hidden>
+        一致するタスクはありません。操作から検索条件を変更できます。
+      </div>
+      <nav id="pagination" aria-label="PBIページ" hidden>
+        <button id="prev-page">← 前</button><span id="page-info"></span
+        ><button id="next-page">次 →</button>
+      </nav>
+    </main>
+    <dialog id="pbi-picker" aria-labelledby="pbi-picker-heading">
+      <div class="dialog-top">
+        <h2 id="pbi-picker-heading">表示するPBI</h2>
+        <strong id="pbi-selection-count" aria-live="polite">0 / 6</strong>
+      </div>
+      <p>
+        このスプリントで表示するPBIを最大6件選択。初回は現在の順序の上位6件です。選択はこのブラウザー内だけに保存し、Issue・優先順位は変更しません。
+      </p>
+      <div class="picker-tools">
+        <input
+          id="pbi-search"
+          type="search"
+          placeholder="#Issue番号・タイトルで検索"
+          aria-label="表示するPBIを検索"
+        /><button id="pbi-top-six">上位6件</button
+        ><button id="pbi-clear">すべて解除</button>
+      </div>
+      <p>表示順は取得したPBIの順序を維持します。0件でも適用できます。</p>
+      <div id="pbi-options"></div>
+      <div id="pbi-missing"></div>
+      <div class="dialog-actions">
+        <button id="pbi-cancel">キャンセル</button
+        ><button id="pbi-apply" class="primary">適用</button>
+      </div>
+    </dialog>
+    <dialog id="details" class="detail-dialog" aria-labelledby="detail-heading">
+      <form id="detail-form">
+        <div class="dialog-top">
+          <span class="section-kicker" id="detail-meta"></span
+          ><button
+            type="button"
+            id="close-detail"
+            class="icon-button"
+            aria-label="詳細を閉じる"
+          >
+            ×
+          </button>
+        </div>
+        <h2 id="detail-heading"></h2>
+        <p id="detail-badges"></p>
+        <a id="detail-source" target="_blank" rel="noopener noreferrer" hidden
+          >元のIssueを開く ↗</a
+        >
+        <fieldset id="detail-fields" disabled>
+          <label
+            >タイトル<input id="detail-title" required maxlength="256"
+          /></label>
+          <div class="form-row">
+            <label>担当者<select id="detail-assignee"></select></label
+            ><label>Project Status<select id="detail-status"></select></label>
+          </div>
+          <label class="body-label"
+            >本文
+            <div id="detail-body-view"></div>
+            <textarea id="detail-body" rows="12"></textarea>
+          </label>
+        </fieldset>
+        <p id="body-hint" class="body-hint">
+          Demo goal は本文の「##
+          ユーザーに提供する体験」セクションから表示します。
+        </p>
+        <p id="detail-error" class="error" role="alert" hidden></p>
+        <button type="button" id="recover-edit">最新を取得</button>
+        <p id="detail-note" class="local-note"></p>
+        <div class="dialog-actions">
+          <button type="button" id="edit-issue">編集</button
+          ><button type="button" id="cancel-edit" hidden>キャンセル</button
+          ><button type="submit" id="save-issue" class="primary" hidden>
+            変更を保存
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="list-dialog" aria-labelledby="list-heading">
+      <div class="dialog-top">
+        <h2 id="list-heading"></h2>
+        <button class="icon-button close-dialog" aria-label="一覧を閉じる">
+          ×
+        </button>
+      </div>
+      <div id="issue-list"></div>
+    </dialog>
+    <dialog id="about-dialog" aria-labelledby="about-heading">
+      <div class="dialog-top">
+        <span class="section-kicker">GITHUB / SOURCE OF TRUTH</span
+        ><button class="icon-button close-dialog" aria-label="説明を閉じる">
+          ×
+        </button>
+      </div>
+      <h2 id="about-heading">Issueをそのまま、ボードへ。</h2>
+      <p id="about-mode">GitHub に接続して最新の Issue を表示します。</p>
+      <p>
+        PBIもIssue（type: PBI）。Demo
+        goalはPBI本文の体験・受け入れ条件セクションから表示します。ゴールを別データとして二重管理しません。
+      </p>
+      <dl>
+        <dt>ToDo</dt>
+        <dd>未整理</dd>
+        <dt>Doing</dt>
+        <dd>壁打ち中 / 着手可能 / 作業中</dd>
+        <dt>Wait</dt>
+        <dd>レビュー中</dd>
+        <dt>Done</dt>
+        <dd>完了</dd>
+      </dl>
+      <p>
+        ドラッグ先のStatusはそれぞれ「未整理・作業中・レビュー中・完了」です。同じ列内でのドラッグは元のStatusを維持します。「見送り」はDoneに含めず、操作メニューから別一覧で確認します。
+      </p>
+      <p>
+        初回は現在の順序の上位6件を表示します。「表示するPBI」でスプリントごとに最大6件を選び、このブラウザーだけに保存します。Issueや優先順位は変更しません。読みやすさ優先を選んだ場合だけ、件数付きのページ切り替えを使います。列内の付箋が多い場合も残り件数から全件を確認できます。
+      </p>
+      <a
+        href="https://github.com/orgs/engineer-first/projects/3/views/16"
+        target="_blank"
+        rel="noopener noreferrer"
+        >GitHub Projectを開く ↗</a
+      >
+    </dialog>
+    <div id="announcement" role="status" aria-live="polite" class="toast"></div>
+    <script src="app.js"></script>
+    <script src="api-adapter.js"></script>
+  </body>
+</html>
