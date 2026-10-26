@@ -142,3 +142,15 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - ローカルcheck（67 backend、lint/typecheck/build）と118 browser成功。開始時本文変更なし→合成IME入力→終了、IME中保存/close抑止、原文表示中のremote更新とaria-pressed整合を両サイズで検証。
 - 本番1920/2560の合成compositionイベント・原文切替・開閉で原文不変、POST0・JS error0。4配信assetsのHTTP200/SHA256一致。実GitHub書き込み・native OS IME検証は未実施。
 - サーバーコメントscope/速度、権限、秘密、媒体取得方式は変更なし。
+
+
+## 媒体の再利用・遅延取得の追加改善
+
+- 配信source: `f6c0d519b85ec4f0a184d2bd7a3e1b3423731de3`
+- Active Worker version: `643e85c1-225a-4c39-9adf-1733db78eab2`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40312803995 （成功、配信sourceと同一head）
+- ローカルcheck成功（67 backend、lint/typecheck/build）、124 browser成功。DESIGN validator errors0/warnings16（既存の未参照token）。
+- コメントID/本文を照合し、同じ本文の媒体を保持。作者・時刻等だけの変更はheaderだけ更新し、動画を止めない。本文/URL変更・削除・非公開化は破棄する。
+- 画像監視は接続後dialog単位で共有。同時画像取得3件、画面近傍200px、45秒応答しない場合は失敗と元リンク。閉じる際の待機要求開始を抑止。動画は操作前srcなしを維持。
+- 合成14画像の高速スクロールでは同時要求13→3。実本番の媒体操作前要求は改善前後とも0。本文パネル61–73ms、ライブ面146–842ms（bundle等の変動を含み速度改善とは主張しない）。詳しくはPERFORMANCE.md。
+- 両画面の実本番表示を画素確認、POST0・JS error0。app.js / styles.css / editor-bundle.jsのHTTP200とSHA256がローカル一致。実Issue・コメントのQA書き込みなし。認証・権限・秘密・CSP・料金は変更なし。
