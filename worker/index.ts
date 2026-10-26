@@ -94,6 +94,17 @@ export function createWorker(auth = authenticate, api = handleApi) {
           );
           return secure(await coordinator.fetch(internal));
         }
+        if (
+          request.method === "GET" &&
+          new URL(request.url).pathname === "/api/board" &&
+          env.MUTATIONS
+        ) {
+          return secure(
+            await env.MUTATIONS.getByName(
+              "engineer-first/idea-boost:board-reader",
+            ).fetch(internal),
+          );
+        }
         const result = await api(internal, env);
         if (result) return secure(result);
         if (request.method === "POST")

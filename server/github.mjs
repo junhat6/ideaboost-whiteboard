@@ -1023,6 +1023,30 @@ export function createHandler({
             env.AUTH_MODE === "public-temporary" ? "public-temporary" : "team",
         });
       if (!configured) throw new ApiError(503, "github_not_configured");
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/scope" &&
+        !url.search
+      ) {
+        const data = await gql(
+          env,
+          `query ReadScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} } } }`,
+        );
+        const meta = data?.organization?.projectV2;
+        if (
+          env.AUTH_MODE === "public-temporary" &&
+          (data?.repository?.isPrivate !== false || meta?.public !== true)
+        )
+          throw new ApiError(403, "scope_not_public");
+        if (!meta) throw new ApiError(502, "project_unavailable");
+        return reply({
+          ok: true,
+          scopeKey: JSON.stringify([
+            meta.view?.filter ?? null,
+            meta.field?.options?.map((o) => o.name) ?? [],
+          ]),
+        });
+      }
       if (request.method === "GET" && url.pathname === "/api/board") {
         if (
           [...url.searchParams.keys()].some((k) => k !== "milestone") ||

@@ -46,3 +46,9 @@ Cloudflare OAuthとGitHub sudo本人確認は完了。指定アカウントだ�
 - https://developers.cloudflare.com/workers/configuration/secrets/
 - https://developers.cloudflare.com/durable-objects/platform/pricing/
 - https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps
+
+## 共有読み取りメモリー
+
+`MUTATIONS` namespace内でも `engineer-first/idea-boost:board-reader` はIssue保存DOとは別インスタンス。保存ledgerのstorageへ本文を書かない。最大60秒・2MBのdefault board1個と進行中最大8要求のみをメモリー保持。全APIレスポンスはprivate,no-store。初回画面の「直近の取得結果」は完全な最新取得の完了を意味しない。
+
+保存中・結果不明・無効化終了通知に失敗した状態では共有結果の再利用を止め、通常のfresh読取へ戻る。確定した保存結果は終了通知だけの失敗で覆さない。再起動/eviction/deployではメモリーが消える。結果不明のIssue保存ledgerの保守は従来通り必要で、読み取りキャッシュの消失は保存再送の許可ではない。新しいDB・鍵・Webhook・alarm・有料プランは追加していない。

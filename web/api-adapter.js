@@ -2,6 +2,7 @@
 /* Same-origin authenticated API only. Never accepts, persists, or exposes GitHub tokens. */
 (() => {
   const messages = {
+    scope_not_public: "公開範囲を確認できません。表示を停止しました。",
     sign_in_required: "許可されたチームアカウントでログインし直してください。",
     github_not_configured: "GitHub Appの接続設定がまだ完了していません。",
     github_auth_failed: "GitHub Appの認証を確認できません。",
@@ -67,6 +68,7 @@
               : messages[data.error] ||
                 `GitHub連携の処理を確認できません（${response.status}）。最新を取得してください。`,
       );
+      if (data.error === "scope_not_public") connected = false;
       e.code = response.status === 409 ? "CONFLICT" : data.error;
       e.partial = !!data.partial;
       e.ambiguous = !!data.ambiguous;
@@ -89,7 +91,7 @@
             throw new Error(messages.github_not_configured);
           return health;
         }),
-        request("/api/board"),
+        request("/api/board", { headers: { "X-Board-Snapshot": "1" } }),
       ]);
       let initialBoard = firstBoard;
       let latest = null,

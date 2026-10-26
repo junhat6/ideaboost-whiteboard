@@ -63,7 +63,8 @@ let state = clone(initial),
   bootstrapAttempt = false,
   detailUpdated = false,
   detailUnavailable = false,
-  listContext = null;
+  listContext = null,
+  snapshotPending = false;
 function valid(s) {
   return (
     s &&
@@ -336,7 +337,7 @@ function issueLabel(t) {
   return adapter ? (t.number ? `#${t.number}` : "Issue") : `DEMO-${t.id}`;
 }
 function card(t) {
-  return `<article class="task ${esc(t.color || "yellow")}" draggable="${!pending && !(adapter && t.projectItemId === null)}" data-task="${esc(t.id)}"><div class="task-top"><span>${esc(issueLabel(t))}</span><span aria-hidden="true">⠿</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}">${assigneeAvatars(t)}<span class="person-name">${esc(person(t))}</span></span><span class="raw-status">${esc(t.status || "Status未設定")}</span></div></article>`;
+  return `<article class="task ${esc(t.color || "yellow")}" draggable="${!pending && !snapshotPending && !(adapter && t.projectItemId === null)}" data-task="${esc(t.id)}"><div class="task-top"><span>${esc(issueLabel(t))}</span><span aria-hidden="true">⠿</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}">${assigneeAvatars(t)}<span class="person-name">${esc(person(t))}</span></span><span class="raw-status">${esc(t.status || "Status未設定")}</span></div></article>`;
 }
 // Fit only the presentation, never the Issue title. If the available area is
 // genuinely too small at 10.5px, expose whole scrollable lines (and the drawer).
@@ -392,9 +393,10 @@ function matching() {
 }
 function markFresh() {
   lastReadError = "";
-  saveBlocked = false;
+  snapshotPending = state.readState?.kind === "snapshot";
+  saveBlocked = snapshotPending;
   $("#detail-error").hidden = true;
-  stale = false;
+  stale = snapshotPending;
   lastReceivedAt = new Date().toISOString();
 }
 function focusSelector(element) {
@@ -543,6 +545,10 @@ function render() {
             ? "GitHub接続 · ビュー絞り込み未適用"
             : adapter.label || "GitHub接続済み"
     : "GitHub 未接続";
+  if (snapshotPending)
+    $("#connection").textContent = lastReadError
+      ? "直近の取得結果 · 最新確認失敗"
+      : "直近の取得結果 · 最新確認中";
   if (!navigator.onLine)
     $("#connection").textContent = "オフライン · 表示は最新未確認";
   if (adapter) {
@@ -550,6 +556,9 @@ function render() {
     if (fetched && !Number.isNaN(Date.parse(fetched))) {
       $("#connection").textContent +=
         ` · 最終取得 ${new Date(fetched).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+      if (snapshotPending)
+        $("#connection").textContent +=
+          `（${Math.max(0, Math.floor((Date.now() - Date.parse(fetched)) / 1000))}秒前）`;
       $("#connection").title =
         `最終取得: ${fetched}${stale ? "（最新未確認）" : ""}`;
     }
@@ -598,7 +607,7 @@ function render() {
 // A real adapter owns authentication/server validation; this demo never stores tokens.
 let saveBlocked = false;
 async function updateIssue(kind, id, patch, baseline = null) {
-  if (pending || saveBlocked || !adapter) return false;
+  if (pending || snapshotPending || saveBlocked || !adapter) return false;
   $("#detail-error").hidden = true;
   const t = issue(kind, id),
     before = clone(state);
@@ -750,7 +759,7 @@ function fillDetail() {
     ? "GitHubの保存結果を確認し、ボードを再取得します。完了・担当変更でProjectの自動処理が動く場合があります。"
     : "サンプルIssueです。変更はこのブラウザーのみ。GitHubには反映されません。";
   $("#body-hint").hidden = editing.kind !== "PBI";
-  $("#edit-issue").disabled = pending;
+  $("#edit-issue").disabled = pending || snapshotPending;
   $("#detail-status").disabled = !!adapter && t.projectItemId === null;
   if ($("#detail-status").disabled)
     $("#detail-note").textContent =
@@ -759,16 +768,23 @@ function fillDetail() {
 function updateDetailSync() {
   const indicator = $("#detail-sync");
   indicator.hidden =
-    !loading && !stale && !editMode && !detailUpdated && !detailUnavailable;
-  indicator.textContent = loading
-    ? "最新を確認中です。取得済みのIssueを表示しています。"
-    : editMode
-      ? "編集中は自動同期を一時停止しています。入力は保持されます。保存・キャンセル後に最新を確認します。"
-      : detailUnavailable
-        ? "このIssueは現在の表示範囲から外れました。表示は前回取得した内容です。元のIssueを確認してください。"
-        : stale
-          ? "最新の確認に失敗しました。前回取得した内容です。「最新を取得」で再確認してください。"
-          : "GitHub側の変更を反映しました。";
+    !loading &&
+    !stale &&
+    !editMode &&
+    !detailUpdated &&
+    !detailUnavailable &&
+    !snapshotPending;
+  indicator.textContent = snapshotPending
+    ? "直近の取得結果を表示しています。最新確認が完了すると編集できます。"
+    : loading
+      ? "最新を確認中です。取得済みのIssueを表示しています。"
+      : editMode
+        ? "編集中は自動同期を一時停止しています。入力は保持されます。保存・キャンセル後に最新を確認します。"
+        : detailUnavailable
+          ? "このIssueは現在の表示範囲から外れました。表示は前回取得した内容です。元のIssueを確認してください。"
+          : stale
+            ? "最新の確認に失敗しました。前回取得した内容です。「最新を取得」で再確認してください。"
+            : "GitHub側の変更を反映しました。";
 }
 function detailVersion(i) {
   return (
@@ -792,7 +808,7 @@ function reconcileDetail(previous) {
       detailUpdated || detailVersion(previous) !== detailVersion(current);
     fillDetail();
   }
-  $("#edit-issue").disabled = pending || detailUnavailable;
+  $("#edit-issue").disabled = pending || snapshotPending || detailUnavailable;
   updateDetailSync();
 }
 let returnFocusSelector = null;
@@ -890,6 +906,7 @@ $("#board").addEventListener("dragstart", (e) => {
   if (
     !c ||
     pending ||
+    snapshotPending ||
     (adapter && issue("Task", c.dataset.task)?.projectItemId === null)
   ) {
     e.preventDefault();
@@ -931,7 +948,7 @@ $("#board").addEventListener("drop", (e) => {
 });
 $("#board").addEventListener("dragend", clearDrag);
 $("#edit-issue").onclick = () => {
-  if (pending || detailUnavailable) return;
+  if (pending || snapshotPending || detailUnavailable) return;
   fillDetail();
   setEdit(true);
   $("#detail-title").focus();
@@ -1050,6 +1067,15 @@ async function refreshBoard(options, { silent = false } = {}) {
   } catch (e) {
     lastReadError = e.message;
     stale = true;
+    if (e.code === "scope_not_public") {
+      state = clone(initial);
+      adapter = null;
+      connectionError = e.message;
+      initialLoading = false;
+      saveBlocked = true;
+      $("#details").close();
+      $("#list-dialog").close();
+    }
     if (!silent) announce(`取得できませんでした：${e.message}`);
     return false;
   } finally {
@@ -1057,7 +1083,7 @@ async function refreshBoard(options, { silent = false } = {}) {
     loading = false;
     $("#refresh").disabled = false;
     $("#milestone-filter").disabled = false;
-    $("#edit-issue").disabled = detailUnavailable;
+    $("#edit-issue").disabled = snapshotPending || detailUnavailable;
     updateDetailSync();
     render();
     resumeAutoRefresh();
@@ -1239,6 +1265,7 @@ window.Whiteboard = {
     if ($("#details").open) $("#details").close();
     $("#refresh").hidden = false;
     render();
+    if (snapshotPending) autoRefresh();
   },
   applySnapshot(snapshot) {
     if (pending || pickerDraft || ($("#details").open && editMode))

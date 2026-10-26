@@ -853,3 +853,73 @@ test("resize during interrupted drag releases the auto refresh pause", async ({
   await expect.poll(s.reads).toBe(before + 2);
   expect(s.posts()).toBe(0);
 });
+
+test("shared snapshot paints actual cards then refreshes immediately, with age and edit lock", async ({
+  page,
+}) => {
+  const data = snapshot();
+  data.fetchedAt = new Date(Date.now() - 20000).toISOString();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let freshReads = 0,
+    posts = 0;
+  await page.route("**/api/**", async (route) => {
+    const req = route.request();
+    if (req.method() === "POST") {
+      posts++;
+      return route.abort();
+    }
+    if (req.url().endsWith("/health"))
+      return route.fulfill({ json: { configured: true } });
+    if (req.headers()["x-board-snapshot"] === "1")
+      return route.fulfill({
+        json: { ...data, readState: { kind: "snapshot", ageMs: 20000 } },
+      });
+    freshReads++;
+    await gate;
+    const fresh = structuredClone(data);
+    fresh.tasks[0].body = "最新の正本本文";
+    return route.fulfill({ json: fresh });
+  });
+  await page.goto("/");
+  await expect(page.locator(".task")).toHaveCount(96);
+  await expect(page.locator("#connection")).toContainText("直近の取得結果");
+  await expect(page.locator("#connection")).toContainText("秒前");
+  await expect.poll(() => freshReads).toBe(1);
+  await page.locator(".task-title").first().click();
+  await expect(page.locator("#details")).toBeVisible();
+  await expect(page.locator("#edit-issue")).toBeDisabled();
+  release();
+  await expect(page.locator("#detail-body-view")).toContainText(
+    "最新の正本本文",
+  );
+  await expect(page.locator("#edit-issue")).toBeEnabled();
+  await expect(page.locator("#connection")).not.toContainText("直近の取得結果");
+  expect(posts).toBe(0);
+});
+
+test("cached view stays noneditable on failed refresh and clears on known private transition", async ({
+  page,
+}) => {
+  const data = snapshot();
+  let fail = "github_unavailable";
+  await page.route("**/api/**", (route) => {
+    if (route.request().url().endsWith("/health"))
+      return route.fulfill({ json: { configured: true } });
+    if (route.request().headers()["x-board-snapshot"] === "1")
+      return route.fulfill({
+        json: { ...data, readState: { kind: "snapshot", ageMs: 20000 } },
+      });
+    return route.fulfill({ status: 403, json: { error: fail } });
+  });
+  await page.goto("/");
+  await expect(page.locator("#sync-warning")).toBeVisible();
+  await page.locator(".task-title").first().click();
+  await expect(page.locator("#edit-issue")).toBeDisabled();
+  await page.keyboard.press("Escape");
+  fail = "scope_not_public";
+  await page.locator("#retry-sync").click();
+  await expect(page.locator(".task")).toHaveCount(0);
+  await expect(page.locator("#empty")).toContainText("公開範囲");
+  await expect(page.locator("#details")).not.toBeVisible();
+});

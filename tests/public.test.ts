@@ -163,3 +163,43 @@ test("public data rejects private repo/project and privacy change during board r
       }
     }
 });
+
+test("authorized board reads use the separate shared reader, after host/path/rate checks", async () => {
+  let calls = 0;
+  const worker = createWorker(undefined, async () => {
+    throw Error("must use shared reader");
+  });
+  const bindings = {
+    ...env,
+    MUTATIONS: {
+      getByName: (name: string) => {
+        assert.equal(name, "engineer-first/idea-boost:board-reader");
+        return {
+          fetch: async (r: Request) => {
+            calls++;
+            assert.equal(
+              r.headers.get("x-verified-user-id"),
+              "public-anonymous",
+            );
+            return Response.json({ ok: true });
+          },
+        };
+      },
+    },
+  };
+  assert.equal(
+    (await worker.fetch(request("/api/board"), bindings)).status,
+    200,
+  );
+  assert.equal(calls, 1);
+  assert.equal(
+    (
+      await worker.fetch(request("/api/board"), {
+        ...bindings,
+        PUBLIC_LIMITER: { limit: async () => ({ success: false }) },
+      })
+    ).status,
+    429,
+  );
+  assert.equal(calls, 1);
+});
