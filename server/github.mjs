@@ -332,8 +332,18 @@ export function createHandler({
     };
   }
   async function board(env, milestone = null, applyView = true) {
-    await assertPublic(env);
-    const meta = (await gql(env, META))?.organization?.projectV2;
+    const timings = [];
+    const read = async (name, operation) => {
+      const start = performance.now();
+      try {
+        return await operation();
+      } finally {
+        timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`);
+      }
+    };
+    await read("visibility", () => assertPublic(env));
+    const meta = (await read("meta", () => gql(env, META)))?.organization
+      ?.projectV2;
     if (!meta) throw new ApiError(502, "project_unavailable");
     const viewFilter = meta.view?.filter ?? null;
     const filterApplied =
@@ -343,8 +353,9 @@ export function createHandler({
     let after = null,
       done = false;
     for (let page = 0; page < 100; page++) {
-      const connection = (await gql(env, ITEMS, { after, filter: "" }))
-        ?.organization?.projectV2?.items;
+      const connection = (
+        await read("items", () => gql(env, ITEMS, { after, filter: "" }))
+      )?.organization?.projectV2?.items;
       if (!connection) throw new ApiError(502, "project_items_unavailable");
       for (const item of connection.nodes) {
         const i = item?.content;
@@ -412,7 +423,9 @@ export function createHandler({
       const query = `query BoardRows($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { isArchived content { ... on Issue { id issueType { name } repository { nameWithOwner } } } } pageInfo { hasNextPage endCursor } } } } }`;
       for (let page = 0; page < 100; page++) {
         const c = (
-          await gql(env, query, { after: cursor, filter: viewFilter ?? "" })
+          await read("rows", () =>
+            gql(env, query, { after: cursor, filter: viewFilter ?? "" }),
+          )
         )?.organization?.projectV2?.items;
         if (!c) throw new ApiError(502, "view_rows_unavailable");
         for (const item of c.nodes) {
@@ -494,7 +507,7 @@ export function createHandler({
     }
     for (const item of new Set([...all.values(), ...lanes, ...tasks]))
       item.fingerprint = await fingerprint(item);
-    const options = await assignees(env);
+    const options = await read("assignees", () => assignees(env));
     const output = {
       lanes,
       tasks,
@@ -519,8 +532,8 @@ export function createHandler({
       fetchedAt: new Date(now()).toISOString(),
       warnings,
     };
-    await assertPublic(env);
-    return { output, meta, all };
+    await read("visibilityEnd", () => assertPublic(env));
+    return { output, meta, all, timings };
   }
   const equalUsers = (a, b) =>
     JSON.stringify(
@@ -690,9 +703,10 @@ export function createHandler({
         const value = url.searchParams.get("milestone");
         if (value !== null && !/^[1-9]\d{0,8}$/.test(value))
           throw new ApiError(400, "invalid_milestone");
-        return reply(
-          (await board(env, value === null ? null : Number(value))).output,
-        );
+        const result = await board(env, value === null ? null : Number(value));
+        const response = reply(result.output);
+        response.headers.set("Server-Timing", result.timings.join(", "));
+        return response;
       }
       if (
         request.method === "GET" &&
