@@ -76,3 +76,11 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 初期共有結果は60秒以内のメモリーのみ。公開/view/Statusは毎回前後確認し、元の取得時刻・年齢と最新確認中を表示。直後のfresh取得完了まで編集/dragを無効化。永続board/CDN/browser cache、Webhook、鍵、namespace、有料契約は追加なし。
 - 1920/2560実配信で右80%（x384/幅1536、x512/幅2048）、完全な本文、最新取得後の編集解除、編集キャンセル2回、全画面、6PBI/14cardsを確認。1920の4タイトルは既存完全行スクロール、2560は0件。ページ縦スクロール・半端な行・JavaScriptエラーなし。実IssueのQA POST0。
 - 45秒/focus/online同期・dirty draft保護・再接続の回帰試験を維持。計測全値・条件と残るcold課題はPERFORMANCE.md、境界はADR004。
+
+## 共有readerのメタデータ変更競合修正
+
+- 配信source: `0e9dcac6909383607535bbf698195c1dde021b26`
+- Active Worker version: `ed51d7d4-7d91-4385-ab80-5f1d941616d7`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40286431384 （success、55 backend / 68 browser）
+- view/Statusの変更検出時にepochだけでなく進行中readの共有参照も破棄し、古い定義で開始したreadへ新要求が再参加しないように修正。2つのgated回帰は修正前失敗・修正後成功。旧readの遅い完了が新read参照・snapshotを壊さないことを検証。
+- 本番fresh/snapshot GET200、元fetchedAtとscopeの一致、未知query400・root404を確認。実Issue・Project設定のQA変更は行っていない。UI・通常の性能経路は変更しておらず、全速度計測の再実施はしていない。
