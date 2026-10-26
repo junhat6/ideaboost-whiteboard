@@ -38,7 +38,12 @@
             選択PBIの未分類 <span id="unmapped-count">0</span></button
           ><button id="choose-pbis">表示するPBI</button
           ><button id="refresh">最新を取得</button
-          ><button id="fullscreen">全画面</button
+          ><button
+            id="fullscreen"
+            title="全画面切替（F）"
+            aria-keyshortcuts="F"
+          >
+            全画面</button
           ><button id="theme">配色切替</button
           ><button id="about">連携について</button>
         </section>
@@ -125,22 +130,33 @@
               rel="noopener noreferrer"
             ></a>
           </h2>
+          <div id="title-editor" hidden>
+            <textarea
+              id="detail-title"
+              rows="1"
+              required
+              maxlength="256"
+              aria-label="Issueタイトル"
+            ></textarea>
+          </div>
           <button
             type="button"
             id="rename-issue"
             class="quiet-button"
             aria-label="タイトルを変更"
+            title="タイトルを変更"
           >
-            タイトルを変更
-          </button>
-        </div>
-        <div id="title-editor" hidden>
-          <label for="detail-title">タイトル</label
-          ><input id="detail-title" required maxlength="256" /><button
-            type="button"
-            id="finish-title"
-          >
-            完了
+            <svg
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+            >
+              <path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" />
+            </svg>
           </button>
         </div>
         <div class="editor-statusbar">
@@ -217,6 +233,36 @@
           </div>
         </fieldset>
       </form>
+      <section class="issue-comments" aria-labelledby="comments-heading">
+        <div class="comments-heading">
+          <h3 id="comments-heading">コメント</h3>
+          <button type="button" id="comments-refresh" class="quiet-button">
+            更新
+          </button>
+        </div>
+        <p id="comments-status" role="status"></p>
+        <div id="comments-list"></div>
+        <button type="button" id="comments-more" hidden>さらに読み込む</button>
+        <form id="comment-form">
+          <label for="comment-body">コメントを追加</label>
+          <textarea
+            id="comment-body"
+            rows="4"
+            maxlength="20000"
+            placeholder="Markdownでコメントを書く"
+          ></textarea>
+          <p class="comment-identity">
+            GitHub Appとして投稿されます。現在はURLを知る人が投稿できます。
+          </p>
+          <p id="comment-error" role="alert" hidden></p>
+          <div class="comment-actions">
+            <span id="comment-state" role="status"></span
+            ><button id="post-comment" type="submit" class="primary" disabled>
+              コメントを投稿
+            </button>
+          </div>
+        </form>
+      </section>
     </dialog>
     <dialog id="list-dialog" aria-labelledby="list-heading">
       <div class="dialog-top">

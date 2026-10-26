@@ -337,7 +337,11 @@ function issueLabel(t) {
   return adapter ? (t.number ? `#${t.number}` : "Issue") : `DEMO-${t.id}`;
 }
 function card(t) {
-  return `<article class="task ${esc(t.color || "yellow")}" draggable="${!pending && !snapshotPending && !(adapter && t.projectItemId === null)}" data-task="${esc(t.id)}"><div class="task-top"><span>${esc(issueLabel(t))}</span><span aria-hidden="true">⠿</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}">${assigneeAvatars(t)}<span class="person-name">${esc(person(t))}</span></span><span class="raw-status">${esc(t.status || "Status未設定")}</span></div></article>`;
+  const kind =
+    t.type === "Task" ? "task" : t.type === "競合調査" ? "research" : "unknown";
+  const label = typeof t.type === "string" && t.type ? t.type : "未設定";
+  const cue = kind === "task" ? "T" : kind === "research" ? "調" : "?";
+  return `<article class="task type-${kind}" data-issue-type="${esc(label)}" draggable="${!pending && !snapshotPending && !(adapter && t.projectItemId === null)}" data-task="${esc(t.id)}"><div class="task-top"><span>${esc(issueLabel(t))}</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}">${assigneeAvatars(t)}<span class="person-name">${esc(person(t))}</span></span><span class="type-cue" role="img" aria-label="Issue type: ${esc(label)}" title="Issue type: ${esc(label)}">${cue}</span><span class="raw-status">${esc(t.status || "Status未設定")}</span></div></article>`;
 }
 // Fit only the presentation, never the Issue title. If the available area is
 // genuinely too small at 10.5px, expose whole scrollable lines (and the drawer).
@@ -705,6 +709,8 @@ let editorBusy = false,
   previewMode = false;
 let editorSession = 0;
 let editorBody = "";
+let titleEditing = false,
+  titleBeforeEdit = "";
 let pendingEditorRemote = undefined,
   editorSaved = false,
   refreshFlight = null;
@@ -797,6 +803,7 @@ function syncEditorControls() {
       : "接続を再確認";
   if (editorOutcome?.durable) $("#recover-edit").disabled = true;
   updateDetailSync();
+  syncCommentControls();
 }
 function setComposition(value) {
   composing = value;
@@ -812,6 +819,7 @@ function renderPreview() {
     composerModule.preview(editorBody, $("#detail-body-view"));
 }
 function setPreview(value) {
+  if (!value) composerModule?.clearPreview($("#detail-body-view"));
   previewMode = value;
   $("#markdown-editor").hidden = value;
   $("#detail-body").hidden = value || !!composer;
@@ -825,6 +833,7 @@ async function ensureComposer() {
   try {
     composerModule ||= await (composerPromise ||= import("./editor-bundle.js"));
     $("#markdown-preview").disabled = false;
+    renderComments();
     if (!$("#details").open || composer || composing) return;
     // Do not replace a native editor while it owns caret/history or a draft.
     if (document.activeElement === $("#detail-body") || editMode) return;
@@ -894,7 +903,7 @@ function fillDetail() {
   $("#detail-note").textContent =
     "このIssueはProject外のため、ステータスは変更できません。";
   $("#body-hint").hidden = editing.kind !== "PBI";
-  $("#title-editor").hidden = true;
+  finishTitle(false);
   $("#detail-error").hidden = !editorOutcome;
   renderConflicts();
   updateDirty();
@@ -978,7 +987,7 @@ function reconcileEditor(current) {
     } else if (!equalField(remote, base)) editorConflicts[key] = { remote };
     else delete editorConflicts[key];
   }
-  $("#detail-heading").textContent = current.title;
+  $("#detail-heading").textContent = $("#detail-title").value || current.title;
   renderConflicts();
   updateDirty();
 }
@@ -1029,15 +1038,245 @@ function reconcileDetail(previous) {
     detailUpdated || detailVersion(previous) !== detailVersion(current);
   reconcileEditor(current);
 }
+const commentDrafts = new Map();
+let commentItems = [],
+  commentNext = null,
+  commentsLoading = false,
+  commentComposing = false;
+function commentEntry() {
+  const n = editorLatest?.number;
+  return n ? commentDrafts.get(n) : null;
+}
+function commentDirty() {
+  return !!commentEntry()?.body.trim();
+}
+function commentPosting() {
+  return !!commentEntry()?.posting;
+}
+function setupComments() {
+  const n = editorLatest.number;
+  if (!commentDrafts.has(n))
+    commentDrafts.set(n, {
+      body: "",
+      requestId: null,
+      outcome: null,
+      posting: false,
+    });
+  commentItems = [];
+  commentNext = null;
+  commentsLoading = false;
+  commentComposing = false;
+  $("#comment-body").value = commentEntry().body;
+  $("#comments-list")
+    .querySelectorAll(".comment-content")
+    .forEach((n) => composerModule?.clearPreview(n));
+  $("#comments-list").replaceChildren();
+  $("#comments-status").textContent = "コメントを読み込み中…";
+  $("#comment-state").textContent = "";
+  syncCommentControls();
+}
+function syncCommentControls() {
+  const entry = commentEntry();
+  if (!entry) return;
+  $("#comment-body").disabled = !!entry.posting;
+  $("#post-comment").disabled =
+    !entry.body.trim() ||
+    !!entry.posting ||
+    !!entry.outcome ||
+    commentComposing ||
+    detailUnavailable ||
+    $("#details").classList.contains("closing");
+  $("#post-comment").textContent = entry.posting ? "投稿中…" : "コメントを投稿";
+  $("#comment-error").hidden = !entry.outcome;
+  $("#comment-error").textContent = entry.outcome || "";
+  $("#comments-refresh").disabled = commentsLoading;
+  $("#comments-more").hidden = !commentNext;
+  $("#comments-more").disabled = commentsLoading;
+}
+function renderComments() {
+  const root = $("#comments-list");
+  root
+    .querySelectorAll(".comment-content")
+    .forEach((n) => composerModule?.clearPreview(n));
+  root.replaceChildren();
+  for (const c of commentItems) {
+    const article = document.createElement("article"),
+      header = document.createElement("header"),
+      author = document.createElement("strong"),
+      link = document.createElement("a"),
+      body = document.createElement("div");
+    article.className = "issue-comment";
+    body.className = "markdown-preview comment-content";
+    author.textContent = c.author?.login || "削除されたユーザー";
+    const avatar = c.author?.avatarUrl;
+    if (
+      typeof avatar === "string" &&
+      /^https:\/\/avatars\.githubusercontent\.com\//.test(avatar)
+    ) {
+      const img = document.createElement("img");
+      img.src = avatar;
+      img.alt = "";
+      img.width = 24;
+      img.height = 24;
+      header.append(img);
+    }
+    link.textContent = Number.isFinite(Date.parse(c.createdAt))
+      ? new Date(c.createdAt).toLocaleString("ja-JP")
+      : "GitHub";
+    if (
+      typeof c.url === "string" &&
+      /^https:\/\/github\.com\/engineer-first\/idea-boost\/issues\/[1-9]\d*#issuecomment-\d+$/.test(
+        c.url,
+      )
+    ) {
+      link.href = c.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+    header.append(author, link);
+    if (c.author?.type === "Bot") {
+      const bot = document.createElement("span");
+      bot.textContent = "GitHub App / Bot";
+      header.append(bot);
+    }
+    if (composerModule) composerModule.preview(c.body, body);
+    else body.textContent = c.body;
+    article.append(header, body);
+    root.append(article);
+  }
+}
+async function loadComments(more = false) {
+  if (commentsLoading || !adapter?.loadComments || !$("#details").open) return;
+  const session = editorSession,
+    number = editorLatest.number;
+  commentsLoading = true;
+  $("#comments-status").textContent = commentItems.length
+    ? "コメントを更新中…"
+    : "コメントを読み込み中…";
+  syncCommentControls();
+  try {
+    const result = await adapter.loadComments(number, more ? commentNext : 1);
+    if (session !== editorSession) return;
+    if (!Array.isArray(result.comments))
+      throw Error("コメントを確認できません。");
+    commentItems = more
+      ? [
+          ...new Map(
+            [...commentItems, ...result.comments].map((c) => [c.id, c]),
+          ).values(),
+        ]
+      : result.comments;
+    commentNext = result.nextPage;
+    renderComments();
+    $("#comments-status").textContent = commentItems.length
+      ? `${commentItems.length}件のコメント`
+      : "まだコメントはありません。";
+  } catch (error) {
+    if (session === editorSession)
+      $("#comments-status").textContent =
+        "コメントを取得できませんでした。「更新」で再確認できます。";
+  } finally {
+    if (session === editorSession) {
+      commentsLoading = false;
+      syncCommentControls();
+    }
+  }
+}
+$("#comment-body").addEventListener("input", () => {
+  commentEntry().body = $("#comment-body").value;
+  syncCommentControls();
+});
+$("#comment-body").addEventListener("compositionstart", () => {
+  commentComposing = true;
+  syncCommentControls();
+});
+$("#comment-body").addEventListener("compositionend", () => {
+  commentComposing = false;
+  syncCommentControls();
+});
+$("#comment-body").addEventListener("keydown", (e) => {
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    e.key === "Enter" &&
+    !e.isComposing &&
+    !commentComposing
+  ) {
+    e.preventDefault();
+    $("#comment-form").requestSubmit();
+  }
+});
+$("#comments-refresh").onclick = () => loadComments();
+$("#comments-more").onclick = () => loadComments(true);
+$("#comment-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const entry = commentEntry();
+  if (
+    !$("#details").open ||
+    $("#details").classList.contains("closing") ||
+    !entry?.body.trim() ||
+    entry.posting ||
+    entry.outcome ||
+    commentComposing ||
+    detailUnavailable ||
+    editorPosting
+  )
+    return;
+  const session = editorSession,
+    number = editorLatest.number;
+  entry.posting = true;
+  entry.requestId ||= crypto.randomUUID();
+  syncCommentControls();
+  try {
+    const result = await adapter.postComment(
+      number,
+      entry.body,
+      entry.requestId,
+    );
+    if (!result.ok || !(result.comment?.id || result.commentReceipt?.id))
+      throw Error("投稿結果を確認できません。");
+    entry.body = "";
+    entry.requestId = null;
+    entry.outcome = null;
+    if (session === editorSession) {
+      $("#comment-body").value = "";
+      $("#comment-state").textContent = "投稿しました";
+      if (result.comment) {
+        commentItems.push(result.comment);
+        renderComments();
+      }
+      await loadComments();
+    }
+  } catch (error) {
+    const uncertain =
+      error.ambiguous ||
+      !error.httpStatus ||
+      error.serverError === "mutation_outcome_unresolved" ||
+      error.serverError === "request_already_processed";
+    if (uncertain)
+      entry.outcome =
+        "投稿結果を確定できません。下書きを保持し、再投稿を停止しました。コメント一覧・GitHubで確認し、管理者へ確認してください。自動再送はしません。";
+    else {
+      entry.requestId = null;
+      if (session === editorSession)
+        $("#comment-state").textContent =
+          "投稿できませんでした。下書きは保持しています。内容・接続を確認して再度操作してください。";
+    }
+  } finally {
+    entry.posting = false;
+    if (session === editorSession) syncCommentControls();
+  }
+};
 let returnFocusSelector = null;
 function openIssue(kind, id) {
+  if (commentPosting()) return;
   if ((pending && !loading) || !adapter || !issue(kind, id)) return;
   if (
     $("#details").open &&
-    (editMode || composing) &&
+    (editMode || composing || commentDirty()) &&
     !confirm("未保存の変更を破棄して別のIssueを開きますか？")
   )
     return;
+  if ($("#details").open && commentEntry()) commentEntry().body = "";
   editorSession++;
   composer?.destroy();
   composer = null;
@@ -1054,18 +1293,30 @@ function openIssue(kind, id) {
   returnFocus = document.activeElement;
   returnFocusSelector = focusSelector(returnFocus);
   fillDetail();
+  setupComments();
   setEdit(false);
   $("#details").showModal();
   setPreview(false);
   ensureComposer();
+  loadComments();
   updateDetailSync();
   $("#close-detail").focus();
 }
 function closeDetail() {
-  if (composing || editorPosting) return;
-  if (editMode && !confirm("未保存の変更を破棄して閉じますか？")) return;
+  if (composing || editorPosting || commentPosting() || commentComposing)
+    return;
+  if (
+    (editMode || commentDirty()) &&
+    !confirm("未保存の変更・コメントを破棄して閉じますか？")
+  )
+    return;
   const d = $("#details");
   if (d.classList.contains("closing")) return;
+  if (commentEntry()) commentEntry().body = "";
+  composerModule?.clearPreview($("#detail-body-view"));
+  $("#comments-list")
+    .querySelectorAll(".comment-content")
+    .forEach((n) => composerModule?.clearPreview(n));
   editorSession++; // Accepted close cancels a pending preflight before animation.
   d.classList.add("closing");
   setTimeout(() => {
@@ -1192,20 +1443,43 @@ $("#board").addEventListener("drop", (e) => {
   clearDrag();
 });
 $("#board").addEventListener("dragend", clearDrag);
+function sizeTitle() {
+  const input = $("#detail-title");
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+}
+function finishTitle(cancel = false, focus = false) {
+  if (cancel && titleEditing) $("#detail-title").value = titleBeforeEdit;
+  titleEditing = false;
+  $("#title-editor").hidden = true;
+  $("#detail-heading").closest("h2").hidden = false;
+  $("#rename-issue").hidden = false;
+  $("#detail-heading").textContent =
+    $("#detail-title").value || editorLatest?.title || "";
+  updateDirty();
+  if (focus) $("#rename-issue").focus();
+}
 $("#rename-issue").onclick = () => {
+  titleBeforeEdit = $("#detail-title").value;
+  titleEditing = true;
   $("#title-editor").hidden = false;
+  $("#detail-heading").closest("h2").hidden = true;
+  $("#rename-issue").hidden = true;
+  sizeTitle();
   $("#detail-title").focus();
 };
-$("#finish-title").onclick = () => {
-  $("#title-editor").hidden = true;
-  $("#rename-issue").focus();
-};
 $("#detail-title").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.isComposing) {
+  if (e.isComposing || composing) return;
+  if (e.key === "Escape" || (e.key === "Enter" && !e.metaKey && !e.ctrlKey)) {
     e.preventDefault();
-    $("#finish-title").click();
+    e.stopPropagation();
+    finishTitle(e.key === "Escape", true);
   }
 });
+$("#detail-title").addEventListener("blur", () => {
+  if (titleEditing && !composing) finishTitle();
+});
+$("#detail-title").addEventListener("input", sizeTitle);
 for (const id of ["#detail-title", "#detail-body"]) {
   $(id).addEventListener("compositionstart", () => setComposition(true));
   $(id).addEventListener("compositionend", () => {
@@ -1521,17 +1795,25 @@ function dismissControls() {
 $("#board").addEventListener("pointerdown", dismissControls);
 // Reveal only after intentional movement at the top edge, not a stationary
 // pointer at (0,0) during initial layout or a hidden overlay bounding box.
-$(".top-edge").addEventListener("pointermove", (event) => {
+document.addEventListener("pointermove", (event) => {
+  if (document.querySelector("dialog[open]")) return;
+  const header = $(".board-head").getBoundingClientRect();
+  const inBand =
+    event.clientY <= header.top + header.height / 2 &&
+    event.clientX >= header.left &&
+    event.clientX <= header.right;
+  const inToolbar = $("#chrome").contains(event.target);
+  if (!inBand && !inToolbar) {
+    controlsHoverBlocked = false;
+    controlsHovered = false;
+    syncControls();
+    return;
+  }
   if (event.clientX < 12 || (!event.movementX && !event.movementY)) return;
-  if (!controlsHoverBlocked) {
+  if (inBand && !controlsHoverBlocked) {
     controlsHovered = true;
     syncControls();
   }
-});
-$("#chrome").addEventListener("pointerleave", () => {
-  controlsHoverBlocked = false;
-  controlsHovered = false;
-  syncControls();
 });
 $("#chrome").addEventListener("focusin", () => {
   controlsFocused = true;
@@ -1568,6 +1850,25 @@ $("#fullscreen").onclick = async () => {
     );
   }
 };
+document.addEventListener("keydown", (e) => {
+  if (
+    e.key.toLowerCase() !== "f" ||
+    e.repeat ||
+    e.ctrlKey ||
+    e.metaKey ||
+    e.altKey ||
+    e.isComposing ||
+    composing ||
+    commentComposing ||
+    document.querySelector("dialog[open]")
+  )
+    return;
+  const writing = (node) =>
+    node?.closest?.("input,textarea,select,[contenteditable],.cm-editor");
+  if (writing(e.target) || writing(document.activeElement)) return;
+  e.preventDefault();
+  $("#fullscreen").click();
+});
 document.addEventListener("fullscreenchange", () => {
   $("#fullscreen").textContent = document.fullscreenElement
     ? "全画面を終了"
@@ -1713,7 +2014,13 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("beforeunload", (e) => {
-  if (editMode || composing || (pending && !loading)) {
+  if (
+    editMode ||
+    composing ||
+    commentDirty() ||
+    commentPosting() ||
+    (pending && !loading)
+  ) {
     e.preventDefault();
     e.returnValue = "";
   }

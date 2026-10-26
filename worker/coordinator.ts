@@ -1,3 +1,4 @@
+import { validateComment } from "../server/comments.mjs";
 import { validateMutation } from "../server/github.mjs";
 /** Persist only request digests and outcomes, never GitHub Issue content or credentials. */
 interface RecordEntry {
@@ -5,6 +6,7 @@ interface RecordEntry {
   phase: "pending" | "completed";
   status?: number;
   startedAt: number;
+  commentReceipt?: { id: number; url: string };
 }
 export interface LedgerValues {
   get<T>(key: string): Promise<T | undefined>;
@@ -77,7 +79,9 @@ export class MutationCoordinator {
     if (
       new URL(request.url).search ||
       request.method !== "POST" ||
-      !/^\/api\/issues\/[1-9]\d{0,8}$/.test(new URL(request.url).pathname)
+      !/^\/api\/issues\/[1-9]\d{0,8}(?:\/comments)?$/.test(
+        new URL(request.url).pathname,
+      )
     )
       return json("not_found", 404);
     if (request.headers.get("origin") !== new URL(request.url).origin)
@@ -99,7 +103,9 @@ export class MutationCoordinator {
       return json("invalid_json", 400);
     }
     try {
-      validateMutation(data);
+      if (new URL(request.url).pathname.endsWith("/comments"))
+        validateComment(data);
+      else validateMutation(data);
     } catch (error) {
       return json(
         error instanceof Error ? error.message : "invalid_fields",
@@ -111,6 +117,18 @@ export class MutationCoordinator {
     const prior = await this.storage.get<RecordEntry>(key);
     if (prior) {
       if (prior.digest !== hash) return json("request_id_reused");
+      if (prior.phase === "completed" && prior.commentReceipt) {
+        // Receipt still needs current scope/visibility, but never another POST.
+        const allowed = await this.api(
+          new Request(request.url, { method: "GET", headers: request.headers }),
+        );
+        if (!allowed?.ok) return allowed ?? json("scope_unavailable", 503);
+        return Response.json({
+          ok: true,
+          alreadyProcessed: true,
+          commentReceipt: prior.commentReceipt,
+        });
+      }
       return json(
         prior.phase === "pending"
           ? "mutation_outcome_unresolved"
@@ -137,7 +155,10 @@ export class MutationCoordinator {
     });
     const response = await this.api(new Request(request, { body }));
     if (!response) throw new Error("missing mutation response");
-    const outcome = (await response.clone().json()) as { ambiguous?: boolean };
+    const outcome = (await response.clone().json()) as {
+      ambiguous?: boolean;
+      comment?: { id: number; url: string };
+    };
     // An upstream timeout can still complete after our readback. Keep the fence on uncertainty.
     if (outcome.ambiguous) return response;
     await this.storage.transaction(async (tx) => {
@@ -145,6 +166,14 @@ export class MutationCoordinator {
         ...record,
         phase: "completed",
         status: response.status,
+        ...(response.ok && outcome.comment
+          ? {
+              commentReceipt: {
+                id: outcome.comment.id,
+                url: outcome.comment.url,
+              },
+            }
+          : {}),
       });
       await tx.delete("active");
     });

@@ -84,6 +84,8 @@ export async function setup(
       reads++;
       return route.fulfill({ json: board });
     }
+    if (p.endsWith("/comments") && route.request().method() === "GET")
+      return route.fulfill({ json: { comments: [], nextPage: null } });
     posts++;
     if (conflict)
       return route.fulfill({

@@ -23,7 +23,7 @@ function secure(response: Response) {
   );
   r.headers.set(
     "Content-Security-Policy",
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com https://github.com/user-attachments/ https://user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com; media-src https://github.com/user-attachments/ https://user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   );
   return r;
 }
@@ -84,7 +84,7 @@ export function createWorker(auth = authenticate, api = handleApi) {
         headers.set("x-verified-user-id", user.id);
         const internal = new Request(request, { headers });
         const issue = new URL(request.url).pathname.match(
-          /^\/api\/issues\/([1-9]\d{0,8})$/,
+          /^\/api\/issues\/([1-9]\d{0,8})(?:\/comments)?$/,
         );
         if (request.method === "POST" && issue) {
           if (!env.MUTATIONS)

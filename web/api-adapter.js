@@ -122,6 +122,16 @@
           latest = loaded;
           return latest;
         },
+        async loadComments(number, page = 1) {
+          return request(`/api/issues/${number}/comments?page=${page}`);
+        },
+        async postComment(number, body, requestId) {
+          return request(`/api/issues/${number}/comments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ body, requestId }),
+          });
+        },
         async saveIssue({ kind, id, patch, expectedRevision, expectedStatus }) {
           const old = (kind === "PBI" ? latest?.lanes : latest?.tasks)?.find(
             (i) => i.id === id,

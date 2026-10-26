@@ -234,3 +234,117 @@ test("10,001 invalid unique requests cannot consume durable ledger or block a va
   assert.equal(calls, 1);
   assert.equal(await ledger.get("count"), 1);
 });
+test("comments use same Issue coordinator, bind route/body, replay receipt without another POST and fence unknown outcome", async () => {
+  const upstream = fixture(),
+    storage = new MemoryLedger();
+  const coordinator = new MutationCoordinator(storage, (r) =>
+    upstream.handler(r, env),
+  );
+  const data = { body: "comment", requestId: "comment_0123456789" };
+  const r = await coordinator.fetch(req("/api/issues/2/comments", data));
+  assert.equal(r.status, 201);
+  const duplicate = await coordinator.fetch(
+    req("/api/issues/2/comments", data),
+  );
+  assert.equal((await duplicate.json()).commentReceipt.id, 99);
+  assert.equal(
+    upstream.calls.filter(
+      (c) => c.url.includes("/comments") && c.method === "POST",
+    ).length,
+    1,
+  );
+  assert.equal(
+    (
+      await coordinator.fetch(
+        req("/api/issues/2/comments", { ...data, body: "different" }),
+      )
+    ).status,
+    409,
+  );
+  const uncertain = fixture({ commentFailure: true });
+  const fence = new MemoryLedger();
+  const c = new MutationCoordinator(fence, (r) => uncertain.handler(r, env));
+  assert.equal(
+    (await (await c.fetch(req("/api/issues/2/comments", data))).json())
+      .ambiguous,
+    true,
+  );
+  assert.equal(
+    (
+      await c.fetch(
+        req("/api/issues/2/comments", {
+          ...data,
+          requestId: "comment_9876543210",
+        }),
+      )
+    ).status,
+    409,
+  );
+  assert.equal((await c.fetch(write())).status, 409);
+  assert.equal(
+    uncertain.calls.filter(
+      (c) => c.url.includes("/comments") && c.method === "POST",
+    ).length,
+    1,
+  );
+  const invalid = new MemoryLedger();
+  let calls = 0;
+  const safe = new MutationCoordinator(invalid, async () => {
+    calls++;
+    return Response.json({});
+  });
+  assert.equal(
+    (
+      await safe.fetch(
+        req("/api/issues/2/comments", {
+          body: "",
+          requestId: "comment_0123456789",
+        }),
+      )
+    ).status,
+    400,
+  );
+  assert.equal(invalid.rows.size, 0);
+  assert.equal(calls, 0);
+});
+test("Worker comment POST routes to the same Issue DO and rejects cross-origin", async () => {
+  const f = fixture(),
+    storage = new MemoryLedger(),
+    coordinator = new MutationCoordinator(storage, (r) => f.handler(r, env));
+  const worker = createWorker(
+    async () => ({ id: "owner", email: "member@example.com" }),
+    () => {
+      throw Error("DO bypass");
+    },
+  );
+  const bindings = {
+    ...env,
+    APP_ORIGIN: "https://board.example",
+    MUTATIONS: {
+      getByName: (name: string) => {
+        assert.equal(name, "engineer-first/idea-boost:2");
+        return coordinator;
+      },
+    },
+    ASSETS: {},
+  } as any;
+  const data = { body: "comment", requestId: "comment_0123456789" };
+  assert.equal(
+    (
+      await worker.fetch(
+        req("/api/issues/2/comments", data, { origin: "https://evil.example" }),
+        bindings,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await worker.fetch(req("/api/issues/2/comments", data), bindings)).status,
+    201,
+  );
+  assert.equal(
+    f.calls.filter((c) => c.url.includes("/comments") && c.method === "POST")
+      .length,
+    1,
+  );
+});

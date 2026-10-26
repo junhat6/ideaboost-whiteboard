@@ -96,3 +96,11 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 実配信1920/2560でTask/PBI開閉、即時入力、プレビュー、未保存破棄、右80%を確認。各サイズPOST 0・JS error 0。app.js/editor-bundle.js/styles.css/api-adapter.jsの実HTTP200とローカルSHA256一致を確認。
 - 実IssueへのQA保存は未実施。日本語IMEは合成compositionイベントの検証であり、OS実機IMEの完全検証ではない。既存の匿名公開モード・鍵・DO・公開/Origin/rate境界は変更なし。エディターは遅延ロードし、初回ボード取得・共有snapshot・freshness契約はそのまま。
 - 本節は過去の「同期中に編集を無効化」「編集中は同期停止」の記録を置き換える。入力と保存可否を分ける現在の契約はADR005を参照。
+
+## 閉じるアニメーション中の新規保存防止
+
+- 配信source: `601dd7e4c4c4639388180df46c3b517c3da2003b`
+- Active Worker version: `de957bc5-1aeb-4671-8ebf-a3699908d3ff`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40296367278
+- 保存入口とfresh GET後にdialog open/closing/sessionを検証。閉じる承認でsessionが進んだ後、新しいsubmitが発生しても160msアニメーション中にPOSTしない。
+- ローカルcheck（55 backend、lint/typecheck/build）と88 browser成功。既存のGET待ち中の閉じる試験に加えて、承認直後に同一taskからsubmitしPOST 0、再表示後は明示保存できる試験を追加。

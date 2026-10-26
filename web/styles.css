@@ -1665,3 +1665,225 @@ dialog dt,
     gap: 16px;
   }
 }
+
+/* Inline title uses the same typographic position as its linked heading. */
+.issue-heading-row {
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.issue-heading-row h2 {
+  flex: 0 1 auto;
+  margin: 4px 0 0;
+}
+#rename-issue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 5px;
+  margin-top: 8px;
+}
+#title-editor {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+}
+.detail-dialog #detail-title {
+  width: 100%;
+  min-height: 47px;
+  resize: none;
+  overflow: hidden;
+  padding: 3px 0;
+  margin: 0;
+  border: 1px solid transparent;
+  border-bottom-color: var(--line);
+  border-radius: 0;
+  font: 650 26px/1.5 inherit;
+  font-family: inherit;
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.5;
+  color: var(--ink);
+  background: transparent;
+}
+.detail-dialog #detail-title:focus {
+  outline-offset: 3px;
+}
+.detail-dialog #detail-body,
+.detail-dialog #detail-body-view {
+  font-size: 16px;
+  line-height: 1.85;
+}
+.detail-dialog #detail-body-view p,
+.detail-dialog #detail-body-view li,
+.detail-dialog #detail-body-view td,
+.detail-dialog #detail-body-view th,
+.detail-dialog #detail-body-view blockquote {
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--ink);
+}
+
+.issue-comments {
+  margin-top: 36px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.comments-heading,
+.comment-actions,
+.issue-comment header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.comments-heading {
+  justify-content: space-between;
+}
+.issue-comment {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.issue-comment header {
+  font-size: 13px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.issue-comment header img {
+  border-radius: 50%;
+}
+.comment-content {
+  font-size: 16px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.detail-dialog .comment-content p {
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--ink);
+}
+#comment-form {
+  margin-top: 24px;
+}
+.detail-dialog #comment-body {
+  display: block;
+  width: 100%;
+  min-height: 130px;
+  margin-top: 8px;
+  font: 16px/1.85 inherit;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.85;
+}
+.comment-actions {
+  justify-content: space-between;
+}
+#comment-error {
+  padding: 12px;
+  background: var(--error-surface);
+}
+
+.media-shell {
+  margin: 20px 0;
+  max-width: 100%;
+}
+.media-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  max-height: 480px;
+  min-height: 160px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+.media-frame img,
+.media-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.media-frame .media-status {
+  padding: 12px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+}
+.media-choices {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.media-shell > a {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.top-edge {
+  pointer-events: none;
+}
+.task.type-task {
+  background: #fbdf7f;
+  border-color: #8a7130;
+}
+.task.type-research {
+  background: #9eccfa;
+  border-color: #456b91;
+}
+.task.type-unknown {
+  background: #e7e9ee;
+  border-color: #7b8290;
+}
+.task.type-task,
+.task.type-research,
+.task.type-unknown {
+  color: #24292f;
+}
+.task .person,
+.task .task-top,
+.task .raw-status {
+  color: #374151;
+}
+.type-cue {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  margin-left: auto;
+  color: #24292f;
+}
+[data-theme="dark"] .task.type-task {
+  background: #554722;
+  border-color: #ae975b;
+}
+[data-theme="dark"] .task.type-research {
+  background: #243e59;
+  border-color: #719dc7;
+}
+[data-theme="dark"] .task.type-unknown {
+  background: #353b46;
+  border-color: #8892a3;
+}
+[data-theme="dark"] .task,
+[data-theme="dark"] .task .person,
+[data-theme="dark"] .task .task-top,
+[data-theme="dark"] .task .raw-status,
+[data-theme="dark"] .type-cue {
+  color: #f3f4f6;
+}

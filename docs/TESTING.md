@@ -72,3 +72,7 @@ PBI起点と全走査の同値性、子・孫の各ページ、元のProject順�
 閉じる承認直後の保存前GET完了でPOSTしないこと、遅いbundle到着時にネイティブ入力のカーソル/Undoを保持することを追加。dev/deployはprehookでeditor bundleを必ず生成する。
 
 閉じる承認後の160msアニメーション中に新しいsubmitが発生してもPOST 0、閉じ直後の再表示・明示保存は正常であることを追加検証。保存入口とfresh GET後の両方でclosing/open/sessionを確認する。
+
+## タイトル・コメント・遅延メディア・type・操作範囲
+
+60 backend + 100 browser（50シナリオ×2サイズ）。コメント専用入力検証/正式Issue範囲/公開前後確認/Origin/同じDO/成功receipt/曖昧結果fence、タイトルEnter/Escape/blur、16px表示、コメント取得遅延中の本文操作・独立下書き・二重投稿防止、合成WebM/GIFの遅延読み込み・unsafe URL/HTML拒否・close cleanup、type変更/Status移動/unknown配色、Fキー入力除外、実header上半分での操作バー検知を確認。実コメント投稿は行わない。

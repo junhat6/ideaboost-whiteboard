@@ -395,6 +395,7 @@ test("viewer remains usable on interrupted refresh and explicit retry restores f
   await expect(page.locator("#detail-sync")).toContainText("保存済み");
   await page.locator("#rename-issue").click();
   await expect(page.locator("#detail-title")).toBeEnabled();
+  await page.keyboard.press("Escape"); // タイトル変更だけを取消
   await page.keyboard.press("Escape");
   await expect(page.locator("#details")).not.toBeVisible();
   expect(s.posts()).toBe(0);

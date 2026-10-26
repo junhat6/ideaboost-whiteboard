@@ -32,6 +32,8 @@ export function fixture({
   parentInProject = false,
   initialStatus = null,
   extraTasks = false,
+  commentFailure = false,
+  comments = [],
 } = {}) {
   const parent = makeIssue(1, "PBI");
   const issue = makeIssue(2, "Task", parent);
@@ -52,6 +54,27 @@ export function fixture({
           avatar_url: "https://avatars.githubusercontent.com/a",
         },
       ]);
+    if (url.includes("/comments")) {
+      if (opt.method === "POST") {
+        if (commentFailure) throw Error("uncertain network");
+        return Response.json(
+          {
+            id: 99,
+            body: body.body,
+            html_url:
+              "https://github.com/engineer-first/idea-boost/issues/2#issuecomment-99",
+            created_at: revision,
+            user: {
+              login: "test-app[bot]",
+              type: "Bot",
+              avatar_url: "https://avatars.githubusercontent.com/u/1",
+            },
+          },
+          { status: 201 },
+        );
+      }
+      return Response.json(comments);
+    }
     if (opt.method === "PATCH") {
       const target = url.endsWith("/1") ? parent : issue;
       Object.assign(target, body);

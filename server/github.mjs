@@ -1,3 +1,4 @@
+import { createComments, validateComment } from "./comments.mjs";
 const OWNER = "engineer-first",
   REPO = "idea-boost",
   PROJECT = 3;
@@ -998,6 +999,26 @@ export function createHandler({
       };
     return { status: 200, data: { ok: true, issue: actual, board: null } };
   }
+  function commentHandler(env) {
+    return createComments({
+      scope: async (number) => {
+        const current = await board(env, null, false);
+        if (![...current.all.values()].some((i) => i.number === number))
+          throw new ApiError(403, "issue_out_of_scope");
+      },
+      visibility: () => assertPublic(env),
+      read: (number, page) =>
+        api(
+          env,
+          `/repos/${OWNER}/${REPO}/issues/${number}/comments?per_page=50&page=${page}`,
+        ),
+      write: (number, body) =>
+        api(env, `/repos/${OWNER}/${REPO}/issues/${number}/comments`, {
+          method: "POST",
+          body: { body },
+        }),
+    });
+  }
   return async function handleApi(request, env = {}) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) return null;
@@ -1071,7 +1092,13 @@ export function createHandler({
         await assertPublic(env);
         return reply({ assigneeOptions: options });
       }
-      const match = url.pathname.match(/^\/api\/issues\/([1-9]\d{0,8})$/);
+      const commentMatch = url.pathname.match(
+        /^\/api\/issues\/([1-9]\d{0,8})\/comments$/,
+      );
+      if (commentMatch && request.method === "GET")
+        return await commentHandler(env)(request, Number(commentMatch[1]));
+      const match =
+        commentMatch || url.pathname.match(/^\/api\/issues\/([1-9]\d{0,8})$/);
       if (request.method !== "POST" || !match || url.search)
         throw new ApiError(404, "not_found");
       if (
@@ -1107,6 +1134,14 @@ export function createHandler({
         v = JSON.parse(new TextDecoder().decode(buf));
       } catch {
         throw new ApiError(400, "invalid_json");
+      }
+      if (commentMatch) {
+        try {
+          validateComment(v);
+        } catch {
+          throw new ApiError(400, "invalid_comment");
+        }
+        return await commentHandler(env)(request, Number(commentMatch[1]), v);
       }
       validateMutation(v);
       const number = Number(match[1]),
