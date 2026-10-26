@@ -104,3 +104,17 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40296367278
 - 保存入口とfresh GET後にdialog open/closing/sessionを検証。閉じる承認でsessionが進んだ後、新しいsubmitが発生しても160msアニメーション中にPOSTしない。
 - ローカルcheck（55 backend、lint/typecheck/build）と88 browser成功。既存のGET待ち中の閉じる試験に加えて、承認直後に同一taskからsubmitしPOST 0、再表示後は明示保存できる試験を追加。
+
+## タイトル・コメント・遅延メディア・付箋と操作改善
+
+- 配信source: `8554804b0c258df012c4c7a8a5b2bd61961298f1`（機能追加 `1e30a419` とコメント境界の追補）
+- Active Worker version: `dc681180-56c8-4805-858d-9b40f8138ca4`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40302182953
+- ローカルcheck成功（62 backend、lint/typecheck/build）、106 browser成功（53シナリオ×1920/2560）。DESIGN.md validatorはerrors 0、warnings 16（未参照token）で、視覚確認は別途実施。
+- タイトルはリンク横の鉛筆で同じ位置に入力。Enter/blurはローカル確定、Escapeは改名取消、GitHub反映はIssue全体の保存。本文/previewは16px。コメント閲覧・明示投稿を追加しApp投稿者であることを表示。
+- コメントも同じIssue DO、route/body/requestId照合、最小receipt、曖昧結果の停止を適用。DO dispatch後の通信断は結果不明。非公開判明時は既表示・下書き・媒体を即時消去。古いページGETが投稿確認を消さない。
+- 画像はviewport付近で遅延取得。動画は再生操作までsrcも通信もなし。実Issue688の既存QuickTime添付を本番Chromiumで再生しreadyState 4、再生時刻の進行、error nullを確認。すべてのcodec/private添付の保証ではなく、元ファイルリンクを常設。
+- 本番1920/2560で詳細表示まで51/52ms（既取得boardからクリック→dialog表示、初回board取得時間ではない）。媒体操作前の媒体通信0、本文16px、タイトル取消、F全画面、header上半分hover、Task黄/競合調査青、6点ハンドル非表示を確認。各サイズPOST 0・JS error 0。4配信assetsのHTTP200/SHA256がローカルと一致。
+- Task黄/競合調査青/未知neutralの本文コントラストは11.14/8.70/12.06。type cueも併用。PBI左セルの最小表示・全体ドラッグは維持。
+- 実Issue823のコメントGETは200、既存1件とauthor/date/link構造を確認。実IssueのQA保存・コメント投稿は未実施。投稿・二重送信・結果不明・非公開遷移はmockで検証。日本語IMEは合成イベントでありOS実機IMEの完全検証ではない。
+- 承認済み匿名公開/App bot投稿モードを維持。新しい権限・鍵・有料サービスは追加していない。
