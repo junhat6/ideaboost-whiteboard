@@ -943,7 +943,9 @@ function dismissControls() {
   syncControls();
 }
 $("#board").addEventListener("pointerdown", dismissControls);
-$("#chrome").addEventListener("pointerenter", () => {
+// Reveal only after intentional movement at the top edge, not a stationary
+// pointer at (0,0) during initial layout or a hidden overlay bounding box.
+$(".top-edge").addEventListener("pointermove", () => {
   if (!controlsHoverBlocked) {
     controlsHovered = true;
     syncControls();

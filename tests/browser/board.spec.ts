@@ -303,3 +303,19 @@ test("goal parser respects long fences, heading preference and unclosed comments
   );
   expect(result).toBe("original **markdown**");
 });
+
+test("initial stationary top pointer does not open toolbar; deliberate edge motion does", async ({
+  page,
+}) => {
+  await page.mouse.move(0, 0);
+  await setup(page);
+  await expect(page.locator("#chrome")).not.toHaveClass(/controls-open/);
+  await page.locator(".task-title").first().click();
+  await page.locator("#close-detail").click();
+  await expect(page.locator("#details")).not.toBeVisible();
+  await page.mouse.move(500, 300);
+  await page.mouse.move(500, 2);
+  await expect(page.locator("#chrome")).toHaveClass(/controls-open/);
+  await page.locator(".pbi-title").nth(3).click();
+  await expect(page.locator("#chrome")).not.toHaveClass(/controls-open/);
+});
