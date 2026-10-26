@@ -154,3 +154,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 画像監視は接続後dialog単位で共有。同時画像取得3件、画面近傍200px、45秒応答しない場合は失敗と元リンク。閉じる際の待機要求開始を抑止。動画は操作前srcなしを維持。
 - 合成14画像の高速スクロールでは同時要求13→3。実本番の媒体操作前要求は改善前後とも0。本文パネル61–73ms、ライブ面146–842ms（bundle等の変動を含み速度改善とは主張しない）。詳しくはPERFORMANCE.md。
 - 両画面の実本番表示を画素確認、POST0・JS error0。app.js / styles.css / editor-bundle.jsのHTTP200とSHA256がローカル一致。実Issue・コメントのQA書き込みなし。認証・権限・秘密・CSP・料金は変更なし。
+
+
+### 閉じるアニメーション中のlive画像queue追補
+
+- 配信source: `abad24d42e66e95d190c20a63c3e319b775a7a6f`
+- Worker version: `eb270948-5b7d-42b5-8287-352e8d1605d0`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40314593105 （成功、配信sourceと同一head）
+- 合成ブラウザーで両サイズ再現: 接続済みlive画像6件（active3/waiting3）を閉じ、160ms破棄前にloadイベントを到着させると、旧実装は待機1件へsrcを設定した。追補後は0。queue pumpはclosing/非open dialogの全jobを取消し、初期observeも同条件で開始しない。
+- ローカルcheck成功（67 backend、lint/typecheck/build）、126 browser成功。DESIGN validator errors0/warnings16。追補配信の本番両サイズで本文71/75ms、媒体操作前要求0・POST0・JSエラー0、開閉成功。editor-bundle.jsのHTTP200/SHA256一致。
+- 本番live添付面853/857msは新しいbundle取得等を含み、速度短縮の証拠ではない。今回の限定修正は破棄中の不要な新規転送を防ぐもので、実Issueの変更・コメント投稿は行っていない。
