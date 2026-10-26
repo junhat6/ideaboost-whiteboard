@@ -84,3 +84,15 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40286431384 （success、55 backend / 68 browser）
 - view/Statusの変更検出時にepochだけでなく進行中readの共有参照も破棄し、古い定義で開始したreadへ新要求が再参加しないように修正。2つのgated回帰は修正前失敗・修正後成功。旧readの遅い完了が新read参照・snapshotを壊さないことを検証。
 - 本番fresh/snapshot GET200、元fetchedAtとscopeの一致、未知query400・root404を確認。実Issue・Project設定のQA変更は行っていない。UI・通常の性能経路は変更しておらず、全速度計測の再実施はしていない。
+
+## 即時Markdown編集版
+
+- 配信source: `813e7e011aafded1bf28bcab55073ec3fcb58cd5`
+- Active Worker version: `dc3e11e7-a6fc-4bed-9bff-342ae1d44bdd`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40294963588
+- ローカル `npm run check`（55 backend、lint/typecheck/build）と86 browser成功。DESIGN validatorはerrors 0（既存orphan-token warnings 17）。bundle未生成からpredev/predeployによる再生成とdry-runも確認。
+- 右80%を維持し、即時入力・CodeMirror 6のMarkdown装飾・安全な単一プレビュー・タイトルリンク・小さなタイトル変更操作へ。常設の編集/最新取得/元IssueボタンとCLOSED/Task/Parent帯を除去。保存は明示操作のまま、fresh照合と狭いpatchを継続。
+- 入力中も項目別同期。下書きと同項目への更新は競合選択、別項目は反映。未確定保存は自動再送しない。閉じる承認はアニメーション前に保存前確認を無効化し、遅いbundle到着で入力欄/カーソル/Undoを置換しない。CRLFを含む原文を保持。
+- 実配信1920/2560でTask/PBI開閉、即時入力、プレビュー、未保存破棄、右80%を確認。各サイズPOST 0・JS error 0。app.js/editor-bundle.js/styles.css/api-adapter.jsの実HTTP200とローカルSHA256一致を確認。
+- 実IssueへのQA保存は未実施。日本語IMEは合成compositionイベントの検証であり、OS実機IMEの完全検証ではない。既存の匿名公開モード・鍵・DO・公開/Origin/rate境界は変更なし。エディターは遅延ロードし、初回ボード取得・共有snapshot・freshness契約はそのまま。
+- 本節は過去の「同期中に編集を無効化」「編集中は同期停止」の記録を置き換える。入力と保存可否を分ける現在の契約はADR005を参照。
