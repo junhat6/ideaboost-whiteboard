@@ -325,3 +325,11 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 3組の新規client/再訪でSP初期表示中央値5.559→1.518秒、5.390→1.452秒。後者の速い表示は既存shared snapshotで、fresh API完了は中央値4.441秒。初回非snapshotは5.219秒。追加SP endpointは全6回0、boardとの表示差1–5ms。条件・全値・限界はPERFORMANCE.md。
 - 本番1920/2560で詳細開閉・原文補助・入力可能、配信app.js一致、POST0/ページエラー0を確認。本文/タイトルの明示保存、離散autosave、DoneClose、公開失効、unknown fenceを維持。
 - 本段落は配信後の文書追補。アプリsourceと記録commitは別。
+
+### 同梱SPの公開失効・保存応答逆順の最終確認
+
+- 最終配信source: `1c1a8dec24102250b9c900105484f16d7f8739dc`、Worker `8e6a517d-6c13-4ab1-877e-6ad887f590b8`。
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40473561868 （success）。check 110件と両解像度270 browser tests成功。独立レビューでも修正解消を確認。
+- 保存ack後に届いた古いboardは引き続き採用しないが、その応答が確認したfield公開失効は優先適用する。失効後のfresh GET失敗でもSPの表示・編集が復活せず、確認済み本文/titleは巻き戻さない回帰を追加。
+- 配信直後の最初のasset読み取りは旧版だったため、再配信せず伝播後に一致確認。本番1920/2560で最終app.js完全一致、詳細開閉・原文補助・SP選択欄表示、POST0・pageerror0。詳細openは71/38/38msと91/136/138ms。boardは4,072/1,466ms（server状態が異なる単発確認で性能比較には使わない）。両画面のスクリーンショットも確認。
+- API/性能経路は上記a67817e測定と同じ。6試行の追加負荷測定は繰り返していない。実Issue・field値・公開設定のQA変更なし。新規権限・秘密・課金変更なし。
