@@ -1296,7 +1296,7 @@ $("#estimate-hours").addEventListener("input", () => {
   const input = $("#estimate-hours");
   hoursInputPending = !input.validity.valid;
   $("#estimate-hours-error").hidden = true;
-  if (input.validity.valid && !composing) {
+  if (input.validity.valid) {
     editorHours = input.value === "" ? null : input.valueAsNumber;
   }
   updateDirty();

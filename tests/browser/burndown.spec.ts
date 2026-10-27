@@ -443,7 +443,7 @@ test("時間の0とIME確定、他Issue値保持とchartの無関係同期要求
   await input.press("Enter");
   expect(f.posts()).toBe(0);
   await input.dispatchEvent("compositionend");
-  await input.press("Enter");
+  await input.press("Control+Enter");
   await expect.poll(() => f.posts()).toBe(1);
   await expect.poll(() => (f.board.tasks[0] as any).estimateHours).toBe(0);
   expect((f.board.tasks[1] as any).estimateHours).toBe(6);
