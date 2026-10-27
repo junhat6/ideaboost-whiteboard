@@ -3260,49 +3260,69 @@ function dismissControls() {
 }
 $("#board").addEventListener("pointerdown", dismissControls);
 let burnPanel = null,
-  burnLoading = false,
+  burnLoading = null,
+  burnIntent = 0,
+  burnHoverGeneration = 0,
   burnHoverBlocked = false,
   burnTimer = null;
-async function openBurndown() {
+async function openBurndown(hoverGeneration = null) {
   clearTimeout(burnTimer);
   burnTimer = null;
   if (
-    burnLoading ||
+    (hoverGeneration !== null && burnLoading) ||
     dragged ||
     document.querySelector("dialog[open]") ||
     $("#burndown-open").hidden
   )
     return;
-  burnLoading = true;
+  const intent = ++burnIntent;
   try {
     if (!burnPanel) {
-      const module = await import("./burndown.js");
-      burnPanel = module.createBurndown({
-        onPrivate: () => stopPrivateScope("公開範囲を確認できません。"),
-        onFieldPrivate: invalidateHours,
-        onClose: () => {
-          clearTimeout(burnTimer);
-          burnTimer = null;
-          burnHoverBlocked = true;
-        },
-      });
+      burnLoading ||= import("./burndown.js")
+        .then((module) => {
+          burnPanel = module.createBurndown({
+            onPrivate: () => stopPrivateScope("公開範囲を確認できません。"),
+            onFieldPrivate: invalidateHours,
+            onClose: () => {
+              clearTimeout(burnTimer);
+              burnTimer = null;
+              burnHoverGeneration++;
+              burnHoverBlocked = true;
+            },
+          });
+        })
+        .finally(() => {
+          burnLoading = null;
+        });
+      await burnLoading;
     }
     if (
+      intent === burnIntent &&
+      (hoverGeneration === null || hoverGeneration === burnHoverGeneration) &&
       !dragged &&
       !document.querySelector("dialog[open]") &&
       !$("#burndown-open").hidden
     )
       burnPanel.open(selectedMilestone);
   } catch {
-    announce("バーンダウンを開けませんでした。もう一度お試しください。");
-  } finally {
-    burnLoading = false;
+    if (
+      intent === burnIntent &&
+      (hoverGeneration === null || hoverGeneration === burnHoverGeneration)
+    )
+      announce("バーンダウンを開けませんでした。もう一度お試しください。");
   }
 }
-$("#burndown-open").onclick = openBurndown;
+$("#burndown-open").onclick = () => openBurndown();
 document.addEventListener("pointermove", (event) => {
   const near = event.clientX >= innerWidth * 0.965;
-  if (!near) {
+  // Toolbar actions at the right edge are not a request to open the chart.
+  // Cancel a pending board-edge hover as soon as the pointer enters a control.
+  if (
+    !near ||
+    $("#chrome").contains(event.target) ||
+    $("#operations").contains(event.target)
+  ) {
+    burnHoverGeneration++;
     burnHoverBlocked = false;
     clearTimeout(burnTimer);
     burnTimer = null;
@@ -3319,10 +3339,11 @@ document.addEventListener("pointermove", (event) => {
   if (!burnTimer)
     burnTimer = setTimeout(() => {
       burnTimer = null;
-      openBurndown();
+      openBurndown(burnHoverGeneration);
     }, 180);
 });
 document.addEventListener("dragstart", () => {
+  burnHoverGeneration++;
   clearTimeout(burnTimer);
   burnTimer = null;
 });

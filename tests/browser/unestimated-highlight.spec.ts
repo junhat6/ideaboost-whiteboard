@@ -7,6 +7,17 @@ const hour = (page: Page, value: number) =>
   page.locator(`#estimate-hours-choices button[data-value="${value}"]`);
 async function ready(page: Page, options = {}) {
   const f = await setup(page, options);
+  let burndownReads = 0;
+  // This board has no sprint fixture. Keep an accidental chart GET out of the
+  // shared Issue mutation handler, but count it so no test can hide the request.
+  await page.route(/\/api\/burndown(?:\?.*)?$/, (route) => {
+    expect(route.request().method()).toBe("GET");
+    burndownReads++;
+    return route.fulfill({
+      status: 404,
+      json: { error: "sprint_unavailable" },
+    });
+  });
   (f.board.scope as any).estimateHoursField = true;
   for (const task of f.board.tasks)
     Object.assign(task, { subIssueCount: 0, parentId: task.lane });
@@ -14,7 +25,7 @@ async function ready(page: Page, options = {}) {
   await page.reload();
   await expect(page.locator(".pbi-title")).toHaveCount(6);
   await expect(toggle(page)).toBeAttached();
-  return f;
+  return { ...f, burndownReads: () => burndownReads };
 }
 async function shortcut(page: Page) {
   await page.locator("#operations").focus();
@@ -77,12 +88,88 @@ test("未見積強調は初期OFF、確定nullの末端作業だけを型色を�
   ).toHaveCount(0);
   expect(f.reads()).toBe(reads);
   expect(f.posts()).toBe(posts);
+  expect(f.burndownReads()).toBe(0);
+});
+
+test("操作barと未見積toggleの通常clickは右端hoverのchartを誤展開しない", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  await page.locator("#operations").click();
+  // Deliberately stay over the right-edge control beyond the 180ms hover delay.
+  await page.waitForTimeout(250);
+  expect(f.burndownReads()).toBe(0);
+  await expect(page.locator("#burndown-panel")).not.toBeVisible();
+  await toggle(page).click();
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(card(page)).toHaveClass(/unestimated-highlight/);
+  await page.waitForTimeout(250);
+  expect(f.burndownReads()).toBe(0);
+  await expect(page.locator("#burndown-panel")).not.toBeVisible();
+  await toggle(page).click();
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+  expect(f.posts()).toBe(0);
+});
+
+test("hover用moduleの遅延中に操作barへ移動したらchartを開かず、明示buttonは引き続き開く", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let moduleRequests = 0;
+  await page.route("**/burndown.js", async (route) => {
+    moduleRequests++;
+    await gate;
+    await route.continue();
+  });
+  await page.mouse.move(page.viewportSize()!.width - 2, 400);
+  await expect.poll(() => moduleRequests).toBe(1);
+  await page.locator("#operations").click();
+  const moduleResponse = page.waitForResponse("**/burndown.js");
+  release();
+  await (await moduleResponse).finished();
+  // Let the real module evaluate and the pending hover continuation settle.
+  await page.waitForTimeout(250);
+  await expect(page.locator("#burndown-panel")).not.toBeVisible();
+  expect(f.burndownReads()).toBe(0);
+  await page.locator("#burndown-open").click();
+  await expect(page.locator("#burndown-panel")).toBeVisible();
+  await expect.poll(f.burndownReads).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#burndown-panel")).not.toBeVisible();
+  expect(f.posts()).toBe(0);
+});
+
+test("hover用moduleの遅延中でもchartbuttonの明示clickは失わない", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let moduleRequests = 0;
+  await page.route("**/burndown.js", async (route) => {
+    moduleRequests++;
+    await gate;
+    await route.continue();
+  });
+  await page.mouse.move(page.viewportSize()!.width - 2, 400);
+  await expect.poll(() => moduleRequests).toBe(1);
+  await page.locator("#burndown-open").click();
+  await expect(page.locator("#burndown-panel")).not.toBeVisible();
+  expect(f.burndownReads()).toBe(0);
+  release();
+  await expect(page.locator("#burndown-panel")).toBeVisible();
+  await expect.poll(f.burndownReads).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#burndown-panel")).not.toBeVisible();
+  expect(f.posts()).toBe(0);
 });
 
 test("Uは入力・IME・修飾・repeat・dialog内では動かず、toggleはkeyboardと即時tooltipで操作できる", async ({
   page,
 }) => {
-  await ready(page);
+  const f = await ready(page);
   await page.locator("#operations").click();
   await toggle(page).hover();
   await expect(toggle(page)).toHaveAttribute(
@@ -129,6 +216,7 @@ test("Uは入力・IME・修飾・repeat・dialog内では動かず、toggleはk
   await page.locator("#close-detail").click();
   await shortcut(page);
   await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
+  expect(f.burndownReads()).toBe(0);
 });
 
 test("見積の保存ackまでは強調を保持し、成功で解除・不明な失敗でcanonical未見積を保持する", async ({
@@ -139,6 +227,11 @@ test("見積の保存ackまでは強調を保持し、成功で解除・不明�
   const gate = new Promise<void>((r) => (release = r));
   let posted = 0;
   await page.route("**/api/issues/100", async (r) => {
+    expect(r.request().method()).toBe("POST");
+    expect(r.request().postDataJSON()).toMatchObject({
+      estimateHours: 4,
+      expectedEstimateHours: null,
+    });
     posted++;
     await gate;
     Object.assign(f.board.tasks[0], {
@@ -161,17 +254,23 @@ test("見積の保存ackまでは強調を保持し、成功で解除・不明�
   await page.locator("#operations").click();
   await page.locator("#refresh").click();
   await expect(card(page)).toHaveClass(/unestimated-highlight/);
-  await page.route("**/api/issues/100", (r) =>
-    r.fulfill({
+  await page.route("**/api/issues/100", (r) => {
+    expect(r.request().method()).toBe("POST");
+    expect(r.request().postDataJSON()).toMatchObject({
+      estimateHours: 2,
+      expectedEstimateHours: null,
+    });
+    return r.fulfill({
       status: 502,
       json: { error: "github_unavailable", ambiguous: true },
-    }),
-  );
+    });
+  });
   await card(page).locator(".task-title").click();
   await hour(page, 2).click();
   await expect(page.locator("#detail-error")).toBeVisible();
   await expect(hour(page, 2)).toHaveAttribute("aria-pressed", "true");
   await expect(card(page)).toHaveClass(/unestimated-highlight/);
+  expect(f.burndownReads()).toBe(0);
 });
 
 test("読取中は未見積と断定せず、公開field失効はtoggleと旧表示を消す", async ({
@@ -211,6 +310,7 @@ test("読取中は未見積と断定せず、公開field失効はtoggleと旧表
   await expect(page.locator("[data-task]")).toHaveCount(0);
   await expect(toggle(page)).toBeHidden();
   await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+  expect(f.burndownReads()).toBe(0);
 });
 
 test("overflow移動・検索・再描画でも強調が保たれ、非表示付箋ではanimationを動かさない", async ({
@@ -241,6 +341,7 @@ test("overflow移動・検索・再描画でも強調が保たれ、非表示付
   await page.locator("#search").fill("");
   await expect(page.locator(".unestimated-highlight")).toHaveCount(5);
   expect(f.posts()).toBe(0);
+  expect(f.burndownReads()).toBe(0);
 });
 
 test("動きの軽減設定では穏やかな強調も静止し、scope変更でOFFへ戻る", async ({
@@ -263,4 +364,5 @@ test("動きの軽減設定では穏やかな強調も静止し、scope変更で
   await page.locator("#refresh").click();
   await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".unestimated-highlight")).toHaveCount(0);
+  expect(f.burndownReads()).toBe(0);
 });
