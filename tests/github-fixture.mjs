@@ -45,6 +45,7 @@ export function fixture({
   fieldsDenied = false,
   closeFailure = false,
   closeUncertain = false,
+  milestones = null,
 } = {}) {
   const parent = makeIssue(1, "PBI");
   const issue = makeIssue(2, "Task", parent);
@@ -59,6 +60,33 @@ export function fixture({
         token: "SECRET",
         expires_at: "2099-01-01T00:00:00Z",
       });
+    if (body?.query?.includes("ObservationMilestones")) {
+      const catalog = milestones ?? [
+        ...new Map(
+          [parent, issue]
+            .filter((item) => item.milestone)
+            .map((item) => [item.milestone.number, item.milestone]),
+        ).values(),
+      ];
+      return Response.json({
+        data: {
+          repository: {
+            nameWithOwner: "engineer-first/idea-boost",
+            isPrivate: false,
+            milestones: {
+              totalCount: catalog.length,
+              nodes: catalog.map((milestone) => ({
+                description: null,
+                dueOn: null,
+                closedAt: null,
+                ...milestone,
+              })),
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      });
+    }
     if (url.endsWith("/issue-fields"))
       return fieldsDenied
         ? Response.json({ message: "denied" }, { status: 403 })

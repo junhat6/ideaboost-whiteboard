@@ -178,7 +178,13 @@ test("未見積のみは達成ゼロ線を描かず、失敗は空履歴にし�
         : {
             json: {
               ...data,
-              current: { ...data.current, estimated: 0, unestimated: 5 },
+              current: {
+                ...data.current,
+                estimated: 0,
+                estimatedHours: 0,
+                unestimated: 5,
+              },
+              observations: [],
             },
           },
     ),
@@ -1437,5 +1443,211 @@ test("学校日程の保存失敗は下書きを保持し、公開失効では�
     calendar(page).locator('button[data-day][aria-pressed="true"]'),
   ).toHaveCount(0);
   expect(posts).toBe(2);
+  expect(f.posts()).toBe(0);
+});
+
+test("繰越後の旧Sprintは終了前の最終記録と学校日を保持し、新Sprintと公開失効を分離", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  const old = {
+    ...structuredClone(data),
+    observedAt: "2026-10-28T01:00:00Z",
+    current: {
+      ...data.current,
+      remainingHours: 0,
+      estimatedHours: 0,
+      estimated: 0,
+      total: 0,
+      unestimated: 0,
+    },
+    display: {
+      mode: "historical",
+      summary: structuredClone(data.current),
+      observedAt: data.observedAt,
+      cutoff: "2026-10-27T15:00:00Z",
+      policy: "sprint-v2-exclusive-jst",
+    },
+    milestones: [
+      ...data.milestones,
+      { number: 10, title: "Sprint 10", dueOn: "2026-11-09T00:00:00Z" },
+    ],
+  };
+  let privateField = false,
+    reads = 0;
+  await page.route("**/api/burndown**", (r) => {
+    reads++;
+    if (privateField)
+      return r.fulfill({
+        status: 403,
+        json: { error: "estimate_hours_not_public" },
+      });
+    const ten =
+      new URL(r.request().url()).searchParams.get("milestone") === "10";
+    return r.fulfill({
+      json: ten
+        ? {
+            ...old,
+            milestone: 10,
+            current: { ...data.current, remainingHours: 3, estimatedHours: 12 },
+            display: {
+              mode: "live",
+              summary: {
+                ...data.current,
+                remainingHours: 3,
+                estimatedHours: 12,
+              },
+              observedAt: old.observedAt,
+              cutoff: null,
+              policy: null,
+            },
+            observations: [],
+          }
+        : old,
+    });
+  });
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary strong")).toHaveText("残り：5h");
+  await expect(page.locator(".burn-observed")).toHaveText(
+    "最終記録: 2026/10/27 17:00:00 JST",
+  );
+  await expect(page.locator(".burn-point")).toHaveCount(2);
+  await expect(page.locator(".burn-point").last()).toHaveAttribute("cx", "556");
+  await expect(page.locator(".burn-chart svg")).toContainText("10/28");
+  await expect(page.locator(".burn-ideal-label")).toHaveText(
+    "理想（最終記録の全体見積）",
+  );
+  await expect(page.locator(".burn-ideal")).toHaveAttribute(
+    "d",
+    "M 60 50 L 680 310",
+  );
+  await page
+    .locator("#burndown-panel")
+    .screenshot({
+      path: `test-results/burndown-rollover-${page.viewportSize()!.width}.png`,
+    });
+  await page.keyboard.press("Escape");
+  old.observedAt = "2026-10-29T01:00:00Z";
+  await page.locator("#burndown-open").click();
+  await expect.poll(() => reads).toBe(2);
+  await expect(page.locator(".burn-observed")).toHaveText(
+    "最終記録: 2026/10/27 17:00:00 JST",
+  );
+  await expect(page.locator(".burn-summary strong")).toHaveText("残り：5h");
+  await page
+    .getByRole("combobox", { name: "バーンダウンのスプリント" })
+    .selectOption("10");
+  await expect(page.locator(".burn-summary strong")).toHaveText("残り：3h");
+  await expect(page.locator(".burn-ideal-label")).toHaveText(
+    "理想（現在の全体見積）",
+  );
+  await page
+    .getByRole("combobox", { name: "バーンダウンのスプリント" })
+    .selectOption("9");
+  await expect(page.locator(".burn-summary strong")).toHaveText("残り：5h");
+  await page.keyboard.press("Escape");
+  privateField = true;
+  await page.locator("#burndown-open").click();
+  await expect(page.locator("#burndown-open")).toBeHidden();
+  await expect(page.locator(".burn-summary")).toHaveCount(0);
+  expect(f.posts()).toBe(0);
+});
+
+test("終了前の記録がないSprintは残りをゼロにせず記録なし、過去点も生成しない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  await page.route("**/api/burndown**", (r) =>
+    r.fulfill({
+      json: {
+        ...data,
+        observedAt: "2026-10-28T01:00:00Z",
+        observations: [],
+        current: {
+          ...data.current,
+          remainingHours: 0,
+          estimatedHours: 0,
+          estimated: 0,
+          total: 0,
+        },
+        display: {
+          mode: "historical",
+          summary: null,
+          observedAt: null,
+          cutoff: "2026-10-27T15:00:00Z",
+          policy: "sprint-v2-exclusive-jst",
+        },
+      },
+    }),
+  );
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary strong")).toHaveText("残り：—");
+  await expect(page.locator(".burn-summary")).toContainText("記録なし");
+  await expect(page.locator(".burn-observed")).toHaveText(
+    "記録なし（スプリント終了前の観測がありません）",
+  );
+  await expect(page.locator(".burn-chart svg")).toHaveCount(0);
+  expect(f.posts()).toBe(0);
+});
+
+test("終了前に実際に完了した0hは保持し、最終非ゼロ値へ戻さない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  await page.route("**/api/burndown**", (r) =>
+    r.fulfill({
+      json: {
+        ...data,
+        observedAt: "2026-10-28T01:00:00Z",
+        display: {
+          mode: "historical",
+          summary: { ...data.current, remainingHours: 0 },
+          observedAt: data.observedAt,
+          cutoff: "2026-10-27T15:00:00Z",
+          policy: "sprint-v2-exclusive-jst",
+        },
+        observations: data.observations.map((p, i) => ({
+          ...p,
+          remainingHours: i ? 0 : p.remainingHours,
+        })),
+      },
+    }),
+  );
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary strong")).toHaveText("残り：0h");
+  await expect(page.locator(".burn-point").last()).toHaveAttribute("cy", "310");
+  expect(f.posts()).toBe(0);
+});
+
+test("現在scopeが空でも保存済みの過去赤線は消さず、現在のゼロ理想線を捏造しない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  await page.route("**/api/burndown**", (r) =>
+    r.fulfill({
+      json: {
+        ...data,
+        current: {
+          ...data.current,
+          remainingHours: 0,
+          estimatedHours: 0,
+          estimated: 0,
+          total: 0,
+        },
+      },
+    }),
+  );
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary strong")).toHaveText("残り：—");
+  await expect(page.locator(".burn-point")).toHaveCount(2);
+  await expect(page.locator(".burn-ideal")).toHaveCount(0);
   expect(f.posts()).toBe(0);
 });

@@ -352,22 +352,57 @@ function unestimatedScopeKey() {
     s.viewFilter,
   ]);
 }
+// null means target membership is unknown, not a confirmed exclusion.
+function estimateTarget(t) {
+  if (!t) return null;
+  if (
+    t.type === "PBI" ||
+    t.projectItemId === null ||
+    (Number.isSafeInteger(t.subIssueCount) && t.subIssueCount > 0) ||
+    t.status === "見送り" ||
+    (t.state === "CLOSED" && t.stateReason === "NOT_PLANNED")
+  )
+    return false;
+  return t.subIssueCount === 0 &&
+    typeof t.projectItemId === "string" &&
+    t.projectItemId.length > 0 &&
+    state.lanes.some((p) => p.id === t.lane && p.type === "PBI")
+    ? true
+    : null;
+}
 function unestimatedEligible(t) {
   return (
     highlightUnestimated &&
     adapter &&
-    !loading &&
     !snapshotPending &&
     state.scope?.estimateHoursField === true &&
-    t?.type !== "PBI" &&
-    t?.subIssueCount === 0 &&
-    typeof t.projectItemId === "string" &&
-    t.projectItemId.length > 0 &&
-    t?.estimateHours === null &&
-    state.lanes.some((p) => p.id === t.lane && p.type === "PBI") &&
-    t.status !== "見送り" &&
-    !(t.state === "CLOSED" && t.stateReason === "NOT_PLANNED")
+    estimateTarget(t) === true &&
+    t.estimateHours === null
   );
+}
+function confirmedNoUnestimated() {
+  if (
+    !adapter ||
+    loading ||
+    snapshotPending ||
+    stale ||
+    !navigator.onLine ||
+    state.scope?.estimateHoursField !== true
+  )
+    return false;
+  const tasks = new Map(state.tasks.map((t) => [t.id, t]));
+  // Include every card in the displayed PBI rows, even clipped overflow pages.
+  return [...$("#board").querySelectorAll("[data-task]")].every((card) => {
+    const task = tasks.get(card.dataset.task),
+      target = estimateTarget(task);
+    return (
+      target === false ||
+      (target === true &&
+        typeof task.estimateHours === "number" &&
+        Number.isFinite(task.estimateHours) &&
+        task.estimateHours >= 0)
+    );
+  });
 }
 function syncUnestimatedToggle() {
   const available = !!adapter && state.scope?.estimateHoursField === true;
@@ -3169,6 +3204,8 @@ async function performRefresh(
     stale = true;
     if (e.code === "scope_not_public") {
       stopPrivateScope(e.message);
+    } else if (e.httpStatus === 403 || e.code === "estimate_hours_not_public") {
+      invalidateHours();
     }
     if (!silent) announce(`取得できませんでした：${e.message}`);
     return false;
@@ -3440,6 +3477,8 @@ $("#highlight-unestimated").onclick = () => {
   highlightUnestimated = !highlightUnestimated;
   unestimatedScope = highlightUnestimated ? unestimatedScopeKey() : null;
   paintUnestimatedHighlights();
+  if (highlightUnestimated && confirmedNoUnestimated())
+    announce("未見積もりのタスクは0件です");
 };
 document.addEventListener("keydown", (e) => {
   if (

@@ -5,6 +5,7 @@ import {
   trustedPush,
   currentMain,
   verifyDeployment,
+  inspectSprintRollover,
 } from "../scripts/deployment-check.mjs";
 
 const base = `https://ideaboost-whiteboard.ideaboost-whiteboard.workers.dev/b/${"a".repeat(48)}/`;
@@ -82,5 +83,87 @@ test("配信smokeはGETだけでhealthとasset完全一致を確認し旧版や�
   await assert.rejects(
     () => verifyDeployment(base, [], fetcher),
     /runtime settings/,
+  );
+});
+
+test("rollover smoke performs one guarded public GET and reports only minimal summary metadata", async () => {
+  const body = {
+    ok: true,
+    milestone: 9,
+    scope: "not-logged",
+    current: { remainingHours: 0 },
+    display: {
+      mode: "historical",
+      policy: "sprint-v2-exclusive-jst",
+      cutoff: "2026-10-27T15:00:00.000Z",
+      observedAt: "2026-10-27T08:00:00Z",
+      summary: { remainingHours: 5, scopeIds: ["not-logged"] },
+    },
+    observations: [{ at: "2026-10-27T08:00:00Z", scopeIds: ["not-logged"] }],
+  };
+  const calls = [];
+  const fetcher = async (url, options) => {
+    calls.push([String(url), options]);
+    return Response.json(body);
+  };
+  const result = await inspectSprintRollover(base, fetcher);
+  assert.deepEqual(result, {
+    milestone: 9,
+    displayMode: "historical",
+    cutoff: body.display.cutoff,
+    finalRecordedAt: body.display.observedAt,
+    recordedRemainingHours: 5,
+    currentScopeRemainingHours: 0,
+    retainedPoints: 1,
+  });
+  assert.equal(JSON.stringify(result).includes("not-logged"), false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], base + "api/burndown?milestone=9");
+  assert.equal(calls[0][1].method, "GET");
+  assert.equal(calls[0][1].redirect, "error");
+  assert.equal(calls[0][1].headers, undefined);
+  body.display.summary = null;
+  body.display.observedAt = null;
+  body.observations = [];
+  assert.equal(
+    (await inspectSprintRollover(base, fetcher)).recordedRemainingHours,
+    null,
+  );
+  body.display.mode = "live";
+  await assert.rejects(
+    () => inspectSprintRollover(base, fetcher),
+    /display contract/,
+  );
+});
+
+test("rollover smoke does not bypass denied reads or accept a post-cutoff point", async () => {
+  let calls = 0;
+  await assert.rejects(
+    () =>
+      inspectSprintRollover(base, async () => {
+        calls++;
+        return Response.json({ error: "scope_not_public" }, { status: 403 });
+      }),
+    /HTTP 403/,
+  );
+  assert.equal(calls, 1);
+  await assert.rejects(
+    () =>
+      inspectSprintRollover(base, async () =>
+        Response.json({
+          ok: true,
+          milestone: 9,
+          current: { remainingHours: 0 },
+          display: {
+            mode: "historical",
+            policy: "sprint-v2-exclusive-jst",
+            cutoff: "2026-10-27T15:00:00.000Z",
+            observedAt: "2026-10-27T15:00:00Z",
+            summary: { remainingHours: 0 },
+          },
+          observations: [{ at: "2026-10-27T15:00:00Z" }],
+        }),
+      ),
+    /display contract/,
   );
 });

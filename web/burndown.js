@@ -20,25 +20,38 @@ const svgNode = (tag, attributes, text) => {
 };
 const hours = (value) =>
   new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 }).format(value);
+const displayFor = (data) =>
+  data.display?.mode === "historical"
+    ? data.display
+    : { mode: "live", summary: data.current, observedAt: data.observedAt };
+const observedLabel = (display) =>
+  display.observedAt
+    ? `${display.mode === "historical" ? "最終記録" : "観測"}: ${new Date(display.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`
+    : "記録なし（スプリント終了前の観測がありません）";
 export function chart(data) {
   const root = node("section", undefined, "burn-chart");
-  if (!data.current.estimated) {
+  const display = displayFor(data),
+    summary = display.summary,
+    historical = display.mode === "historical";
+  const daily = new Map();
+  for (const observation of data.observations)
+    if (Date.parse(observation.at) <= Date.parse(display.observedAt))
+      daily.set(observation.day, observation);
+  const points = [...daily.values()].sort((a, b) => a.at.localeCompare(b.at));
+  if (!summary?.estimated && !points.some((p) => p.estimated)) {
     root.append(
       node(
         "p",
-        data.current.total
-          ? `見積時間が未設定です（${data.current.unestimated}件）。`
-          : "このスプリントのProject内作業Issueはありません。",
+        !summary
+          ? "記録なし"
+          : summary.total
+            ? `見積時間が未設定です（${summary.unestimated}件）。`
+            : "このスプリントのProject内作業Issueはありません。",
         "burn-empty",
       ),
     );
     return root;
   }
-  const daily = new Map();
-  for (const observation of data.observations)
-    if (Date.parse(observation.at) <= Date.parse(data.observedAt))
-      daily.set(observation.day, observation);
-  const points = [...daily.values()].sort((a, b) => a.at.localeCompare(b.at));
   const schoolDays = data.schedule?.schoolDays || [];
   const days = schoolDays.length ? schoolDays : points.map((p) => p.day);
   if (!days.length) {
@@ -46,12 +59,14 @@ export function chart(data) {
     return root;
   }
   const visiblePoints = points.filter((p) => days.includes(p.day));
-  const ideal = schoolDays.length >= 2 ? data.current.estimatedHours : null;
+  const ideal =
+    schoolDays.length >= 2 && summary?.estimated
+      ? summary.estimatedHours
+      : null;
   const svg = svgNode("svg", {
     viewBox: "0 0 720 380",
     role: "img",
-    "aria-label":
-      "学校日ごとの残り見積時間。青は現在の全体見積から計算した理想、赤は実際の観測。単位は時間。",
+    "aria-label": `学校日ごとの残り見積時間。青は${historical ? "最終記録の" : "現在の"}全体見積から計算した理想、赤は実際の観測。単位は時間。`,
   });
   const max = Math.max(
     1,
@@ -130,7 +145,13 @@ export function chart(data) {
   root.append(svg);
   const legend = node("div", undefined, "burn-legend");
   if (ideal !== null)
-    legend.append(node("span", "理想（現在の全体見積）", "burn-ideal-label"));
+    legend.append(
+      node(
+        "span",
+        historical ? "理想（最終記録の全体見積）" : "理想（現在の全体見積）",
+        "burn-ideal-label",
+      ),
+    );
   legend.append(node("span", "実際（観測した残り見積）", "burn-actual-label"));
   root.append(legend);
   if (!visiblePoints.length)
@@ -324,6 +345,9 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   });
   function render(data) {
     currentData = data;
+    const display = displayFor(data),
+      shown = display.summary,
+      historical = display.mode === "historical";
     const optionsKey = JSON.stringify(data.milestones);
     if (select.dataset.options !== optionsKey) {
       select.dataset.options = optionsKey;
@@ -340,6 +364,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       data.scope,
       data.milestone,
       data.current,
+      data.display,
       data.observations,
       data.schedule?.schoolDays,
       data.recordingLimited,
@@ -353,39 +378,42 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       summary.append(
         node(
           "strong",
-          data.current.estimated
-            ? `残り：${hours(data.current.remainingHours)}h`
+          shown?.estimated
+            ? `残り：${hours(shown.remainingHours)}h`
             : "残り：—",
         ),
-        node("span", `未完了の見積合計 · 未見積 ${data.current.unestimated}件`),
+        node(
+          "span",
+          shown
+            ? `未完了の見積合計 · 未見積 ${shown.unestimated}件`
+            : "記録なし",
+        ),
       );
       content.replaceChildren(
         summary,
         chart(data),
         node(
           "p",
-          "実消費時間ではなく、見積時間の推移です。青線は現在の対象全体の見積から再計算します。",
+          historical
+            ? "実消費時間ではなく、終了前に保存した見積時間の推移です。"
+            : "実消費時間ではなく、見積時間の推移です。青線は現在の対象全体の見積から再計算します。",
           "burn-note",
         ),
-        node(
-          "p",
-          `観測: ${new Date(data.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`,
-          "burn-note burn-observed",
-        ),
+        node("p", observedLabel(display), "burn-note burn-observed"),
       );
       if ((data.schedule?.schoolDays?.length || 0) < 2)
         content.append(
           node("p", "学校日程を設定すると理想線を表示します。", "burn-note"),
         );
-      if (data.current.excludedChildren)
+      if (shown?.excludedChildren)
         content.append(
           node(
             "p",
-            `Projectの対象外と確認した直接の子Issue ${data.current.excludedChildren}件は含みません。`,
+            `Projectの対象外と確認した直接の子Issue ${shown.excludedChildren}件は含みません。`,
             "burn-note",
           ),
         );
-      if (data.recordingLimited)
+      if (data.recordingLimited && !historical)
         content.append(
           node(
             "p",
@@ -395,7 +423,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         );
     } else {
       content.querySelector(".burn-observed").textContent =
-        `観測: ${new Date(data.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`;
+        observedLabel(display);
     }
     renderSettings(data);
   }
@@ -521,7 +549,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     if (
       !(days.length === 0 && currentData.schedule?.revision === "0") &&
       JSON.stringify(days) ===
-      JSON.stringify(currentData.schedule?.schoolDays || [])
+        JSON.stringify(currentData.schedule?.schoolDays || [])
     ) {
       draft.dirty = false;
       draft.proposal = false;

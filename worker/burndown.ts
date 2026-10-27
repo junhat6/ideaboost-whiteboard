@@ -14,7 +14,12 @@ export type BurnSource = {
   ok: true;
   scope: string;
   observedAt: string;
-  milestones: { number: number; title: string; dueOn: string | null }[];
+  milestones: {
+    number: number;
+    title: string;
+    dueOn: string | null;
+    assignmentWindow?: { policy: string; startAt: string; endAt: string };
+  }[];
   tasks: BurnTask[];
   excludedChildren?: { milestone: number; count: number }[];
 };
@@ -52,6 +57,7 @@ export const completedBurnTask = (t: BurnTask) =>
   (t.status === "完了" ||
     (t.state === "CLOSED" && t.stateReason === "COMPLETED"));
 type Summary = ReturnType<typeof summarizeBurn>;
+type EndingBoundary = { cutoff: string; policy: string };
 type Observation = {
   day: string;
   observedAt: string;
@@ -106,6 +112,23 @@ export const nextJstDay = (time: number) => {
   const today = Date.parse(jstDay(time) + "T00:10:00+09:00");
   return today > time ? today : today + 86400000;
 };
+const assignmentPolicy = "sprint-v2-exclusive-jst";
+function assignmentWindow(milestone: BurnSource["milestones"][number]) {
+  const window = milestone.assignmentWindow;
+  if (!window || window.policy !== assignmentPolicy) return null;
+  const start = Date.parse(window.startAt),
+    end = Date.parse(window.endAt);
+  // Only the formal, exclusive JST-midnight contract supports the daily index.
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start >= end ||
+    (start + 9 * 3600000) % 86400000 !== 0 ||
+    (end + 9 * 3600000) % 86400000 !== 0
+  )
+    return null;
+  return { start, end, policy: window.policy };
+}
 export function validateBurnSource(value: unknown): value is BurnSource {
   const v = value as BurnSource;
   return (
@@ -124,7 +147,17 @@ export function validateBurnSource(value: unknown): value is BurnSource {
         typeof m.title === "string" &&
         (m.dueOn === null ||
           (typeof m.dueOn === "string" &&
-            Number.isFinite(Date.parse(m.dueOn)))),
+            Number.isFinite(Date.parse(m.dueOn)))) &&
+        (m.assignmentWindow === undefined ||
+          (!!m.assignmentWindow &&
+            typeof m.assignmentWindow.policy === "string" &&
+            m.assignmentWindow.policy.length <= 100 &&
+            typeof m.assignmentWindow.startAt === "string" &&
+            Number.isFinite(Date.parse(m.assignmentWindow.startAt)) &&
+            typeof m.assignmentWindow.endAt === "string" &&
+            Number.isFinite(Date.parse(m.assignmentWindow.endAt)) &&
+            Date.parse(m.assignmentWindow.startAt) <
+              Date.parse(m.assignmentWindow.endAt))),
     ) &&
     (v.excludedChildren === undefined ||
       (Array.isArray(v.excludedChildren) &&
@@ -185,6 +218,7 @@ export class BurnHistory {
   private flight: Promise<{
     source: BurnSource;
     records: Observation[];
+    boundaries: Map<number, EndingBoundary>;
     recordingLimited: boolean;
   }> | null = null;
   private collection() {
@@ -244,6 +278,56 @@ export class BurnHistory {
     for (let n = 0; n < keys.length; n += 128)
       await this.storage.delete(keys.slice(n, n + 128));
   }
+  private async endingBoundaries(source: BurnSource, time: number) {
+    const hash = Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(source.scope),
+        ),
+      ),
+    )
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+    const prefix = `sprint-boundary:${hash}:`,
+      stored = await this.storage.list<EndingBoundary>({ prefix }),
+      boundaries = new Map<number, EndingBoundary>();
+    const ending = source.milestones.filter((milestone) => {
+      const previous = stored.get(prefix + milestone.number);
+      if (previous) {
+        if (
+          previous.policy !== assignmentPolicy ||
+          !Number.isFinite(Date.parse(previous.cutoff))
+        )
+          throw new Error("observation_incomplete");
+        boundaries.set(milestone.number, previous);
+        return false;
+      }
+      const window = assignmentWindow(milestone);
+      return window !== null && window.end <= time;
+    });
+    if (ending.length)
+      await this.storage.transaction(async (tx) => {
+        for (const milestone of ending) {
+          const key = prefix + milestone.number,
+            previous = await tx.get<EndingBoundary>(key);
+          if (previous) {
+            boundaries.set(milestone.number, previous);
+            continue;
+          }
+          const window = assignmentWindow(milestone)!;
+          const boundary = {
+            cutoff: new Date(window.end).toISOString(),
+            policy: window.policy,
+          };
+          // Pin only the ended boundary, never a summary, active window or source data.
+          // Kept metadata cannot resurrect observations after their normal retention expiry.
+          await tx.put(key, boundary);
+          boundaries.set(milestone.number, boundary);
+        }
+      });
+    return boundaries;
+  }
   private async collect() {
     let response: Response;
     try {
@@ -279,7 +363,10 @@ export class BurnHistory {
     const source = await response.json();
     if (!validateBurnSource(source)) throw new Error("observation_incomplete");
     const time = this.now(),
-      day = jstDay(time);
+      // Source time owns the observation's JST day and its daily write budget.
+      // Persistence can cross midnight; indexing it by storage time would let
+      // tomorrow's point overwrite the final pre-cutoff day index.
+      day = jstDay(Date.parse(source.observedAt));
     const canonical = {
       ...source,
       tasks: [...source.tasks].sort((a, b) => a.id.localeCompare(b.id)),
@@ -373,6 +460,7 @@ export class BurnHistory {
       source,
       recordingLimited,
       records: [...records.values()].filter((v) => v.day >= oldest),
+      boundaries: await this.endingBoundaries(source, time),
     };
   }
   private async schedule(milestone: number | null): Promise<SchoolSchedule> {
@@ -480,13 +568,35 @@ export class BurnHistory {
       }
       if (request.method !== "GET") return new Response(null, { status: 405 });
       await this.planAlarm();
-      const { source, records, recordingLimited } = await this.collection();
+      const { source, records, recordingLimited, boundaries } =
+        await this.collection();
+      const active = source.milestones
+        .filter((m) => {
+          const window = assignmentWindow(m);
+          return (
+            !boundaries.has(m.number) &&
+            window &&
+            window.start <= this.now() &&
+            this.now() < window.end
+          );
+        })
+        .sort(
+          (a, b) =>
+            Date.parse(a.assignmentWindow!.endAt) -
+            Date.parse(b.assignmentWindow!.endAt),
+        );
       const future = source.milestones
-        .filter((m) => m.dueOn && Date.parse(m.dueOn) >= this.now())
+        .filter(
+          (m) =>
+            !boundaries.has(m.number) &&
+            m.dueOn &&
+            Date.parse(m.dueOn) >= this.now(),
+        )
         .sort((a, b) => Date.parse(a.dueOn!) - Date.parse(b.dueOn!));
       const milestone =
         raw === null
-          ? ((future[0] ?? source.milestones.at(-1))?.number ?? null)
+          ? ((active[0] ?? future[0] ?? source.milestones.at(-1))?.number ??
+            null)
           : Number(raw);
       if (
         milestone !== null &&
@@ -497,30 +607,58 @@ export class BurnHistory {
         milestone === null
           ? tasks
           : tasks.filter((t) => t.milestone === milestone);
-      return Response.json({
-        ok: true,
-        observedAt: source.observedAt,
-        milestones: source.milestones,
-        milestone,
-        current: summarizeBurn(
+      const current = summarizeBurn(
           filter(source.tasks),
           (source.excludedChildren || [])
             .filter((e) => milestone === null || e.milestone === milestone)
             .reduce((n, e) => n + e.count, 0),
         ),
-        observations: records
-          .filter(
-            (v) =>
-              milestone !== null &&
-              v.scope === source.scope &&
-              Object.hasOwn(v.summaries, String(milestone)),
-          )
-          .map((v) => ({
-            at: v.observedAt,
-            day: v.day,
-            ...v.summaries[String(milestone)],
-            changes: v.changes[String(milestone)],
-          })),
+        boundary = milestone === null ? undefined : boundaries.get(milestone),
+        visibleRecords = records.filter(
+          (v) =>
+            milestone !== null &&
+            v.scope === source.scope &&
+            Object.hasOwn(v.summaries, String(milestone)) &&
+            (!boundary ||
+              Date.parse(v.observedAt) < Date.parse(boundary.cutoff)),
+        ),
+        last = boundary
+          ? visibleRecords.reduce<Observation | undefined>(
+              (latest, record) =>
+                !latest ||
+                Date.parse(record.observedAt) > Date.parse(latest.observedAt)
+                  ? record
+                  : latest,
+              undefined,
+            )
+          : undefined;
+      return Response.json({
+        ok: true,
+        observedAt: source.observedAt,
+        milestones: source.milestones,
+        milestone,
+        current,
+        display: boundary
+          ? {
+              mode: "historical",
+              summary: last?.summaries[String(milestone)] ?? null,
+              observedAt: last?.observedAt ?? null,
+              cutoff: boundary.cutoff,
+              policy: boundary.policy,
+            }
+          : {
+              mode: "live",
+              summary: current,
+              observedAt: source.observedAt,
+              cutoff: null,
+              policy: null,
+            },
+        observations: visibleRecords.map((v) => ({
+          at: v.observedAt,
+          day: v.day,
+          ...v.summaries[String(milestone)],
+          changes: v.changes[String(milestone)],
+        })),
         scope: source.scope,
         schedule: await this.schedule(milestone),
         timezone: "Asia/Tokyo",

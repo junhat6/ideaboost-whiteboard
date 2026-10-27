@@ -100,6 +100,56 @@ export async function verifyDeployment(base, expectedAssets, fetcher = fetch) {
       throw new Error(`Production asset does not match this commit: ${name}`);
   }
 }
+export async function inspectSprintRollover(base, fetcher = fetch) {
+  // One normal public read, with the same visibility guards as the UI. No retry,
+  // redirects, credentials, real Issue writes or schedule writes.
+  const response = await fetcher(
+    new URL("api/burndown?milestone=9", productionBase(base)),
+    {
+      method: "GET",
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(30000),
+    },
+  );
+  if (!response.ok)
+    throw new Error(`Sprint history read failed (HTTP ${response.status})`);
+  const data = await response.json(),
+    display = data.display;
+  if (
+    data.ok !== true ||
+    data.milestone !== 9 ||
+    display?.mode !== "historical" ||
+    display.policy !== "sprint-v2-exclusive-jst" ||
+    display.cutoff !== "2026-10-27T15:00:00.000Z" ||
+    !Array.isArray(data.observations) ||
+    !Number.isFinite(data.current?.remainingHours) ||
+    (display.summary === null
+      ? display.observedAt !== null
+      : !Number.isFinite(display.summary?.remainingHours) ||
+        !Number.isFinite(Date.parse(display.observedAt))) ||
+    (display.observedAt !== null &&
+      Date.parse(display.observedAt) >= Date.parse(display.cutoff)) ||
+    data.observations.some(
+      (p) =>
+        !Number.isFinite(Date.parse(p.at)) ||
+        Date.parse(p.at) >= Date.parse(display.cutoff),
+    )
+  )
+    throw new Error(
+      "Sprint history display contract did not match the saved-boundary policy",
+    );
+  // Deliberately omit scope IDs, Issue bodies, API URLs and all raw response data.
+  return {
+    milestone: 9,
+    displayMode: display.mode,
+    cutoff: display.cutoff,
+    finalRecordedAt: display.observedAt,
+    recordedRemainingHours: display.summary?.remainingHours ?? null,
+    currentScopeRemainingHours: data.current.remainingHours,
+    retainedPoints: data.observations.length,
+  };
+}
 async function main() {
   if (process.argv[2] === "guard") {
     trustedPush(
@@ -112,7 +162,16 @@ async function main() {
     );
     return;
   }
-  if (process.argv[2] !== "smoke") throw new Error("Use guard or smoke");
+  if (process.argv[2] === "rollover-smoke") {
+    console.log(
+      JSON.stringify(
+        await inspectSprintRollover(process.env.PRODUCTION_BASE_URL),
+      ),
+    );
+    return;
+  }
+  if (process.argv[2] !== "smoke")
+    throw new Error("Use guard, smoke or rollover-smoke");
   const base = productionBase(process.env.PRODUCTION_BASE_URL).href;
   const expected = await Promise.all(
     assets.map(async (name) => [

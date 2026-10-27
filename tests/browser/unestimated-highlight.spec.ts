@@ -3,6 +3,19 @@ import { setup } from "./fixtures";
 
 const toggle = (page: Page) => page.locator("#highlight-unestimated");
 const card = (page: Page, id = "t0-0-0") => page.locator(`[data-task="${id}"]`);
+async function expectFixedFrame(page: Page, target = card(page)) {
+  const width = await page
+    .locator("#board")
+    .evaluate((board) =>
+      board.classList.contains("dense")
+        ? "1px"
+        : board.classList.contains("compact")
+          ? "2px"
+          : "4px",
+    );
+  await expect(target).toHaveCSS("outline-width", width);
+  await expect(target).toHaveCSS("outline-style", "solid");
+}
 const hour = (page: Page, value: number) =>
   page.locator(`#estimate-hours-choices button[data-value="${value}"]`);
 async function ready(page: Page, options = {}) {
@@ -77,6 +90,11 @@ test("未見積強調は初期OFF、確定nullの末端作業だけを型色を�
     await card(page).evaluate((n) => getComputedStyle(n).backgroundColor),
   ).toBe(fill);
   await expect(card(page)).toHaveClass(/unestimated-visible/);
+  await expectFixedFrame(page);
+  await expect(card(page).locator(".unestimated-cue")).toHaveCSS(
+    "background-color",
+    "rgb(49, 89, 201)",
+  );
   await expect
     .poll(() =>
       card(page).evaluate((n) => getComputedStyle(n, "::after").animationName),
@@ -273,7 +291,7 @@ test("見積の保存ackまでは強調を保持し、成功で解除・不明�
   expect(f.burndownReads()).toBe(0);
 });
 
-test("読取中は未見積と断定せず、公開field失効はtoggleと旧表示を消す", async ({
+test("通常再取得中は確認済みnullの枠が途切れず、値不明と公開失効は正しく反映する", async ({
   page,
 }) => {
   const f = await ready(page);
@@ -288,11 +306,20 @@ test("読取中は未見積と断定せず、公開field失効はtoggleと旧表
   await page.locator("#refresh").click();
   await expect(toggle(page)).toBeDisabled();
   await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".unestimated-highlight")).toHaveCount(0);
+  await expect(card(page)).toHaveClass(/unestimated-highlight/);
+  await expectFixedFrame(page);
   release();
   await expect(toggle(page)).toBeEnabled();
   await expect(card(page)).toHaveClass(/unestimated-highlight/);
   await page.unroute("**/api/board");
+  delete (f.board.tasks[0] as any).estimateHours;
+  await page.locator("#refresh").click();
+  await expect(card(page)).not.toHaveClass(/unestimated-highlight/);
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
+  (f.board.tasks[0] as any).estimateHours = null;
+  await page.locator("#refresh").click();
+  await expect(card(page)).toHaveClass(/unestimated-highlight/);
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
   (f.board.scope as any).estimateHoursField = false;
   await page.locator("#refresh").click();
   await expect(toggle(page)).toBeHidden();
@@ -391,5 +418,297 @@ test("動きの軽減設定では穏やかな強調も静止し、scope変更で
   await page.locator("#refresh").click();
   await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".unestimated-highlight")).toHaveCount(0);
+  expect(f.burndownReads()).toBe(0);
+});
+
+test("確認済み0件は明示ON時だけ通知し、0h・親・PBI・対象外と未選択PBIを混同しない", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  for (const task of f.board.tasks) (task as any).estimateHours = 0;
+  Object.assign(f.board.tasks[1], { estimateHours: null, subIssueCount: 2 });
+  Object.assign(f.board.tasks[2], { estimateHours: null, type: "PBI" });
+  Object.assign(f.board.tasks[3], {
+    estimateHours: null,
+    state: "CLOSED",
+    stateReason: "NOT_PLANNED",
+  });
+  Object.assign(f.board.tasks[4], { estimateHours: null, projectItemId: null });
+  Object.assign(
+    f.board.tasks.find((task) => task.lane === "p6")!,
+    {
+      estimateHours: null,
+    },
+  );
+  await page.reload();
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await page.clock.install();
+  await shortcut(page);
+  await expect(page.locator("#announcement.visible")).toHaveText(
+    "未見積もりのタスクは0件です",
+  );
+  await expect(page.locator(".unestimated-highlight")).toHaveCount(0);
+  await page.clock.fastForward(4600);
+  await expect(page.locator("#announcement")).not.toHaveClass(/visible/);
+  await page.locator("#operations").click();
+  await page.locator("#refresh").click();
+  await expect(toggle(page)).toBeEnabled();
+  await expect(page.locator("#announcement")).not.toHaveClass(/visible/);
+  await shortcut(page);
+  await expect(page.locator("#announcement")).not.toHaveClass(/visible/);
+  await shortcut(page);
+  await expect(page.locator("#announcement.visible")).toHaveText(
+    "未見積もりのタスクは0件です",
+  );
+  expect(f.posts()).toBe(0);
+  expect(f.burndownReads()).toBe(0);
+});
+
+for (const unknown of ["estimateHours", "subIssueCount", "projectItemId"]) {
+  test(`表示対象の${unknown}が未取得なら0件と断定しない`, async ({ page }) => {
+    const f = await ready(page);
+    for (const task of f.board.tasks) (task as any).estimateHours = 0;
+    delete (f.board.tasks[0] as any)[unknown];
+    await page.reload();
+    await expect(page.locator(".pbi-title")).toHaveCount(6);
+    await shortcut(page);
+    await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".unestimated-highlight")).toHaveCount(0);
+    await expect(page.locator("#announcement")).not.toHaveClass(/visible/);
+    expect(f.posts()).toBe(0);
+    expect(f.burndownReads()).toBe(0);
+  });
+}
+
+test("overflowで隠れた未見積も0件扱いせず、PBI選択後もONと固定枠を保持する", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  for (const task of f.board.tasks) (task as any).estimateHours = 0;
+  (f.board.tasks[4] as any).estimateHours = null;
+  await page.reload();
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await shortcut(page);
+  await expect(card(page, "t0-0-4")).toHaveClass(/unestimated-highlight/);
+  await expect(card(page, "t0-0-4")).not.toHaveClass(/unestimated-visible/);
+  await expect(page.locator("#announcement")).not.toHaveClass(/visible/);
+  await page.locator("#operations").click();
+  await page.locator("#choose-pbis").click();
+  await page.locator("#pbi-clear").click();
+  await page.locator("#pbi-options input").nth(0).check();
+  await page.locator("#pbi-apply").click();
+  await expect(page.locator(".pbi-title")).toHaveCount(1);
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(card(page, "t0-0-4")).toHaveClass(/unestimated-highlight/);
+  await expectFixedFrame(page, card(page, "t0-0-4"));
+  await expect(page.locator("#announcement")).not.toHaveClass(/visible/);
+  expect(f.posts()).toBe(0);
+});
+
+test("読取中と取得失敗後は0件通知を出さない", async ({ page }) => {
+  const f = await ready(page);
+  for (const task of f.board.tasks) (task as any).estimateHours = 0;
+  await page.reload();
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/board", async (route) => {
+    await gate;
+    await route.fulfill({ status: 503, json: { error: "github_unavailable" } });
+  });
+  await page.locator("#operations").click();
+  await page.locator("#refresh").click();
+  await expect(toggle(page)).toBeDisabled();
+  await shortcut(page);
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#announcement")).not.toHaveClass(/visible/);
+  release();
+  await expect(toggle(page)).toBeEnabled();
+  await shortcut(page);
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#announcement")).not.toHaveText(
+    "未見積もりのタスクは0件です",
+  );
+  expect(f.posts()).toBe(0);
+  expect(f.burndownReads()).toBe(0);
+});
+
+test("drag中も固定枠を保ち、終了後に補助pulseだけ復帰する", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  await shortcut(page);
+  await expect(card(page)).toHaveClass(/unestimated-visible/);
+  await card(page).evaluate((element) => {
+    element.dispatchEvent(
+      new DragEvent("dragstart", {
+        bubbles: true,
+        dataTransfer: new DataTransfer(),
+      }),
+    );
+  });
+  await expect(card(page)).toHaveClass(/dragging/);
+  await expectFixedFrame(page);
+  expect(
+    await card(page).evaluate(
+      (element) => getComputedStyle(element, "::after").animationName,
+    ),
+  ).toBe("none");
+  await card(page).dispatchEvent("dragend");
+  await expect(card(page)).not.toHaveClass(/dragging/);
+  await expect(card(page)).toHaveClass(/unestimated-highlight/);
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "true");
+  await expect
+    .poll(() =>
+      card(page).evaluate(
+        (element) => getComputedStyle(element, "::after").animationName,
+      ),
+    )
+    .toBe("unestimated-breathe");
+  expect(f.posts()).toBe(0);
+});
+
+test("未見積の固定枠と種類色をlight・darkの実pixel資料に残す", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  for (const task of f.board.tasks) (task as any).estimateHours = 4;
+  for (const index of [0, 5, 9, 17, 51])
+    (f.board.tasks[index] as any).estimateHours = null;
+  f.board.tasks[5].type = "競合調査";
+  f.board.tasks[9].type = "Bug";
+  await page.reload();
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await shortcut(page);
+  await expect(page.locator(".unestimated-highlight")).toHaveCount(5);
+  for (const theme of ["light", "dark"]) {
+    if (theme === "dark") {
+      await page.locator("#operations").click();
+      await page.locator("#theme").click();
+      await page.locator("#operations").click();
+    }
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await expectFixedFrame(page);
+    await expect(card(page)).toHaveCSS(
+      "background-color",
+      theme === "light" ? "rgb(251, 223, 127)" : "rgb(85, 71, 34)",
+    );
+    await page.mouse.move(900, 700);
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({
+      path: `test-results/unestimated-highlight-${page.viewportSize()!.width}-${theme}.png`,
+      animations: "disabled",
+    });
+  }
+  expect(f.posts()).toBe(0);
+  expect(f.burndownReads()).toBe(0);
+});
+
+for (const metadata of [undefined, "true"]) {
+  test(`見積fieldmetadataが${String(metadata)}ならnullが残っていても強調を解除する`, async ({
+    page,
+  }) => {
+    const f = await ready(page);
+    await shortcut(page);
+    await expect(card(page)).toHaveClass(/unestimated-highlight/);
+    (f.board.scope as any).estimateHoursField = metadata;
+    await page.locator("#operations").click();
+    await page.locator("#refresh").click();
+    await expect(toggle(page)).toBeHidden();
+    await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(".unestimated-highlight")).toHaveCount(0);
+    await expect(page.locator("#announcement")).not.toHaveText(
+      "未見積もりのタスクは0件です",
+    );
+    expect(f.posts()).toBe(0);
+  });
+}
+
+test("公開field読取の403は以前のnullを強調せず、復旧後も勝手にONに戻さない", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  await shortcut(page);
+  await expect(card(page)).toHaveClass(/unestimated-highlight/);
+  await page.route("**/api/board", (route) =>
+    route.fulfill({
+      status: 403,
+      json: { error: "estimate_hours_not_public" },
+    }),
+  );
+  await page.locator("#operations").click();
+  await page.locator("#refresh").click();
+  await expect(toggle(page)).toBeHidden();
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".unestimated-highlight")).toHaveCount(0);
+  await page.unroute("**/api/board");
+  await page.locator("#refresh").click();
+  await expect(toggle(page)).toBeVisible();
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+  await shortcut(page);
+  await expect(card(page)).toHaveClass(/unestimated-highlight/);
+  expect(f.posts()).toBe(0);
+  expect(f.burndownReads()).toBe(0);
+});
+
+test("多数の小さい付箋でも固定枠とlabelはtitle・担当者の領域を圧迫せず枠を内側に収める", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  for (const task of f.board.tasks) (task as any).estimateHours = null;
+  await page.reload();
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(requestAnimationFrame);
+  });
+  const geometry = () =>
+    page.locator("#board [data-task]").evaluateAll((elements) =>
+      elements.map((element) => ({
+        id: (element as HTMLElement).dataset.task,
+        card: element.getBoundingClientRect().toJSON(),
+        title: element
+          .querySelector(".task-title")!
+          .getBoundingClientRect()
+          .toJSON(),
+        person: element
+          .querySelector(".person")!
+          .getBoundingClientRect()
+          .toJSON(),
+        font: getComputedStyle(element.querySelector(".task-title")!).fontSize,
+      })),
+    );
+  const before = await geometry();
+  await shortcut(page);
+  await expect(page.locator(".unestimated-highlight")).toHaveCount(
+    before.length,
+  );
+  expect(await geometry()).toEqual(before);
+  expect(
+    await page.locator(".unestimated-highlight").evaluateAll((elements) =>
+      elements.every((element) => {
+        const card = element.getBoundingClientRect(),
+          cue = element
+            .querySelector(".unestimated-cue")!
+            .getBoundingClientRect(),
+          issue = element
+            .querySelector(".task-top > span")!
+            .getBoundingClientRect(),
+          style = getComputedStyle(element);
+        return (
+          ((cue.width === 0 &&
+            cue.height === 0 &&
+            getComputedStyle(element.querySelector(".task-top")!).display ===
+              "none") ||
+            (cue.left >= issue.right &&
+              cue.top >= card.top &&
+              cue.right <= card.right &&
+              cue.bottom <= card.bottom)) &&
+          parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth) <= 0
+        );
+      }),
+    ),
+  ).toBe(true);
+  expect(f.posts()).toBe(0);
   expect(f.burndownReads()).toBe(0);
 });

@@ -19,6 +19,10 @@ import {
 } from "./story-points.mjs";
 import { normalizeLinkedPrs } from "./linked-prs.mjs";
 import { createComments, validateComment } from "./comments.mjs";
+import {
+  sprintAssignmentWindow,
+  validCatalogMilestone,
+} from "./sprint-boundary.mjs";
 const OWNER = "engineer-first",
   REPO = "idea-boost",
   PROJECT = 3;
@@ -386,6 +390,75 @@ export function createHandler({
       return gql(env, base, variables);
     }
   }
+  async function observationMilestones(env) {
+    const milestones = new Map(),
+      cursors = new Set();
+    let after = null,
+      total = null;
+    for (let page = 0; page < 100; page++) {
+      const repository = (
+        await gql(
+          env,
+          `query ObservationMilestones($after:String) { repository(owner:"${OWNER}",name:"${REPO}") { nameWithOwner isPrivate milestones(first:100,after:$after,states:[OPEN,CLOSED]) { totalCount nodes { number title description dueOn state closedAt } pageInfo { hasNextPage endCursor } } } }`,
+          { after },
+        )
+      )?.repository;
+      if (
+        env.AUTH_MODE === "public-temporary" &&
+        repository?.isPrivate === true
+      )
+        throw new ApiError(403, "scope_not_public");
+      const connection = repository?.milestones;
+      if (
+        repository?.nameWithOwner !== `${OWNER}/${REPO}` ||
+        typeof repository?.isPrivate !== "boolean" ||
+        !Array.isArray(connection?.nodes) ||
+        !Number.isSafeInteger(connection.totalCount) ||
+        connection.totalCount < 0 ||
+        connection.totalCount > 100 ||
+        (total !== null && total !== connection.totalCount) ||
+        typeof connection.pageInfo?.hasNextPage !== "boolean" ||
+        !(
+          connection.pageInfo.endCursor === null ||
+          typeof connection.pageInfo.endCursor === "string"
+        )
+      )
+        throw new ApiError(503, "observation_incomplete");
+      total = connection.totalCount;
+      for (const milestone of connection.nodes) {
+        if (
+          !validCatalogMilestone(milestone) ||
+          milestones.has(milestone.number)
+        )
+          throw new ApiError(503, "observation_incomplete");
+        const assignmentWindow = sprintAssignmentWindow(milestone);
+        milestones.set(milestone.number, {
+          number: milestone.number,
+          title: milestone.title,
+          dueOn: milestone.dueOn,
+          ...(assignmentWindow ? { assignmentWindow } : {}),
+        });
+      }
+      if (milestones.size > total)
+        throw new ApiError(503, "observation_incomplete");
+      if (!connection.pageInfo.hasNextPage) {
+        if (milestones.size !== total)
+          throw new ApiError(503, "observation_incomplete");
+        return [...milestones.values()].sort((a, b) => a.number - b.number);
+      }
+      const cursor = connection.pageInfo.endCursor;
+      if (
+        !connection.nodes.length ||
+        !cursor ||
+        cursors.has(cursor) ||
+        milestones.size >= total
+      )
+        throw new ApiError(503, "observation_incomplete");
+      cursors.add(cursor);
+      after = cursor;
+    }
+    throw new ApiError(503, "observation_incomplete");
+  }
   async function assertPublic(env, points = false) {
     const includePoints =
       points &&
@@ -646,10 +719,12 @@ export function createHandler({
       { viewFilter, filterApplied, warnings, rowIDs },
       { all, parents },
       options,
+      catalog,
     ] = await Promise.all([
       loadMetadata(),
       loadItems(),
       observation ? [] : read("assignees", () => assignees(env)),
+      observation ? read("milestones", () => observationMilestones(env)) : null,
     ]);
     // A parent excluded by the view may still be in Project 3: fetch its real membership/status.
     const missing = [...parents.values()].filter(
@@ -677,13 +752,21 @@ export function createHandler({
       }
     }
 
-    const milestones = [
+    const projectMilestones = [
       ...new Map(
         [...all.values()]
           .filter((i) => i.milestone)
           .map((i) => [i.milestone.number, i.milestone]),
       ).values(),
     ];
+    const milestones = catalog ?? projectMilestones;
+    if (
+      observation &&
+      projectMilestones.some(
+        (m) => !milestones.some((v) => v.number === m.number),
+      )
+    )
+      throw new ApiError(503, "observation_incomplete");
     const candidates = new Map(
       [...all.values(), ...parents.values()]
         .filter((i) => i.type === "PBI" && (!rowIDs || rowIDs.has(i.id)))
@@ -967,11 +1050,15 @@ export function createHandler({
       if (frontier.length) throw new ApiError(502, "hierarchy_limit");
       return { roots, tasks };
     }
-    const [order, { roots, tasks: found }, options] = await Promise.all([
-      index(),
-      hierarchy(),
-      observation ? [] : read("assignees", () => assignees(env)),
-    ]);
+    const [order, { roots, tasks: found }, options, catalog] =
+      await Promise.all([
+        index(),
+        hierarchy(),
+        observation ? [] : read("assignees", () => assignees(env)),
+        observation
+          ? read("milestones", () => observationMilestones(env))
+          : null,
+      ]);
     // Reconcile membership and preserve original Project order across traversal depths.
     const ordered = [...order.keys()];
     const tasks = ordered
@@ -1001,13 +1088,23 @@ export function createHandler({
         i.fingerprint = await fingerprint(i);
       }),
     );
-    const milestones = [
+    const projectMilestones = [
       ...new Map(
         [...order.values()]
           .filter((i) => i.milestone)
           .map((i) => [i.milestone.number, i.milestone]),
       ).values(),
     ];
+    // Fetch only for chart observations, before the existing final public/field
+    // guard. Closed or rolled-over sprints must not vanish with Project items.
+    const milestones = catalog ?? projectMilestones;
+    if (
+      observation &&
+      projectMilestones.some(
+        (m) => !milestones.some((v) => v.number === m.number),
+      )
+    )
+      throw new ApiError(503, "observation_incomplete");
     const endMeta = await read("visibilityEnd", () => assertPublic(env, true));
     const hourChecks = [
       hoursVisibility(meta.hoursField, env),
@@ -1853,6 +1950,9 @@ export function createHandler({
             number: m.number,
             title: m.title,
             dueOn: m.dueOn ?? null,
+            ...(m.assignmentWindow
+              ? { assignmentWindow: m.assignmentWindow }
+              : {}),
           })),
           tasks: tasks.filter((t) => t.milestone),
           excludedChildren: excludedChildren.filter((v) => v.milestone),

@@ -3058,37 +3058,59 @@ input[type="checkbox"] {
 }
 .unestimated-highlight {
   position: relative;
-  outline: 2px solid var(--accent);
-  outline-offset: -3px;
+  outline: 4px solid var(--accent);
+  outline-offset: -4px;
+  box-shadow: inset 0 0 0 7px var(--surface);
+}
+#board.compact .unestimated-highlight {
+  outline-width: 2px;
+  outline-offset: -2px;
+  box-shadow:
+    inset 4px 0 0 var(--accent),
+    inset -4px 0 0 var(--accent),
+    inset 0 0 0 6px var(--surface);
+}
+#board.dense .unestimated-highlight {
+  outline-width: 1px;
+  outline-offset: -1px;
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset -2px 0 0 var(--accent),
+    inset 0 0 0 3px var(--surface);
 }
 .unestimated-highlight::after {
   content: "";
   position: absolute;
-  inset: 3px;
+  inset: 7px;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: inset 0 0 0 4px var(--accent);
-  opacity: 0.16;
+  box-shadow: inset 0 0 0 3px var(--accent);
+  opacity: 0.18;
+}
+.unestimated-highlight > * {
+  position: relative;
+  z-index: 1;
 }
 .unestimated-highlight.unestimated-visible:not(.dragging)::after {
   animation: unestimated-breathe 3.8s ease-in-out infinite;
 }
 .unestimated-cue {
   margin-left: auto;
-  padding: 0 3px;
-  border-radius: 3px;
-  color: var(--ink);
-  background: var(--surface);
+  padding: 0 5px;
+  border-radius: 2px;
+  color: var(--surface);
+  background: var(--accent);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 750;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 @keyframes unestimated-breathe {
   0%, 100% {
-    opacity: 0.16;
+    opacity: 0.18;
   }
   50% {
-    opacity: 0.28;
+    opacity: 0.32;
   }
 }
 @media (prefers-reduced-motion: reduce) {
