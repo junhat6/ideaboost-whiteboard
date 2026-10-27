@@ -831,7 +831,7 @@ test("Done success plus failed or uncertain close is partial and never a success
       assert.equal(result.partial, true);
       assert.ok(result.completed.includes("status"));
     }
-    assert.equal(result.ambiguous, !!options.closeUncertain);
+    assert.equal(result.ambiguous, !!(options.closeUncertain || options.statusFailure));
     const count = f.calls.filter(
       (c) => c.method === "PATCH" && c.parsed.state,
     ).length;
