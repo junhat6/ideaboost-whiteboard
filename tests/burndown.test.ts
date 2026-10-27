@@ -6,6 +6,8 @@ import {
   validateBurnSource,
   jstDay,
   nextJstDay,
+  validSchoolDays,
+  completedBurnTask,
 } from "../worker/burndown.ts";
 function fixture(sourceOverride?: () => Promise<Response>) {
   let now = Date.parse("2026-10-27T14:00:00Z"),
@@ -130,7 +132,14 @@ test("観測以後の追加・再見積・完了・reopenだけ履歴へ、過�
       .map(([, v]) => v.summaries[9].remainingHours),
     [2, 5, 0, 5],
   );
-  assert.equal(result.ideal, null);
+  assert.deepEqual(result.schedule.schoolDays, [
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-26",
+    "2026-10-27",
+    "2026-10-28",
+  ]);
 });
 test("JST日次alarm、同日同内容は冪等、日跨ぎは新観測", async () => {
   const f = fixture();
@@ -287,4 +296,145 @@ test("JST00:05の失敗した閲覧でも当日00:10のalarmを翌日に延期�
     nextJstDay(Date.parse("2026-10-27T15:10:00Z")),
     Date.parse("2026-10-28T15:10:00Z"),
   );
+});
+
+const settingsRequest = (
+  schoolDays: string[],
+  expectedRevision = "0",
+  requestId = crypto.randomUUID(),
+  milestone = 9,
+) =>
+  new Request(`https://test/api/burndown/schedule?milestone=${milestone}`, {
+    method: "POST",
+    headers: { Origin: "https://test" },
+    body: JSON.stringify({ schoolDays, expectedRevision, requestId }),
+  });
+test("学校日程は限定設定として永続保存、競合・同request・公開失効と既存履歴を保護", async () => {
+  const f = fixture();
+  const first: any = await (await f.read()).json();
+  assert.equal(first.schedule.schoolDays.length, 6);
+  const before = structuredClone(
+    [...f.map].filter(([k]) => k.startsWith("observation:")),
+  );
+  const id = crypto.randomUUID(),
+    days = ["2026-10-22", "2026-10-28"];
+  const response = await f.history.fetch(settingsRequest(days, "0", id));
+  assert.equal(response.status, 200);
+  const saved: any = await response.json();
+  assert.deepEqual((await (await f.read()).json()).schedule, saved.schedule);
+  assert.deepEqual(
+    await (await f.history.fetch(settingsRequest(days, "0", id))).json(),
+    saved,
+  );
+  assert.equal(
+    (await f.history.fetch(settingsRequest([], "0", id))).status,
+    409,
+  );
+  assert.equal((await f.history.fetch(settingsRequest([], "0"))).status, 409);
+  assert.deepEqual(
+    [...f.map].filter(([k]) => k.startsWith("observation:")),
+    before,
+  );
+  assert.equal(
+    (await f.history.fetch(settingsRequest([], "0", crypto.randomUUID(), 999)))
+      .status,
+    404,
+  );
+  f.status = 403;
+  assert.equal(
+    (await f.history.fetch(settingsRequest([], saved.schedule.revision)))
+      .status,
+    403,
+  );
+  assert.deepEqual(f.map.get("school-days:9"), saved.schedule);
+  f.status = 200;
+  assert.equal(
+    (await f.history.fetch(settingsRequest([], saved.schedule.revision)))
+      .status,
+    200,
+  );
+  assert.deepEqual((await (await f.read()).json()).schedule.schoolDays, []);
+});
+test("日程validationは実在日付/順序/重複/長さ/Originを限定する", async () => {
+  for (const dates of [
+    ["2026-02-30"],
+    ["2026-10-21", "2026-10-21"],
+    ["2026-10-22", "2026-10-21"],
+    ["2026-01-01", "2026-12-31"],
+    Array(61).fill("2026-10-21"),
+  ])
+    assert.equal(validSchoolDays(dates), false);
+  assert.equal(validSchoolDays([]), true);
+  assert.equal(validSchoolDays(["2026-10-21"]), true);
+  const f = fixture();
+  assert.equal(
+    (await f.history.fetch(settingsRequest(["2026-02-30"]))).status,
+    400,
+  );
+  assert.equal(
+    (
+      await f.history.fetch(
+        new Request("https://test/api/burndown/schedule?milestone=9", {
+          method: "POST",
+          headers: { Origin: "https://evil.test" },
+          body: "{}",
+        }),
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await f.history.fetch(
+        new Request("https://test/api/burndown/schedule?milestone=9", {
+          method: "POST",
+          headers: { Origin: "https://test" },
+          body: "x".repeat(4097),
+        }),
+      )
+    ).status,
+    400,
+  );
+  assert.equal(f.reads, 0);
+});
+test("Status完了またはclosed-completedは残りから除き、not_planned/見送りは成果にしない", () => {
+  const f = fixture();
+  const base = f.data.tasks[0];
+  const cases = [
+    { status: "完了", state: "OPEN", stateReason: null, complete: true },
+    {
+      status: "作業中",
+      state: "CLOSED",
+      stateReason: "COMPLETED",
+      complete: true,
+    },
+    {
+      status: "作業中",
+      state: "OPEN",
+      stateReason: "REOPENED",
+      complete: false,
+    },
+    {
+      status: "完了",
+      state: "CLOSED",
+      stateReason: "NOT_PLANNED",
+      complete: false,
+    },
+    {
+      status: "見送り",
+      state: "CLOSED",
+      stateReason: "COMPLETED",
+      complete: false,
+    },
+  ];
+  f.data.tasks = cases.map((v, i) => ({ ...base, ...v, id: String(i) }));
+  assert.equal(validateBurnSource(f.data), true);
+  for (const task of f.data.tasks)
+    assert.equal(completedBurnTask(task), task.complete);
+  const sum = summarizeBurn(f.data.tasks);
+  assert.equal(sum.estimatedHours, 6);
+  assert.equal(sum.remainingHours, 2);
+  assert.equal(sum.cancelled, 2);
+  f.data.tasks[1].complete = false;
+  assert.equal(validateBurnSource(f.data), false);
 });

@@ -4,6 +4,18 @@ const hour = (page: any, value: number | null) =>
   page.locator(`#estimate-hours-choices button[data-value="${value ?? ""}"]`);
 const data = {
   ok: true,
+  scope: "view16",
+  schedule: {
+    schoolDays: [
+      "2026-10-21",
+      "2026-10-22",
+      "2026-10-23",
+      "2026-10-26",
+      "2026-10-27",
+      "2026-10-28",
+    ],
+    revision: "0",
+  },
   observedAt: "2026-10-27T08:00:00Z",
   milestone: 9,
   milestones: [{ number: 9, title: "Sprint 9", dueOn: "2026-10-28T00:00:00Z" }],
@@ -45,7 +57,7 @@ test("バーンダウンは初回要求なし、右端hoverと明示button、Esc
   const f = await setup(page);
   (f.board.scope as any).estimateHoursField = true;
   let reads = 0;
-  await page.route("**/api/burndown*", (r) => {
+  await page.route("**/api/burndown**", (r) => {
     reads++;
     return r.fulfill({ json: data });
   });
@@ -111,7 +123,7 @@ test("未見積のみは達成ゼロ線を描かず、失敗は空履歴にし�
   const f = await setup(page);
   (f.board.scope as any).estimateHoursField = true;
   let fail = false;
-  await page.route("**/api/burndown*", (r) =>
+  await page.route("**/api/burndown**", (r) =>
     r.fulfill(
       fail
         ? { status: 503, json: { error: "observation_unavailable" } }
@@ -132,8 +144,8 @@ test("未見積のみは達成ゼロ線を描かず、失敗は空履歴にし�
   await page.keyboard.press("Escape");
   fail = true;
   await page.locator("#burndown-open").click();
-  await expect(page.locator(".burn-content")).toContainText(
-    "記録を取得できませんでした",
+  await expect(page.locator(".burn-notice")).toContainText(
+    "更新できませんでした",
   );
   await expect(page.locator(".burn-chart svg")).toHaveCount(0);
 });
@@ -213,7 +225,7 @@ test("履歴取得でfield公開失効を知った時も既存時間を即消去
   const f = await setup(page);
   (f.board.scope as any).estimateHoursField = true;
   (f.board.tasks[0] as any).estimateHours = 4;
-  await page.route("**/api/burndown*", (r) =>
+  await page.route("**/api/burndown**", (r) =>
     r.fulfill({ status: 403, json: { error: "estimate_hours_not_public" } }),
   );
   await page.reload();
@@ -248,7 +260,7 @@ test("履歴失効後に古い公開boardが戻っても時間を復活せず、
       return r.fulfill({ status: 503, json: { error: "unavailable" } });
     return r.fulfill({ json: data });
   });
-  await page.route("**/api/burndown*", (r) =>
+  await page.route("**/api/burndown**", (r) =>
     r.fulfill({ status: 403, json: { error: "estimate_hours_not_public" } }),
   );
   await page.reload();
@@ -366,7 +378,7 @@ test("背景保存後のchartは旧flightを待って一度だけ更新、閉じ
     Object.assign(f.board.tasks[0], { estimateHours: 2, revision: "new" });
     await route.fulfill({ json: { ok: true, issue: f.board.tasks[0] } });
   });
-  await page.route("**/api/burndown*", async (route) => {
+  await page.route("**/api/burndown**", async (route) => {
     const n = ++reads;
     if (n === 1) await old;
     await route.fulfill({
@@ -410,7 +422,7 @@ test("時間の0表示とkeyboard解除、他Issue値保持とchartの無関係�
   (f.board.tasks[0] as any).estimateHours = 0;
   (f.board.tasks[1] as any).estimateHours = 6;
   let reads = 0;
-  await page.route("**/api/burndown*", (r) => {
+  await page.route("**/api/burndown**", (r) => {
     reads++;
     return r.fulfill({ json: data });
   });
@@ -533,4 +545,188 @@ test("時間連打は200msで最終値一件、同値と元値への未送信復
   await expect(hour(page, 5)).toBeFocused();
   await page.waitForTimeout(300);
   expect(f.posts()).toBe(1);
+});
+
+test("Sprint9の6学校日と青ideal/赤actual、過去未観測と未来を補間しない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  const current = structuredClone(data);
+  await page.route("**/api/burndown**", (r) => r.fulfill({ json: current }));
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-ideal")).toHaveCount(1);
+  const svg = page.locator(".burn-chart svg");
+  for (const day of ["10/21", "10/22", "10/23", "10/26", "10/27", "10/28"])
+    await expect(svg).toContainText(day);
+  await expect(svg).not.toContainText("10/24");
+  await expect(page.locator(".burn-point")).toHaveCount(2);
+  expect(await page.locator(".burn-point").first().getAttribute("cx")).toBe(
+    "432",
+  );
+  expect(await page.locator(".burn-point").last().getAttribute("cx")).toBe(
+    "556",
+  );
+  await expect(page.locator(".burn-ideal")).toHaveAttribute(
+    "d",
+    "M 60 50 L 680 310",
+  );
+  const actual = await page.locator(".burn-actual").getAttribute("d");
+  await page.screenshot({
+    path: `.wrangler/burn-school-${page.viewportSize()!.width}.png`,
+  });
+  await page.keyboard.press("Escape");
+  current.current.estimatedHours = 16;
+  await page.locator("#burndown-open").click();
+  await expect(svg).toContainText("16");
+  expect(current.observations).toEqual(data.observations);
+  expect(await page.locator(".burn-actual").getAttribute("d")).not.toBe(actual); // same values, rescaled Y axis
+});
+
+test("再openは前回観測を即表示、背景更新/失敗保持と公開失効の消去", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  let n = 0,
+    release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route("**/api/burndown**", async (r) => {
+    const count = ++n;
+    if (count === 2) await gate;
+    if (count === 3)
+      return r.fulfill({ status: 503, json: { error: "unavailable" } });
+    if (count === 4)
+      return r.fulfill({
+        status: 403,
+        json: { error: "estimate_hours_not_public" },
+      });
+    return r.fulfill({
+      json: {
+        ...data,
+        current: { ...data.current, remainingHours: count === 1 ? 5 : 4 },
+      },
+    });
+  });
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary strong")).toHaveText("5 h");
+  await page.keyboard.press("Escape");
+  await page.locator("#burndown-open").click();
+  await expect.poll(() => n).toBe(2);
+  await expect(page.locator(".burn-summary strong")).toHaveText("5 h");
+  await expect(page.locator(".burn-content")).not.toContainText(
+    "読み込んでいます",
+  );
+  release();
+  await expect(page.locator(".burn-summary strong")).toHaveText("4 h");
+  await page.keyboard.press("Escape");
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-notice")).toBeVisible();
+  await expect(page.locator(".burn-summary strong")).toHaveText("4 h");
+  await page.keyboard.press("Escape");
+  await page.locator("#burndown-open").click();
+  await expect(page.locator("#burndown-open")).toBeHidden();
+  await expect(page.locator(".burn-summary")).toHaveCount(0);
+  expect(f.posts()).toBe(0);
+});
+
+test("日程の提案と明示保存はIssueを変更せず、再訪で保持、競合は確認を要求", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  const current = structuredClone(data),
+    posts: any[] = [];
+  await page.route("**/api/burndown**", async (r) => {
+    if (r.request().method() === "POST") {
+      const patch = r.request().postDataJSON();
+      posts.push(patch);
+      if (posts.length === 2)
+        return r.fulfill({ status: 409, json: { error: "schedule_conflict" } });
+      current.schedule = { schoolDays: patch.schoolDays, revision: "saved" };
+      return r.fulfill({ json: { ok: true, schedule: current.schedule } });
+    }
+    return r.fulfill({ json: current });
+  });
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary")).toBeVisible();
+  await page.locator(".burn-settings summary").click();
+  await expect(page.locator("#burn-school-days")).toHaveValue(
+    data.schedule.schoolDays.join("\n"),
+  );
+  await page.getByRole("button", { name: "日程を保存", exact: true }).click();
+  expect(posts).toHaveLength(0);
+  await page.getByLabel("候補の開始日").fill("2026-10-21");
+  await page
+    .getByRole("button", { name: "期日までの平日を候補にする" })
+    .click();
+  await expect(page.locator("#burn-school-days")).toHaveValue(
+    data.schedule.schoolDays.join("\n"),
+  );
+  await page
+    .locator("#burn-school-days")
+    .fill("2026-10-22\n2026-10-23\n2026-10-27\n2026-10-28");
+  await page.getByRole("button", { name: "日程を保存", exact: true }).click();
+  await expect.poll(() => posts.length).toBe(1);
+  await expect(page.locator(".burn-settings-error")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await page.locator("#burndown-open").click();
+  await page.locator(".burn-settings summary").click();
+  await expect(page.locator("#burn-school-days")).toHaveValue(
+    current.schedule.schoolDays.join("\n"),
+  );
+  await page.locator("#burn-school-days").fill("2026-10-28");
+  await page.getByRole("button", { name: "日程を保存", exact: true }).click();
+  await expect(page.locator(".burn-settings-error")).toContainText("別の操作");
+  await page.getByRole("button", { name: "最新の日程に戻す" }).click();
+  await expect(page.locator("#burn-school-days")).toHaveValue(
+    current.schedule.schoolDays.join("\n"),
+  );
+  expect(posts[0].expectedRevision).toBe("0");
+  expect(posts[1].expectedRevision).toBe("saved");
+  expect(f.posts()).toBe(0);
+});
+
+test("スプリントを切替えても他スプリントのcache/遅い応答を混ぜない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let ten = 0;
+  await page.route("**/api/burndown**", async (r) => {
+    const milestone = Number(
+      new URL(r.request().url()).searchParams.get("milestone") || 9,
+    );
+    if (milestone === 10) {
+      ten++;
+      await gate;
+    }
+    return r.fulfill({
+      json: {
+        ...data,
+        milestone,
+        milestones: [
+          ...data.milestones,
+          { number: 10, title: "Sprint 10", dueOn: "2026-11-11T00:00:00Z" },
+        ],
+        current: { ...data.current, remainingHours: milestone === 9 ? 5 : 2 },
+      },
+    });
+  });
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary strong")).toHaveText("5 h");
+  await page.getByLabel("バーンダウンのスプリント").selectOption("10");
+  await expect.poll(() => ten).toBe(1);
+  await expect(page.locator(".burn-summary")).toHaveCount(0);
+  await page.getByLabel("バーンダウンのスプリント").selectOption("9");
+  await expect(page.locator(".burn-summary strong")).toHaveText("5 h");
+  release();
+  await expect(page.getByLabel("バーンダウンのスプリント")).toHaveValue("9");
+  await expect(page.locator(".burn-summary strong")).toHaveText("5 h");
 });

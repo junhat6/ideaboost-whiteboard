@@ -209,3 +209,69 @@ test("authorized board reads use the separate shared reader, after host/path/rat
   );
   assert.equal(calls, 1);
 });
+
+test("学校日程POSTも固定path・Origin・rate後に既存History DOだけへ届く", async () => {
+  let calls = 0;
+  const worker = createWorker(undefined, async () => {
+    throw Error("no general API");
+  });
+  const bindings = {
+    ...env,
+    ESTIMATE_HOURS_READ_ENABLED: "true",
+    HISTORY: {
+      getByName: (name: string) => {
+        assert.equal(name, "engineer-first/idea-boost:observations-v1");
+        return {
+          fetch: async () => {
+            calls++;
+            return Response.json({ ok: true });
+          },
+        };
+      },
+    },
+  };
+  assert.equal(
+    (
+      await worker.fetch(
+        request("/api/burndown/schedule?milestone=9", "POST"),
+        bindings,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await worker.fetch(
+        request(
+          "/api/burndown/schedule?milestone=9",
+          "POST",
+          "https://evil.test",
+        ),
+        bindings,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await worker.fetch(
+        request("/api/burndown/schedule?milestone=9&repo=evil", "POST"),
+        bindings,
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await worker.fetch(
+        request("/api/burndown/schedule?milestone=9", "POST"),
+        {
+          ...bindings,
+          PUBLIC_LIMITER: { limit: async () => ({ success: false }) },
+        },
+      )
+    ).status,
+    429,
+  );
+  assert.equal(calls, 1);
+});

@@ -6,6 +6,8 @@ export type BurnTask = {
   estimate: number | null;
   status: string | null;
   complete: boolean;
+  state?: "OPEN" | "CLOSED";
+  stateReason?: "COMPLETED" | "NOT_PLANNED" | "REOPENED" | null;
   milestone: number;
 };
 export type BurnSource = {
@@ -16,6 +18,39 @@ export type BurnSource = {
   tasks: BurnTask[];
   excludedChildren?: { milestone: number; count: number }[];
 };
+export type SchoolSchedule = { schoolDays: string[]; revision: string };
+const sprint9Days = [
+  "2026-10-21",
+  "2026-10-22",
+  "2026-10-23",
+  "2026-10-26",
+  "2026-10-27",
+  "2026-10-28",
+];
+export function validSchoolDays(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 60 &&
+    value.every(
+      (day, i) =>
+        typeof day === "string" &&
+        /^20\d{2}-\d{2}-\d{2}$/.test(day) &&
+        Number.isFinite(Date.parse(day + "T00:00:00Z")) &&
+        new Date(day + "T00:00:00Z").toISOString().slice(0, 10) === day &&
+        (i === 0 || value[i - 1] < day),
+    ) &&
+    (value.length < 2 ||
+      Date.parse(value.at(-1)!) - Date.parse(value[0]) <= 180 * 86400000)
+  );
+}
+
+export const cancelledBurnTask = (t: BurnTask) =>
+  t.status === "見送り" ||
+  (t.state === "CLOSED" && t.stateReason === "NOT_PLANNED");
+export const completedBurnTask = (t: BurnTask) =>
+  !cancelledBurnTask(t) &&
+  (t.status === "完了" ||
+    (t.state === "CLOSED" && t.stateReason === "COMPLETED"));
 type Summary = ReturnType<typeof summarizeBurn>;
 type Observation = {
   day: string;
@@ -85,14 +120,18 @@ export function validateBurnSource(value: unknown): value is BurnSource {
             t.estimate >= 0 &&
             t.estimate <= 1000)) &&
         (t.status === null || typeof t.status === "string") &&
-        t.complete === (t.status === "完了") &&
+        (t.state === undefined || ["OPEN", "CLOSED"].includes(t.state)) &&
+        (t.stateReason === undefined ||
+          t.stateReason === null ||
+          ["COMPLETED", "NOT_PLANNED", "REOPENED"].includes(t.stateReason)) &&
+        t.complete === completedBurnTask(t) &&
         Number.isSafeInteger(t.milestone) &&
         v.milestones.some((m) => m.number === t.milestone),
     )
   );
 }
 export function summarizeBurn(tasks: BurnTask[], excludedChildren = 0) {
-  const active = tasks.filter((t) => t.status !== "見送り");
+  const active = tasks.filter((t) => !cancelledBurnTask(t));
   return {
     excludedChildren,
     remainingHours: active.reduce(
@@ -198,10 +237,10 @@ export class BurnHistory {
               .reduce((n, e) => n + e.count, 0),
           );
           const oldMap = new Map(
-            old.filter((t) => t.status !== "見送り").map((t) => [t.id, t]),
+            old.filter((t) => !cancelledBurnTask(t)).map((t) => [t.id, t]),
           );
           const newMap = new Map(
-            tasks.filter((t) => t.status !== "見送り").map((t) => [t.id, t]),
+            tasks.filter((t) => !cancelledBurnTask(t)).map((t) => [t.id, t]),
           );
           changes[m.number] = {
             added: [...newMap.keys()].filter((id) => !oldMap.has(id)).length,
@@ -253,11 +292,110 @@ export class BurnHistory {
       records: [...records.values()].filter((v) => v.day >= oldest),
     };
   }
+  private async schedule(milestone: number | null): Promise<SchoolSchedule> {
+    if (milestone === null) return { schoolDays: [], revision: "0" };
+    const key = `school-days:${milestone}`;
+    const stored = await this.storage.get<SchoolSchedule>(key);
+    if (stored) return stored;
+    const initial = {
+      schoolDays: milestone === 9 ? sprint9Days : [],
+      revision: "0",
+    };
+    // Sprint 9's six days were explicitly supplied by the owner, not inferred.
+    // The versioned default persists with the deployment; explicit overrides live in storage.
+    return initial;
+  }
+  private async saveSchedule(request: Request, milestone: number) {
+    if (request.headers.get("Origin") !== new URL(request.url).origin)
+      return Response.json({ error: "origin_mismatch" }, { status: 403 });
+    const reader = request.body?.getReader();
+    if (!reader)
+      return Response.json({ error: "invalid_schedule" }, { status: 400 });
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 4096) {
+        await reader.cancel();
+        return Response.json({ error: "invalid_schedule" }, { status: 400 });
+      }
+      chunks.push(value);
+    }
+    const buffer = new Uint8Array(bytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buffer.set(chunk, offset);
+      offset += chunk.length;
+    }
+    const body = new TextDecoder().decode(buffer);
+    let v: {
+      schoolDays: string[];
+      expectedRevision: string;
+      requestId: string;
+    };
+    try {
+      v = JSON.parse(body);
+    } catch {
+      return Response.json({ error: "invalid_schedule" }, { status: 400 });
+    }
+    if (
+      !v ||
+      Object.keys(v).some(
+        (k) => !["schoolDays", "expectedRevision", "requestId"].includes(k),
+      ) ||
+      !validSchoolDays(v.schoolDays) ||
+      typeof v.expectedRevision !== "string" ||
+      v.expectedRevision.length > 64 ||
+      typeof v.requestId !== "string" ||
+      !/^[a-f0-9-]{36}$/.test(v.requestId)
+    )
+      return Response.json({ error: "invalid_schedule" }, { status: 400 });
+    return this.enqueue(async () => {
+      // A settings write verifies current public scope without joining an older collection.
+      const { source } = await this.collect();
+      if (!source.milestones.some((m) => m.number === milestone))
+        return Response.json({ error: "sprint_unavailable" }, { status: 404 });
+      const key = `school-days:${milestone}`;
+      const current = await this.schedule(milestone);
+      const receipt = await this.storage.get<{
+        id: string;
+        input: string;
+        schedule: SchoolSchedule;
+      }>(`school-receipt:${milestone}`);
+      const input = JSON.stringify([v.expectedRevision, v.schoolDays]);
+      if (receipt?.id === v.requestId)
+        return receipt.input === input
+          ? Response.json({ ok: true, schedule: receipt.schedule })
+          : Response.json({ error: "request_id_reused" }, { status: 409 });
+      if (current.revision !== v.expectedRevision)
+        return Response.json({ error: "schedule_conflict" }, { status: 409 });
+      const schedule = {
+        schoolDays: v.schoolDays,
+        revision: crypto.randomUUID(),
+      };
+      await this.storage.put({
+        [key]: schedule,
+        [`school-receipt:${milestone}`]: { id: v.requestId, input, schedule },
+      });
+      return Response.json({ ok: true, schedule });
+    });
+  }
   async fetch(request: Request) {
     const raw = new URL(request.url).searchParams.get("milestone");
     if (raw !== null && !/^[1-9]\d{0,8}$/.test(raw))
       return Response.json({ error: "invalid_milestone" }, { status: 400 });
     try {
+      if (request.method === "POST") {
+        if (
+          new URL(request.url).pathname !== "/api/burndown/schedule" ||
+          raw === null
+        )
+          return Response.json({ error: "invalid_schedule" }, { status: 400 });
+        return await this.saveSchedule(request, Number(raw));
+      }
+      if (request.method !== "GET") return new Response(null, { status: 405 });
       await this.storage.setAlarm(nextJstDay(this.now()));
       const { source, records, recordingLimited } = await this.collection();
       const future = source.milestones
@@ -291,6 +429,7 @@ export class BurnHistory {
           .filter(
             (v) =>
               milestone !== null &&
+              v.scope === source.scope &&
               Object.hasOwn(v.summaries, String(milestone)),
           )
           .map((v) => ({
@@ -299,7 +438,8 @@ export class BurnHistory {
             ...v.summaries[String(milestone)],
             changes: v.changes[String(milestone)],
           })),
-        ideal: null,
+        scope: source.scope,
+        schedule: await this.schedule(milestone),
         timezone: "Asia/Tokyo",
         retentionDays: 180,
         recordingLimited,

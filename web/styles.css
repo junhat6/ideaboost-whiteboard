@@ -2886,3 +2886,70 @@ input[type="checkbox"] {
     fill: #ff8896;
   }
 }
+
+.burn-ideal {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.burn-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.burn-ideal-label::before,
+.burn-actual-label::before {
+  content: "";
+  display: inline-block;
+  width: 22px;
+  height: 3px;
+  vertical-align: middle;
+  margin-right: 6px;
+  background: var(--accent);
+}
+.burn-actual-label::before {
+  background: #b42337;
+}
+.burn-notice {
+  color: var(--error);
+  font-size: 13px;
+}
+.burn-notice button {
+  margin-left: 8px;
+}
+.burn-settings {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 16px;
+}
+.burn-settings summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.burn-settings form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.burn-settings label {
+  font-size: 13px;
+}
+.burn-settings textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  min-height: 120px;
+}
+.burn-settings-error {
+  color: var(--error);
+  font-size: 13px;
+}
+.burn-proposal {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+[data-theme="dark"] .burn-actual-label::before {
+  background: #ff8896;
+}

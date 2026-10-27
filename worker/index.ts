@@ -89,8 +89,13 @@ export function createWorker(auth = authenticate, api = handleApi) {
         headers.delete("oai-authenticated-user-id");
         headers.set("x-verified-user-id", user.id);
         const internal = new Request(request, { headers });
-        if (new URL(request.url).pathname === "/api/burndown") {
-          if (request.method !== "GET")
+        if (
+          ["/api/burndown", "/api/burndown/schedule"].includes(
+            new URL(request.url).pathname,
+          )
+        ) {
+          const settings = new URL(request.url).pathname.endsWith("/schedule");
+          if (request.method !== (settings ? "POST" : "GET"))
             throw new AccessError(405, "method_not_allowed");
           const params = new URL(request.url).searchParams;
           let invalidKey = false;

@@ -1818,7 +1818,13 @@ export function createHandler({
             pbi: t.lane,
             estimate: t.estimateHours,
             status: t.status,
-            complete: t.status === "完了",
+            state: t.state,
+            stateReason: t.stateReason,
+            complete:
+              t.status !== "見送り" &&
+              !(t.state === "CLOSED" && t.stateReason === "NOT_PLANNED") &&
+              (t.status === "完了" ||
+                (t.state === "CLOSED" && t.stateReason === "COMPLETED")),
             milestone: (t.milestone ?? parents.get(t.lane)?.milestone)?.number,
           }));
         if (tasks.some((t) => t.estimate === undefined))

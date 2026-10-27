@@ -1288,7 +1288,7 @@ function invalidateHours() {
   for (const task of state.tasks || []) delete task.estimateHours;
   if (state.scope) state.scope.estimateHoursField = false;
   $("#burndown-open").hidden = true;
-  burnPanel?.close();
+  burnPanel?.invalidate();
   renderHoursInput();
 }
 function renderNumberChoices(root, values, selected, label, choose) {
@@ -2974,6 +2974,8 @@ function burnScopeKey(board) {
         t.parentId,
         t.lane,
         t.status,
+        t.state,
+        t.stateReason,
         t.estimateHours,
         t.milestone?.number,
       ])
@@ -3032,6 +3034,8 @@ async function performRefresh(
       autoRefreshRequested = true;
       return false;
     }
+    if (state.scope?.viewFilter !== next.scope?.viewFilter)
+      burnPanel?.invalidate();
     const previousBurnScope = burnPanel?.visible ? burnScopeKey(state) : null;
     state = clone(next);
     if (previousBurnScope !== null && previousBurnScope !== burnScopeKey(state))
