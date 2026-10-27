@@ -301,3 +301,15 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 性能fixture各解像度3回: 4連続選択→1 POST、未送信で元の値へ戻す→0 POST。反映確認中央値1920=358ms（358–359）、2560=363ms（359–363）。200msの集約と即時fixture応答を含み、本番GitHub保存レイテンシの測定ではない。連続要求の最後だけwhole-board更新。app.js gzipは28,212→29,482bytes（+1,270）、依存追加なし。
 - 本番read-only: 配信app.jsとローカル最終sourceの完全一致、1920/2560でPBI/Task/再訪と原文補助を確認。詳細open各3回は1920=65/37/40ms、2560=76/37/38ms。各viewport POST0、pageerror0。board実データ表示4,738/2,015msは別々のcold-client試行でserver状態が異なり、性能改善率とはしない。実IssueのQA書込なし。
 - 正常の保存中/同期中バッジを増やさず、失敗のみ復元導線を維持。native日本語IMEの実機操作は未実施、composition合成試験を実施。タブ自体を閉じた後の保存完了は保証しない。
+
+## Story points の消失・競合修正とヘルプ整理（2026-10-27）
+
+- 配信source: `717af05701d2fe7a2e69f76ed600ad78c733b81b`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40467163813 （success）
+- Worker version: `a5cb9c83-001e-4b43-ab7f-717295a1bdd6`
+- check成功（63 backend＋38 unit、lint/typecheck/build）、全ブラウザー264件成功。全消去、別PBIの先行GET採用、null/欠落、空projection、公開失効と保存ackの両順序、連続選択/解除、失敗を確認。
+- state置換だけでSPを消さず、確認済み値を再検証中に維持。保存ackは対象PBI別世代で先行古値を拒否、公開失効では全消去＋読取世代更新。失効前の遅い保存結果も値を復活させない。
+- 同scope/集合で既知45秒以内の保存後は重複SP一括GETを省略。fixtureで追加要求1→0。初回API速度改善は未確認、読み取り実測の条件と全値はPERFORMANCE.md。
+- ヘルプは3見出し、短いStatus対応表、重要箇所の強調へ整理。最大PBI数/F/Escape/内部実装等の常設説明を削減。機能やshortcutは維持。
+- 本番1920/2560でSP再取得中の表示保持（100ms間隔63/66回）、ヘルプ画素、詳細の開閉、本文操作、配信app.jsとlocalの一致を確認。POST0、ページエラー0。実Issue/points/field設定・権限・秘密・料金を変更していない。
+- この記録は配信後の文書commitであり、上記配信sourceとは区別する。
