@@ -290,3 +290,4 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 本番両サイズでSP API HTTP200・fieldReadStatusなし、6 PBIすべて未設定null、8選択肢を確認。数字バッジは空欄。4assets hash一致、POST0・JSエラー0。既存値の自動入力・実Issueの書込QAはしていない。実書込成功は未検証、正本API契約とmockのnull→0.1/各値/解除/競合/部分失敗を検証。
 - 各1回の読み取り観測: 1920はboard3633ms、Issue shell61ms、SP完了7040ms（navigation起点）。2560はboard1725ms、Issue shell60ms、SP完了4662ms。cold/hit混在で改善率を主張しない。SPは本文/ボードをブロックしない後読込。
 - CI40454374607は227 browser成功、既存desktop native-wheel試験のみ失敗（右端4pxのwheelでscroll不発）。原因候補のOS依存scrollbar領域を避け、2枚の実bbox間のgutterを測り、hit-testで付箋/タイトル内部ではないことを確認してからnative wheelを送る試験へ限定修正。両サイズ各5回、10/10成功。SPの本番/合成検証は成功し、アプリコードの追加変更・再配信は不要。
+- 最終CI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40455375575 （`61e05842d4599800e48c7acaf8ff227ec591e666`、check・全228 browser成功）。配信source `de9d0cc` との差分は試験座標と本記録のみ。認証・権限ブロッカーは解消済み。
