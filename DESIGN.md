@@ -251,3 +251,5 @@ Story points後読込の整合性: 同じ公開scope・同じPBI集合の再取�
 初回Story pointsは、type:PBIの通常ビューではProjectのPBI queryへ同梱する。Project独自のnumberではなく、linked `ProjectV2ItemIssueFieldValue.issueFieldValue`を参照し、正本Issue field/PVTF ID・NUMBER・ALLを開始/終了に確認する。本文/担当/Statusと同じboard応答から数字を表示し、追加の全PBI後読込を要求しない。共有snapshotにもfieldの公開性をguard keyへ含め、失効時に古い数字を再利用しない。型不正・欠落は未設定と区別して省略、正規field確認下のnullだけ未設定とする。通常経路以外の既存fallbackは後読込契約を保持。任意fieldのGraphQL schema/権限エラーは、その値を含まないbase queryへ戻してboard自体を維持する。
 
 同梱SPの共有snapshotはboardと同じ元fetchedAt/最大60秒であり、最新取得済みの値と偽らない。直後のfresh boardで更新する。初期cached表示時間とfresh完了時間は運用記録で分ける。field公開性は再利用の前後にlive確認する。新しい値専用TTLや永続キャッシュは導入しない。
+
+同梱boardの古い応答を保存世代で破棄する時も、明示的なfield公開失効/空projectionだけは優先して消去し読取世代を進める。古いboard本文・Statusは採用しない。後続のfresh GETが失敗しても、失効した値や選択肢を残さない。

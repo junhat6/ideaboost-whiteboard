@@ -88,3 +88,66 @@ test("bundled point autosave retains siblings and manual body draft, then reflec
   await expect(page.locator(".cm-content")).toContainText("未保存の本文");
   expect(pointReads).toBe(0);
 });
+
+test("stale board revocation still clears points after a newer save ack even when next refresh fails", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board as any).storyPoints = { values: { 1: 5, 2: 1 } };
+  (f.board.scope as any).storyPointsField = true;
+  let reads = 0,
+    writes = 0,
+    release: () => void = () => {};
+  await page.route("**/api/health", (r) =>
+    r.fulfill({ json: { configured: true, storyPoints: true } }),
+  );
+  await page.route("**/api/board*", async (r) => {
+    reads++;
+    const data = structuredClone(f.board);
+    if (reads === 2) {
+      (data as any).storyPoints = { values: {} };
+      (data.scope as any).storyPointsField = false;
+      await new Promise<void>((resolve) => (release = resolve));
+    }
+    if (reads > 2)
+      return r.fulfill({ status: 503, json: { error: "unavailable" } });
+    return r.fulfill({ json: data });
+  });
+  await page.route("**/api/issues/1", (r) => {
+    writes++;
+    return r.fulfill({
+      json: {
+        ok: true,
+        issue: {
+          ...f.board.lanes[0],
+          revision: "saved",
+          title: "保存で確認したタイトル",
+          storyPoints: 13,
+        },
+      },
+    });
+  });
+  await page.reload();
+  await page.locator('.pbi-title[data-pbi="p0"]').click();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => reads).toBe(2);
+  await page
+    .locator("#story-point-choices")
+    .getByRole("button", { name: "13", exact: true })
+    .click();
+  await expect.poll(() => writes).toBe(1);
+  await expect(page.locator('#board [data-story-points="p0"]')).toHaveText(
+    "13",
+  );
+  release();
+  await expect(page.locator(".pbi-context .story-points:visible")).toHaveCount(
+    0,
+  );
+  await expect.poll(() => reads, { timeout: 10000 }).toBeGreaterThan(2);
+  await expect(page.locator("#story-point-editor")).toBeHidden();
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await expect(page.locator('.pbi-title[data-pbi="p0"]')).toHaveText(
+    "保存で確認したタイトル",
+  );
+  expect(writes).toBe(1);
+});

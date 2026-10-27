@@ -2869,11 +2869,29 @@ async function performRefresh(
   try {
     const readEpoch = confirmedSaveEpoch;
     const next = await adapter.load(options);
+    if (!valid(next)) throw new Error("無効なIssueデータです");
     if (readEpoch !== confirmedSaveEpoch) {
+      const points = next.storyPoints?.values;
+      if (
+        next.scope?.storyPointsField === false ||
+        (points &&
+          typeof points === "object" &&
+          !Array.isArray(points) &&
+          !Object.keys(points).length)
+      ) {
+        // Discard the stale board, but never discard confirmed field revocation.
+        pointsEpoch++;
+        pointsFlight = null;
+        pointsValues = {};
+        pointsVerifiedAt.clear();
+        if (state.storyPoints) state.storyPoints = { values: {} };
+        if (state.scope && Object.hasOwn(state.scope, "storyPointsField"))
+          state.scope.storyPointsField = false;
+        paintStoryPoints();
+      }
       autoRefreshRequested = true;
       return false;
     }
-    if (!valid(next)) throw new Error("無効なIssueデータです");
     state = clone(next);
     if (pointsConfirmed) pointsSkipSnapshot = state;
     if (options && Object.hasOwn(options, "milestone"))
