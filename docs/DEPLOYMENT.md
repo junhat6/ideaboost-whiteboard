@@ -350,3 +350,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - CI https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40489252381 success。88 backend＋47 unit、286 browser tests成功（10.8分）。
 - 配信後にapp.js / burndown.js / styles.cssのlocal一致、1920/2560の時間欄、解除ボタン50×40px・横一行、POST0を確認し画素も再確認。最初の画面撮影はdrawerのアニメーション中だったため、終了を待って撮り直した。保存/履歴APIの変更はなく、前段の読み取り性能・履歴検証結果を維持する。
 - 本段落は配信後の文書追補であり、アプリsourceと区別する。未解決の認証・権限ブロッカーなし。将来の日次発火と実Issueへの時間書込は本番QA対象外である。
+
+## 見積時間の入力・保存・チャート整合性監査（2026-10-27）
+
+- 最終配信source `53083565e5c5d28026615d202550d87911373990`、Worker `7c89e6ea-f8b4-40e1-b5bb-e9f5c7a2d8e1`。既存URL・権限・公開範囲を維持。
+- CI https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40494438863 success。check（88 backend＋47 unit、lint/typecheck/build）と300 browser tests、合計435試験成功。最終IME追補を含め独立レビュー解消確認済み。
+- 時間欄から明示保存をクリック／Cmd・Ctrl+Enterした場合、blurの時間autosaveに保存意図を奪われず、本文と時間を一度の明示保存で送る。通常blur／Enterでは本文を便乗送信しない。
+- 入力途中の不正な数値文字列を同期で上書きせず、他Issueへ前のvalidationエラーを持ち越さない。合成IME中は送信を防ぎ、終了後の最新ローカル数値で明示保存する。公開失効時は隠れた時間baselineも消し、無関係な本文保存を妨げない。
+- 表示中チャートは時間／Status保存後に更新する。旧履歴GET中なら描画を破棄して完了後に一度再取得し、サーバーの旧singleflightへ再合流しない。閉じたチャートと無関係なtitle更新では履歴GETを増やさない。
+- 本番1920×1080／2560×1440でapp.js・burndown.js・styles.cssの配信一致、ライブ本文・時間欄・解除ボタン50×40px、チャート開閉を確認。POST等の書き込み0、pageerror0。Sprint9の10h／見積済2件／未見積33件を読取確認。既存Issue値や旧ラベル整理には触れていない。
+- native IMEの実機入力と実Issueへの保存は未実施。入力・競合・保存の書き込み試験はfixtureのみ。通信速度の改善とは区別し、少数本番測定の限界をPERFORMANCE.mdへ記録。本段落は配信後の文書追補で、アプリsourceとは別。残る認証・配信ブロッカーなし。
