@@ -806,12 +806,9 @@ async function updateIssue(kind, id, patch, baseline = null) {
       });
       if (!result || result.id !== id)
         throw new Error("接続先の応答を確認できません");
-      Object.assign(t, result);
+      Object.assign(issue(kind, id) || t, result);
+      confirmedSaveEpoch++;
       savedRemotely = true;
-      const fresh = await adapter.load();
-      if (!valid(fresh)) throw new Error("再取得データを確認できません");
-      state = clone(fresh);
-      markFresh();
     }
     announce(
       adapter
@@ -834,7 +831,14 @@ async function updateIssue(kind, id, patch, baseline = null) {
       );
       return true;
     }
-    state = before;
+    const current = issue(kind, id);
+    const original = issueFrom(before, kind, id);
+    if (current && original) {
+      for (const key of Object.keys(optimistic))
+        if (equalField(current[key], optimistic[key]))
+          current[key] = clone(original[key]);
+    }
+    if (error.code === "scope_not_public") stopPrivateScope(error.message);
     stale = !!adapter;
     announce(
       error.partial || error.ambiguous
@@ -847,6 +851,7 @@ async function updateIssue(kind, id, patch, baseline = null) {
   } finally {
     pending = false;
     render();
+    if (savedRemotely) void refreshBoard(undefined, { silent: true });
     resumeAutoRefresh();
   }
 }
@@ -894,8 +899,38 @@ function showSaveProblems() {
       "aria-label",
       `#${job.baseline.number} ${job.baseline.title} の保存エラーと下書きを確認`,
     );
-    button.onclick = () => openIssue(job.target.kind, job.target.id);
+    button.onclick = () => {
+      if (issue(job.target.kind, job.target.id)) {
+        openIssue(job.target.kind, job.target.id);
+      } else {
+        job.showDraft = !job.showDraft;
+        showSaveProblems();
+      }
+    };
     root.append(button);
+    if (job.showDraft) {
+      const panel = document.createElement("section");
+      panel.className = "saved-draft-recovery";
+      const message = document.createElement("p");
+      message.textContent =
+        "現在の表示範囲にないIssueです。下書きを選択してコピーできます。";
+      const error = document.createElement("p");
+      error.textContent = job.error;
+      const fields = document.createElement("p");
+      fields.textContent = `担当者: ${(job.draft.assignees || []).join(", ") || "未割当"} / Status: ${job.draft.status ?? "未設定"}${job.draft.storyPoints !== undefined ? ` / Story points: ${job.draft.storyPoints ?? "未設定"}` : ""}`;
+      panel.append(message, error, fields);
+      for (const [key, label] of [
+        ["title", "タイトル"],
+        ["body", "本文"],
+      ]) {
+        const field = document.createElement("textarea");
+        field.readOnly = true;
+        field.value = job.draft[key] || "";
+        field.setAttribute("aria-label", `保存できなかった${label}`);
+        panel.append(field);
+      }
+      root.append(panel);
+    }
   }
   root.hidden = !root.childElementCount;
 }
@@ -2861,6 +2896,7 @@ document.addEventListener("visibilitychange", () => {
 
 window.addEventListener("beforeunload", (e) => {
   if (
+    issueSaves.size > 0 ||
     editMode ||
     composing ||
     commentDirty() ||

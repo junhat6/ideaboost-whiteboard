@@ -1054,7 +1054,10 @@ export function createHandler({
         if (!option) throw new ApiError(409, "status_option_missing");
       }
     }
-    // Narrow final preflight after the paginated board/assignee read. Still not atomic CAS.
+    // Read independently versioned points before the final body/status preflight.
+    if (changePoints && (await pointValue(env, number)) !== oldPoints)
+      throw new ApiError(409, "conflict", { issue: current });
+    // Narrow final preflight after all potentially slow reads. Still not atomic CAS.
     const freshQuery = `query SavePreflight($number:Int!,$item:ID!) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id updatedAt title body assignees(first:10) { nodes { login } pageInfo { hasNextPage } } } } node(id:$item) { ... on ProjectV2Item { id fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } }`;
     const fresh = await gql(env, freshQuery, {
       number,
@@ -1069,9 +1072,6 @@ export function createHandler({
         (!fresh.node?.id ||
           (fresh.node.fieldValueByName?.name ?? null) !== v.expectedStatus))
     )
-      throw new ApiError(409, "conflict", { issue: current });
-    // Recheck this independently versioned org field immediately before writes.
-    if (changePoints && (await pointValue(env, number)) !== oldPoints)
       throw new ApiError(409, "conflict", { issue: current });
     const completed = [];
     let failure = null;

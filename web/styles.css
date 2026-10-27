@@ -2695,3 +2695,20 @@ input[type="checkbox"] {
   border: 2px solid var(--accent);
   padding: 3px 7px;
 }
+.saved-draft-recovery {
+  max-width: min(560px, 80vw);
+  padding: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+}
+.saved-draft-recovery textarea {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  margin-top: 8px;
+}
+.saved-draft-recovery textarea:last-child {
+  min-height: 160px;
+}

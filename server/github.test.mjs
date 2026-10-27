@@ -700,3 +700,54 @@ test("save uses bounded single-Issue context instead of loading the entire board
   );
   assert.equal(f.calls.filter((c) => c.url.includes("/assignees")).length, 0);
 });
+
+test("external body edit during final points read is caught by the subsequent body preflight", async () => {
+  const f = fixture({ storyPoints: 3 });
+  let reads = 0,
+    changed = false;
+  const handler = createHandler({
+    crypto: webcrypto,
+    fetch: async (url, options) => {
+      if (
+        url.includes("issue-field-values") &&
+        (!options.method || options.method === "GET")
+      ) {
+        reads++;
+        if (reads === 2) changed = true;
+      }
+      const response = await f.fetch(url, options);
+      if (
+        changed &&
+        options.body &&
+        JSON.parse(options.body).query?.includes("SavePreflight")
+      ) {
+        const data = await response.json();
+        data.data.repository.issue.body =
+          "External body changed during points latency";
+        return Response.json(data);
+      }
+      return response;
+    },
+  });
+  const response = await handler(
+    req(
+      "/api/issues/1",
+      patch({
+        storyPoints: 5,
+        expectedStoryPoints: 3,
+        expectedFingerprint: parentFingerprint,
+      }),
+    ),
+    { ...env, STORY_POINTS_READ_ENABLED: "true" },
+  );
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error, "conflict");
+  assert.equal(
+    f.calls.filter(
+      (c) =>
+        c.method === "PATCH" ||
+        (c.url.includes("issue-field-values") && c.method === "POST"),
+    ).length,
+    0,
+  );
+});

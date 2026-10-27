@@ -168,3 +168,114 @@ test("two Issue saves may finish in reverse order without a global lock or draft
   await expect(page.locator("#save-issue")).toBeEnabled();
   expect(posts).toBe(2);
 });
+
+test("another card drag failure rolls back only its status, not a confirmed background save", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  const release: Record<number, () => void> = {};
+  await page.route("**/api/issues/100", async (route) => {
+    const body = route.request().postDataJSON().body;
+    await new Promise<void>((r) => (release[100] = r));
+    Object.assign(s.board.tasks[0], { body, revision: "2026-10-27T00:00:00Z" });
+    await route.fulfill({ json: { ok: true, issue: s.board.tasks[0] } });
+  });
+  await page.route("**/api/issues/101", async (route) => {
+    await new Promise<void>((r) => (release[101] = r));
+    await route.fulfill({ status: 409, json: { error: "conflict" } });
+  });
+  await open(page);
+  await fillEditor(page, "A確定本文");
+  await page.locator("#save-issue").click();
+  await expect.poll(() => !!release[100]).toBe(true);
+  await page.locator("#close-detail").click();
+  await page
+    .locator('[data-task="t0-0-1"]')
+    .dragTo(page.locator('[data-lane="p0"][data-status="Doing"]'));
+  await expect.poll(() => !!release[101]).toBe(true);
+  release[100]();
+  await expect.poll(() => s.board.tasks[0].body).toBe("A確定本文");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).Whiteboard.getSnapshot().tasks[0].body,
+      ),
+    )
+    .toBe("A確定本文");
+  release[101]();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).Whiteboard.getSnapshot().tasks[1].status,
+      ),
+    )
+    .toBe("未整理");
+  expect(
+    await page.evaluate(
+      () => (window as any).Whiteboard.getSnapshot().tasks[0].body,
+    ),
+  ).toBe("A確定本文");
+});
+
+test("failed draft outside current scope remains copyable without restoring private data or changing filters", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  let release!: () => void;
+  await page.route("**/api/issues/100", async (route) => {
+    await new Promise<void>((r) => (release = r));
+    await route.fulfill({
+      status: 503,
+      json: { error: "mutation_outcome_unresolved", ambiguous: true },
+    });
+  });
+  await open(page);
+  await fillEditor(page, "範囲外の下書き");
+  await page.locator("#save-issue").click();
+  await expect.poll(() => !!release).toBe(true);
+  await page.locator("#close-detail").click();
+  s.board.tasks = s.board.tasks.filter((t) => t.number !== 100);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator('[data-open="t0-0-0"]')).toHaveCount(0);
+  release();
+  await expect(page.locator("#save-problems button")).toBeVisible();
+  await page.locator("#save-problems button").click();
+  await expect(page.getByLabel("保存できなかった本文")).toHaveValue(
+    "範囲外の下書き",
+  );
+  await expect(page.locator("#details")).not.toBeVisible();
+  await page.route("**/api/board", (route) =>
+    route.fulfill({ status: 403, json: { error: "scope_not_public" } }),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator("#save-problems")).toBeHidden({ timeout: 10000 });
+  await expect(page.getByLabel("保存できなかった本文")).toHaveCount(0);
+});
+
+test("page exit warns while a submitted save survives drawer close, then clears after confirmation", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  let release!: () => void;
+  const warns = () =>
+    page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+  expect(await warns()).toBe(false);
+  await page.route("**/api/issues/100", async (route) => {
+    const body = route.request().postDataJSON().body;
+    await new Promise<void>((r) => (release = r));
+    Object.assign(s.board.tasks[0], { body, revision: "2026-10-27T00:00:00Z" });
+    await route.fulfill({ json: { ok: true, issue: s.board.tasks[0] } });
+  });
+  await open(page);
+  await fillEditor(page, "終了前の保存");
+  await page.locator("#save-issue").click();
+  await expect.poll(() => !!release).toBe(true);
+  await page.locator("#close-detail").click();
+  expect(await warns()).toBe(true);
+  release();
+  await expect.poll(warns).toBe(false);
+});
