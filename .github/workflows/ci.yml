@@ -43,7 +43,10 @@ jobs:
             accountMatches: process.env.CLOUDFLARE_ACCOUNT_ID === "29a0469ba7d11f29ac94e3ed41f388a8",
           };
           console.log(JSON.stringify(checks));
-          if (!Object.values(checks).every(Boolean)) {
+          // Prefixは診断だけ。旧形式の有効tokenはAPIの実認証で判断する。
+          const safeToVerify = checks.present && checks.whitespaceFree && checks.noQuotes &&
+            checks.noBearerPrefix && checks.accountMatches;
+          if (!safeToVerify) {
             process.exitCode = 1;
           } else {
             const root = "https://api.cloudflare.com/client/v4/accounts/29a0469ba7d11f29ac94e3ed41f388a8";
