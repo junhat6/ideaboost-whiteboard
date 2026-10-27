@@ -995,7 +995,6 @@ const editorFields = [
   "storyPoints",
   "estimateHours",
 ];
-let hoursInputPending = false;
 let editorHours,
   hoursEpoch = 0;
 let editorPoints;
@@ -1030,10 +1029,7 @@ function editorDraft() {
 }
 function writeField(key, value) {
   if (key === "estimateHours") {
-    hoursInputPending = false;
-    $("#estimate-hours-error").hidden = true;
     editorHours = value;
-    $("#estimate-hours").value = value ?? "";
     renderHoursInput();
   } else if (key === "storyPoints") {
     editorPoints = value;
@@ -1063,21 +1059,19 @@ function setBaseField(key, value) {
 function updateDirty() {
   if (!editorBaseline) return;
   const draft = editorDraft();
-  editMode =
-    hoursInputPending ||
-    editorFields.some(
-      (key) =>
-        !equalField(
-          draft[key],
-          activeSave()?.phase === "posting"
-            ? Object.hasOwn(activeSave().queued || {}, key)
-              ? activeSave().queued[key]
-              : Object.hasOwn(activeSave().patch, key)
-                ? activeSave().draft[key]
-                : fieldValue(editorBaseline, key)
-            : fieldValue(editorBaseline, key),
-        ),
-    );
+  editMode = editorFields.some(
+    (key) =>
+      !equalField(
+        draft[key],
+        activeSave()?.phase === "posting"
+          ? Object.hasOwn(activeSave().queued || {}, key)
+            ? activeSave().queued[key]
+            : Object.hasOwn(activeSave().patch, key)
+              ? activeSave().draft[key]
+              : fieldValue(editorBaseline, key)
+          : fieldValue(editorBaseline, key),
+      ),
+  );
   if (!fillingDetail && activeSave()?.phase === "posting")
     activeSave().viewDraft = clone(draft);
   if (editMode) editorSaved = false;
@@ -1128,6 +1122,7 @@ function syncEditorControls() {
   syncCommentControls();
   renderDetailChoices();
   renderPointsChoices();
+  renderHoursInput();
 }
 function setComposition(value) {
   composing = value;
@@ -1257,16 +1252,37 @@ function hoursAvailable() {
   );
 }
 function renderHoursInput() {
-  $("#estimate-hours-editor").hidden = !hoursAvailable();
+  const ready = hoursAvailable();
+  $("#estimate-hours-editor").hidden = !ready;
+  if (!ready) return;
+  const values = [0.5, 1, 2, 3, 4, 5, 6, 8];
+  // Preserve canonical arbitrary values without rounding or expanding the field schema.
+  if (
+    typeof editorHours === "number" &&
+    Number.isFinite(editorHours) &&
+    !values.includes(editorHours)
+  )
+    values.push(editorHours);
+  values.sort((a, b) => a - b);
+  renderNumberChoices(
+    $("#estimate-hours-choices"),
+    [...values, null],
+    editorHours,
+    (value) => (value === null ? "未設定" : `${value}h`),
+    (value) => {
+      editorHours = value;
+      updateDirty();
+      autoSaveField("estimateHours");
+    },
+  );
 }
 function invalidateHours() {
   hoursEpoch++;
-  hoursInputPending = false;
   editorHours = undefined;
   if (editorBaseline) delete editorBaseline.estimateHours;
   if (editorLatest) delete editorLatest.estimateHours;
-  $("#estimate-hours").value = "";
-  $("#estimate-hours-error").hidden = true;
+  $("#estimate-hours-choices").replaceChildren();
+  delete $("#estimate-hours-choices").dataset.value;
   delete editorConflicts.estimateHours;
   renderConflicts();
   for (const task of state.tasks || []) delete task.estimateHours;
@@ -1275,53 +1291,31 @@ function invalidateHours() {
   burnPanel?.close();
   renderHoursInput();
 }
-function commitHours() {
-  const input = $("#estimate-hours");
-  if (!hoursAvailable() || composing) return;
-  const value = input.value === "" ? null : input.valueAsNumber;
-  const valid =
-    input.validity.valid &&
-    (value === null || (Number.isFinite(value) && value >= 0 && value <= 1000));
-  $("#estimate-hours-error").hidden = valid;
-  hoursInputPending = !valid;
-  if (!valid) {
-    updateDirty();
-    return;
-  }
-  editorHours = value;
-  updateDirty();
-  autoSaveField("estimateHours");
+function renderNumberChoices(root, values, selected, label, choose) {
+  const key = JSON.stringify([values, selected]);
+  if (root.dataset.value === key) return;
+  const focused = root.contains(document.activeElement)
+    ? document.activeElement.dataset.value
+    : null;
+  root.dataset.value = key;
+  root.replaceChildren(
+    ...values.map((value) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.value = value === null ? "" : String(value);
+      button.textContent = label(value);
+      button.setAttribute("aria-pressed", String(selected === value));
+      button.onclick = () => {
+        if (!composing) choose(value);
+      };
+      return button;
+    }),
+  );
+  if (focused !== null)
+    [...root.children]
+      .find((b) => b.dataset.value === focused)
+      ?.focus({ preventScroll: true });
 }
-$("#estimate-hours").addEventListener("input", () => {
-  const input = $("#estimate-hours");
-  hoursInputPending = !input.validity.valid;
-  $("#estimate-hours-error").hidden = true;
-  if (input.validity.valid) {
-    editorHours = input.value === "" ? null : input.valueAsNumber;
-  }
-  updateDirty();
-});
-$("#estimate-hours").addEventListener("blur", (event) => {
-  // A click/keyboard focus on explicit Save belongs to that form submission.
-  if (event.relatedTarget === $("#save-issue")) return;
-  commitHours();
-});
-$("#estimate-hours").addEventListener("keydown", (e) => {
-  if (
-    e.key === "Enter" &&
-    !e.metaKey &&
-    !e.ctrlKey &&
-    !e.isComposing &&
-    !composing
-  ) {
-    e.preventDefault();
-    commitHours();
-  }
-});
-$("#clear-estimate-hours").onclick = () => {
-  $("#estimate-hours").value = "";
-  commitHours();
-};
 function pointsAvailable() {
   return (
     editing?.kind === "PBI" &&
@@ -1334,32 +1328,17 @@ function renderPointsChoices() {
   const ready = pointsAvailable();
   group.hidden = !ready;
   if (!ready) return;
-  const root = $("#story-point-choices");
-  const values = [0.1, 1, 2, 3, 5, 8, 13, null];
-  const key = JSON.stringify(editorPoints);
-  if (root.dataset.value === key) return;
-  const focused = root.contains(document.activeElement)
-    ? document.activeElement.textContent
-    : null;
-  root.dataset.value = key;
-  root.replaceChildren(
-    ...values.map((value) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = value === null ? "解除" : String(value);
-      b.setAttribute("aria-pressed", String(editorPoints === value));
-      b.onclick = () => {
-        editorPoints = value;
-        updateDirty();
-        autoSaveField("storyPoints");
-      };
-      return b;
-    }),
+  renderNumberChoices(
+    $("#story-point-choices"),
+    [0.1, 1, 2, 3, 5, 8, 13, null],
+    editorPoints,
+    (value) => (value === null ? "解除" : String(value)),
+    (value) => {
+      editorPoints = value;
+      updateDirty();
+      autoSaveField("storyPoints");
+    },
   );
-  if (focused)
-    [...root.children]
-      .find((b) => b.textContent === focused)
-      ?.focus({ preventScroll: true });
 }
 function reconcilePointValue() {
   if (!$("#details").open || !editorBaseline || !pointsAvailable()) {
@@ -1788,13 +1767,6 @@ function reconcileEditor(current) {
       !Object.hasOwn(current, key)
     )
       continue;
-    if (key === "estimateHours" && hoursInputPending) {
-      if (
-        !equalField(fieldValue(current, key), fieldValue(editorBaseline, key))
-      )
-        editorConflicts[key] = { remote: fieldValue(current, key) };
-      continue;
-    }
     const base = fieldValue(editorBaseline, key),
       remote = fieldValue(current, key),
       local = draft[key];
@@ -2597,7 +2569,7 @@ $("#detail-title").addEventListener("blur", () => {
   if (titleEditing && !composing) finishTitle();
 });
 $("#detail-title").addEventListener("input", sizeTitle);
-for (const id of ["#detail-title", "#detail-body", "#estimate-hours"]) {
+for (const id of ["#detail-title", "#detail-body"]) {
   $(id).addEventListener("compositionstart", () => setComposition(true));
   $(id).addEventListener("compositionend", () => {
     setComposition(false);
@@ -2703,11 +2675,6 @@ $("#detail-form").onsubmit = async (e) => {
     return;
   const target = { ...editing },
     source = adapter;
-  if (hoursAvailable() && hoursInputPending) {
-    $("#estimate-hours-error").hidden = false;
-    $("#estimate-hours").focus();
-    return;
-  }
   const baseline = clone(editorLatest),
     draft = clone(editorDraft()),
     patch = {};

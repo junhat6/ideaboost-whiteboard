@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { setup, fillEditor } from "./fixtures";
+const hour = (page: any, value: number | null) =>
+  page.locator(`#estimate-hours-choices button[data-value="${value ?? ""}"]`);
 const data = {
   ok: true,
   observedAt: "2026-10-27T08:00:00Z",
@@ -87,23 +89,15 @@ test("時間autosaveは本文を便乗せず、小数/解除と再訪、PBI対�
   await page.reload();
   await page.locator(".task-title").first().click();
   await expect(page.locator("#estimate-hours-editor")).toBeVisible();
-  await expect(page.locator("#clear-estimate-hours")).toHaveCSS(
-    "white-space",
-    "nowrap",
-  );
-  const clearSize = await page.locator("#clear-estimate-hours").boundingBox();
-  expect(clearSize!.width).toBeGreaterThanOrEqual(48);
   await fillEditor(page, "未保存の本文を保持");
-  await page.locator("#estimate-hours").fill("1.5");
-  expect(f.posts()).toBe(0);
-  await page.locator("#estimate-hours").press("Enter");
+  await hour(page, 0.5).click();
   await expect.poll(() => f.posts()).toBe(1);
-  expect(patches[0].estimateHours).toBe(1.5);
+  expect(patches[0].estimateHours).toBe(0.5);
   expect(patches[0].expectedEstimateHours).toBe(null);
   expect(patches[0]).not.toHaveProperty("body");
   expect(patches[0]).not.toHaveProperty("title");
   await expect(page.locator(".cm-content")).toHaveText("未保存の本文を保持");
-  await page.locator("#clear-estimate-hours").click();
+  await hour(page, null).click();
   await expect.poll(() => f.posts()).toBe(2);
   expect(patches[1].estimateHours).toBe(null);
   page.on("dialog", (d) => d.accept());
@@ -166,20 +160,18 @@ test("時間の連続選択は単一flight、再訪後も最新値・本文draft
   });
   await page.reload();
   await page.locator(".task-title").first().click();
-  await page.locator("#estimate-hours").fill("2");
-  await page.locator("#estimate-hours").press("Enter");
+  await hour(page, 2).click();
   await expect.poll(() => posts.length).toBe(1);
-  await page.locator("#estimate-hours").fill("3");
-  await page.locator("#estimate-hours").press("Enter");
+  await hour(page, 3).click();
   await page.locator("#close-detail").click();
   await page.locator(".task-title").first().click();
-  await expect(page.locator("#estimate-hours")).toHaveValue("3");
+  await expect(hour(page, 3)).toHaveAttribute("aria-pressed", "true");
   release();
   await expect.poll(() => posts.length).toBe(2);
   expect(posts[1].expectedEstimateHours).toBe(2);
   expect(posts[1].estimateHours).toBe(3);
   expect(posts[1]).not.toHaveProperty("body");
-  await expect(page.locator("#estimate-hours")).toHaveValue("3");
+  await expect(hour(page, 3)).toHaveAttribute("aria-pressed", "true");
 });
 test("時間field公開失効後の遅いackは編集や値を復活させない", async ({
   page,
@@ -199,8 +191,7 @@ test("時間field公開失効後の遅いackは編集や値を復活させない
   });
   await page.reload();
   await page.locator(".task-title").first().click();
-  await page.locator("#estimate-hours").fill("2");
-  await page.locator("#estimate-hours").press("Enter");
+  await hour(page, 2).click();
   await expect.poll(() => sent).toBe(true);
   (f.board.scope as any).estimateHoursField = false;
   delete (f.board.tasks[0] as any).estimateHours;
@@ -284,12 +275,13 @@ test("履歴失効後に古い公開boardが戻っても時間を復活せず、
 test("時間field失効は競合のremote値も隠し、他の本文を消さない", async ({
   page,
 }) => {
-  const f = await setup(page);
+  const f = await setup(page, { conflict: true });
   (f.board.scope as any).estimateHoursField = true;
   (f.board.tasks[0] as any).estimateHours = 1;
   await page.reload();
   await page.locator(".task-title").first().click();
-  await page.locator("#estimate-hours").fill("2");
+  await hour(page, 2).click();
+  await expect(page.locator("#detail-error")).toBeVisible();
   (f.board.tasks[0] as any).estimateHours = 3;
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.locator("#editor-conflicts")).toContainText(
@@ -304,54 +296,40 @@ test("時間field失効は競合のremote値も隠し、他の本文を消さな
   await expect(page.locator("#editor-conflicts")).toBeHidden();
   // The lazy editor may intentionally retain its textarea while another input has focus.
   await expect(page.locator("#detail-body")).toHaveValue(f.board.tasks[0].body);
-  expect(f.posts()).toBe(0);
+  expect(f.posts()).toBe(1);
 });
 
-test("時間の不正な入力途中は同期で上書きせず、別Issueへ検証エラーを持ち越さない", async ({
+test("既存の候補外値は丸めず保持、外部更新とIssue切替で選択を更新", async ({
   page,
 }) => {
   const f = await setup(page);
   (f.board.scope as any).estimateHoursField = true;
-  (f.board.tasks[0] as any).estimateHours = 1;
-  (f.board.tasks[1] as any).estimateHours = 4;
+  (f.board.tasks[0] as any).estimateHours = 1.5;
+  (f.board.tasks[1] as any).estimateHours = 13;
   await page.reload();
   await page.locator(".task-title").first().click();
-  const input = page.locator("#estimate-hours");
-  await input.fill("1001");
-  await input.press("Enter");
-  await expect(page.locator("#estimate-hours-error")).toBeVisible();
-  await input.fill("1");
-  await input.press("End");
-  await input.pressSequentially("e");
-  expect(
-    await input.evaluate((e: HTMLInputElement) => e.validity.badInput),
-  ).toBe(true);
-  const readCount = f.reads();
-  await page.screenshot({
-    path: `.wrangler/hours-invalid-before-${page.viewportSize()!.width}.png`,
-  });
-  (f.board.tasks[0] as any).estimateHours = 2;
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect
-    .poll(() => f.reads(), { timeout: 10000 })
-    .toBeGreaterThan(readCount);
-  await page.screenshot({
-    path: `.wrangler/hours-invalid-after-${page.viewportSize()!.width}.png`,
-  });
-  await expect(input).toHaveValue("");
-  expect(
-    await input.evaluate((e: HTMLInputElement) => e.validity.badInput),
-  ).toBe(true);
+  await expect(hour(page, 1.5)).toHaveAttribute("aria-pressed", "true");
+  await hour(page, 1.5).press("Space");
+  await page.waitForTimeout(300);
   expect(f.posts()).toBe(0);
-  page.on("dialog", (d) => d.accept());
+  (f.board.tasks[0] as any).estimateHours = 0;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(hour(page, 0)).toHaveAttribute("aria-pressed", "true");
+  await expect(hour(page, 1.5)).toHaveCount(0);
   await page.locator("#close-detail").click();
   await page.locator(".task-title").nth(1).click();
-  await expect(input).toHaveValue("4");
-  await expect(page.locator("#estimate-hours-error")).toBeHidden();
+  await expect(hour(page, 13)).toHaveAttribute("aria-pressed", "true");
+  expect(f.posts()).toBe(0);
+  await page.locator("#details").evaluate(async (d) => {
+    await Promise.all(d.getAnimations().map((a) => a.finished.catch(() => {})));
+  });
+  await page.screenshot({
+    path: `.wrangler/hours-select-${page.viewportSize()!.width}.png`,
+  });
 });
 
 for (const action of ["click", "Meta+Enter", "Control+Enter"])
-  test(`時間欄からの明示保存は本文を一度で保存する ${action}`, async ({
+  test(`時間選択後の明示保存は本文を別に保存する ${action}`, async ({
     page,
   }) => {
     const f = await setup(page);
@@ -360,10 +338,13 @@ for (const action of ["click", "Meta+Enter", "Control+Enter"])
     await page.reload();
     await page.locator(".task-title").first().click();
     await fillEditor(page, "明示保存した本文");
-    await page.locator("#estimate-hours").fill("2");
-    if (action === "click") await page.locator("#save-issue").click();
-    else await page.locator("#estimate-hours").press(action);
+    await hour(page, 2).click();
     await expect.poll(() => f.posts()).toBe(1);
+    await expect(page.locator("#save-issue")).toBeEnabled();
+    expect(f.board.tasks[0].body).not.toBe("明示保存した本文");
+    if (action === "click") await page.locator("#save-issue").click();
+    else await hour(page, 2).press(action);
+    await expect.poll(() => f.posts()).toBe(2);
     await expect.poll(() => f.board.tasks[0].body).toBe("明示保存した本文");
     expect((f.board.tasks[0] as any).estimateHours).toBe(2);
   });
@@ -397,8 +378,7 @@ test("背景保存後のchartは旧flightを待って一度だけ更新、閉じ
   });
   await page.reload();
   await page.locator(".task-title").first().click();
-  await page.locator("#estimate-hours").fill("2");
-  await page.locator("#estimate-hours").press("Enter");
+  await hour(page, 2).click();
   await expect.poll(() => posts).toBe(1);
   await page.locator("#close-detail").click();
   await page.locator("#burndown-open").click();
@@ -417,18 +397,17 @@ test("背景保存後のchartは旧flightを待って一度だけ更新、閉じ
   expect(reads).toBe(2);
   await page.keyboard.press("Escape");
   await page.locator(".task-title").first().click();
-  await page.locator("#estimate-hours").fill("3");
-  await page.locator("#estimate-hours").press("Enter");
+  await hour(page, 3).click();
   await expect.poll(() => posts).toBe(2);
   expect(reads).toBe(2);
 });
 
-test("時間の0とIME確定、他Issue値保持とchartの無関係同期要求ゼロ", async ({
+test("時間の0表示とkeyboard解除、他Issue値保持とchartの無関係同期要求ゼロ", async ({
   page,
 }) => {
   const f = await setup(page);
   (f.board.scope as any).estimateHoursField = true;
-  (f.board.tasks[0] as any).estimateHours = 1;
+  (f.board.tasks[0] as any).estimateHours = 0;
   (f.board.tasks[1] as any).estimateHours = 6;
   let reads = 0;
   await page.route("**/api/burndown*", (r) => {
@@ -437,15 +416,10 @@ test("時間の0とIME確定、他Issue値保持とchartの無関係同期要求
   });
   await page.reload();
   await page.locator(".task-title").first().click();
-  const input = page.locator("#estimate-hours");
-  await input.dispatchEvent("compositionstart");
-  await input.fill("0");
-  await input.press("Enter");
-  expect(f.posts()).toBe(0);
-  await input.dispatchEvent("compositionend");
-  await input.press("Control+Enter");
+  await hour(page, null).focus();
+  await hour(page, null).press("Enter");
   await expect.poll(() => f.posts()).toBe(1);
-  await expect.poll(() => (f.board.tasks[0] as any).estimateHours).toBe(0);
+  await expect.poll(() => (f.board.tasks[0] as any).estimateHours).toBe(null);
   expect((f.board.tasks[1] as any).estimateHours).toBe(6);
   expect(reads).toBe(0);
   await page.locator("#close-detail").click();
@@ -487,4 +461,76 @@ test("時間field失効後も本文の明示保存へ時間を便乗させない
   await expect.poll(() => f.posts()).toBe(1);
   expect(patches[0]).not.toHaveProperty("estimateHours");
   expect(patches[0].body).toBe("非公開fieldと独立した本文");
+});
+
+for (const uncertain of [false, true])
+  test(`時間選択の失敗は後続を自動再送せず最新意図を復元 ${uncertain}`, async ({
+    page,
+  }) => {
+    const f = await setup(page);
+    (f.board.scope as any).estimateHoursField = true;
+    (f.board.tasks[0] as any).estimateHours = 1;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let posts = 0;
+    await page.route("**/api/issues/100", async (r) => {
+      posts++;
+      await gate;
+      await r.fulfill({
+        status: uncertain ? 503 : 409,
+        json: {
+          error: uncertain ? "mutation_outcome_unresolved" : "conflict",
+          ambiguous: uncertain,
+        },
+      });
+    });
+    await page.reload();
+    await page.locator(".task-title").first().click();
+    await hour(page, 2).click();
+    await expect.poll(() => posts).toBe(1);
+    await hour(page, 8).click();
+    await page.locator("#close-detail").click();
+    release();
+    await expect(page.locator("#save-problems")).toBeVisible();
+    await page.locator("#save-problems button").click();
+    await expect(hour(page, 8)).toHaveAttribute("aria-pressed", "true");
+    if (uncertain) await expect(page.locator("#recover-edit")).toBeDisabled();
+    await hour(page, 4).click();
+    await page.waitForTimeout(300);
+    expect(posts).toBe(1);
+  });
+
+test("時間連打は200msで最終値一件、同値と元値への未送信復帰はPOSTゼロ", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 1;
+  await page.reload();
+  await page.locator(".task-title").first().click();
+  await page.evaluate(() => {
+    for (const value of [2, 3, 1])
+      (
+        document.querySelector(
+          `#estimate-hours-choices button[data-value="${value}"]`,
+        ) as HTMLButtonElement
+      ).click();
+  });
+  await page.waitForTimeout(350);
+  expect(f.posts()).toBe(0);
+  await page.evaluate(() => {
+    for (const value of [2, 3, 5])
+      (
+        document.querySelector(
+          `#estimate-hours-choices button[data-value="${value}"]`,
+        ) as HTMLButtonElement
+      ).click();
+  });
+  await expect.poll(() => f.posts()).toBe(1);
+  await expect.poll(() => (f.board.tasks[0] as any).estimateHours).toBe(5);
+  await expect(hour(page, 5)).toHaveAttribute("aria-pressed", "true");
+  await hour(page, 5).press("Space");
+  await expect(hour(page, 5)).toBeFocused();
+  await page.waitForTimeout(300);
+  expect(f.posts()).toBe(1);
 });

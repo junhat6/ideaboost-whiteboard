@@ -18,7 +18,7 @@
 
 - ボード右端3.5%のhover、明示ボタン、keyboard/touchからoverlayを開く。Issue drawer・drag中は自動表示しない。元boardの幅やscrollを変えず、Escape/backdropで閉じfocusを戻す。
 - チャートと履歴通信は初回パネル表示時に遅延load。青ideal・赤actual、見積済hと未見積n件を併記。全未設定を0時間達成に見せない。観測開始前は空白。
-- 作業Issue詳細の任意数値入力は0〜1000h、小数可。入力中の空文字や途中の小数点は即送信せず、blur/Enterで確定、解除は明示操作。既存metadata autosaveの単一flight/最新意図/field単位ackと未知結果fenceを使い、本文やtitleを便乗保存しない。
+- 作業Issue詳細は0.5 / 1 / 2 / 3 / 4 / 5 / 6 / 8hと未設定の選択式。選択直後に200ms集約autosaveする。正本は0〜1000hの数値のままで、既存の候補外値も現在値として表示・保持する。既存metadata autosaveの単一flight/最新意図/field単位ackと未知結果fenceを使い、本文やtitleを便乗保存しない。
 - 実IssueのQA値入力・既存作業Issueの一括見積・既存label移行は行わない。
 
 ## 現在の外部設定
@@ -44,7 +44,7 @@ Project外の直接子を除外できるのは、正式な子件数が0の末端
 
 ## 入力・更新の監査追補
 
-- `1e`などnumber inputの未確定状態は、数値draftとは別のpendingフラグで保護する。同期や他項目の保存ackで途中入力を消さない。不正な値は送信せず、閉じる際は破棄確認する。新Issue/正規値への復元では前の検証エラーを残さない。
-- 本文を編集して時間欄からSaveまたはCmd/Ctrl+Enterを使う場合は、同じ明示フォーム保存で両方を送る。時間だけの通常Enter/blurは本文を便乗送信しない。
+- 選択式への変更でnumber input専用の未確定文字列・validation状態を撤去。既存の0・小数・候補外値を現在値として残す。本文・タイトルのIME保護は維持する。
+- 時間選択は本文を便乗送信しない。本文はmetadata保存後もdraftとして残り、明示SaveまたはCmd/Ctrl+Enterで保存する。
 - 開いたチャートは保存確定と集計データ変更を反映。進行中の古い履歴応答は描画せず、完了後に集約した1要求を送る。閉鎖中・title/bodyだけの同期では0要求。公開失効403は古い応答でも優先処理し値を隠す。
 - 本番読取監査（2026-10-27）は移行済み2件/10h・未見積33件を確認。移行の実値やラベルをQAとして変更していない。初回panel前0要求、open時1要求、POST0・pageerror0。入力途中・明示保存・遅延応答はmockで再現。native IMEの実機入力は未検証、compositionイベントは合成試験。

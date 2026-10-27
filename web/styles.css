@@ -2672,16 +2672,17 @@ input[type="checkbox"] {
   display: none;
 }
 
-#story-point-editor h3 {
+#story-point-editor h3,
+#estimate-hours-editor h3 {
   font-size: 13px;
   margin: 0 0 8px;
 }
-#story-point-choices {
+.number-choices {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-#story-point-choices button {
+.number-choices button {
   min-width: 36px;
   min-height: 32px;
   padding: 4px 8px;
@@ -2690,7 +2691,7 @@ input[type="checkbox"] {
   background: var(--surface);
   color: var(--ink);
 }
-#story-point-choices button[aria-pressed="true"] {
+.number-choices button[aria-pressed="true"] {
   background: var(--selected);
   border: 2px solid var(--accent);
   padding: 3px 7px;
@@ -2884,26 +2885,4 @@ input[type="checkbox"] {
   .burn-point {
     fill: #ff8896;
   }
-}
-#estimate-hours-editor label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.hours-input-row {
-  display: flex;
-  gap: 6px;
-}
-.hours-input-row input {
-  width: 100%;
-  min-width: 0;
-}
-.hours-input-row button {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  padding-inline: 12px;
-}
-#estimate-hours-error {
-  color: var(--error);
-  font-size: 12px;
 }

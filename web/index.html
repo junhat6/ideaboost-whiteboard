@@ -262,26 +262,19 @@
               ></div
             ></label>
             <section id="estimate-hours-editor" hidden>
-              <label for="estimate-hours">見積時間 <small>h</small></label>
-              <div class="hours-input-row">
-                <input
-                  id="estimate-hours"
-                  type="number"
-                  min="0"
-                  max="1000"
-                  step="any"
-                  inputmode="decimal"
-                  aria-label="作業の見積時間（時間）"
-                /><button id="clear-estimate-hours" type="button">解除</button>
-              </div>
-              <span id="estimate-hours-error" role="alert" hidden
-                >0〜1000の数値を入力してください。</span
-              >
+              <h3 id="estimate-hours-label">見積時間</h3>
+              <div
+                id="estimate-hours-choices"
+                class="number-choices"
+                role="group"
+                aria-labelledby="estimate-hours-label"
+              ></div>
             </section>
             <section id="story-point-editor" hidden>
               <h3>Story points</h3>
               <div
                 id="story-point-choices"
+                class="number-choices"
                 role="group"
                 aria-label="Story pointsを選択"
               ></div>
