@@ -87,6 +87,45 @@ async function open(page: any) {
   await page.locator('[data-open="t0-0-0"]').click();
 }
 
+test("discard after a submitted body save restores only sent text after failure, not discarded additions", async ({
+  page,
+}) => {
+  await setup(page);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let posts = 0;
+  await page.route("**/api/issues/100", async (r) => {
+    posts++;
+    await gate;
+    await r.fulfill({
+      status: 503,
+      json: { error: "mutation_outcome_unresolved", ambiguous: true },
+    });
+  });
+  await open(page);
+  await fillEditor(page, "送信する本文");
+  await page.locator("#rename-issue").click();
+  await page.locator("#detail-title").fill("送信タイトル");
+  await page.keyboard.press("Enter");
+  await page.locator("#save-issue").click();
+  await expect.poll(() => posts).toBe(1);
+  await fillEditor(page, "破棄する追加本文");
+  await page.locator("#rename-issue").click();
+  await page.locator("#detail-title").fill("破棄する追加タイトル");
+  await page.keyboard.press("Enter");
+  await status(page, "レビュー中");
+  page.once("dialog", (d) => d.accept());
+  await page.locator("#close-detail").click();
+  release();
+  await expect(page.locator("#save-problems")).toBeVisible();
+  await page.locator("#save-problems button").click();
+  await expect(page.locator("#detail-body")).toHaveValue("送信する本文");
+  await expect(page.locator("#detail-title")).toHaveValue("送信タイトル");
+  await expect(page.locator("#detail-status")).toHaveValue("レビュー中");
+  await expect(page.locator("#recover-edit")).toBeDisabled();
+  expect(posts).toBe(1);
+});
+
 test("reopening a posting Issue preserves a queued third distinct status before and after acknowledgement", async ({
   page,
 }) => {

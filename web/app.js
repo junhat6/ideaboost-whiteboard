@@ -2128,11 +2128,11 @@ function closeDetail() {
   const job = activeSave();
   if (job?.phase === "posting" && job.viewDraft) {
     for (const key of editorFields)
-      if (
-        !Object.hasOwn(job.patch, key) &&
-        !Object.hasOwn(job.queued || {}, key)
-      )
-        job.viewDraft[key] = fieldValue(job.baseline, key);
+      job.viewDraft[key] = Object.hasOwn(job.queued || {}, key)
+        ? job.queued[key]
+        : Object.hasOwn(job.patch, key)
+          ? job.draft[key]
+          : fieldValue(job.baseline, key);
   }
   composerModule?.clearPreview($("#detail-body-view"));
   $("#comments-list")
