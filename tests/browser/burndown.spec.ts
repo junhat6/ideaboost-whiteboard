@@ -6,6 +6,7 @@ const data = {
   milestone: 9,
   milestones: [{ number: 9, title: "Sprint 9", dueOn: "2026-10-28T00:00:00Z" }],
   current: {
+    excludedChildren: 1,
     remainingHours: 5,
     estimatedHours: 8,
     estimated: 3,
@@ -53,6 +54,9 @@ test("バーンダウンは初回要求なし、右端hoverと明示button、Esc
   await page.mouse.move(page.viewportSize()!.width - 2, 400);
   await expect(page.locator("#burndown-panel")).toBeVisible();
   await expect(page.locator(".burn-summary strong")).toHaveText("5 h");
+  await expect(page.locator(".burn-content")).toContainText(
+    "Projectの対象外と確認した直接の子Issue 1件は含みません",
+  );
   expect(reads).toBe(1);
   expect(await page.locator("#board").boundingBox()).toEqual(before);
   await page.keyboard.press("Escape");

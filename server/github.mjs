@@ -1704,23 +1704,111 @@ export function createHandler({
         if (output.scope.estimateHoursField !== true)
           throw new ApiError(503, "estimate_hours_unavailable");
         const parents = new Map(output.lanes.map((p) => [p.id, p]));
-        // Missing Project descendants are not zero work. Do not commit a partial tree.
         const children = new Map();
+        const seen = new Set(
+          [...output.lanes, ...output.tasks].map((i) => i.id),
+        );
         for (const t of output.tasks)
           children.set(t.parentId, (children.get(t.parentId) ?? 0) + 1);
-        if (
-          [...output.lanes, ...output.tasks].some(
-            (i) =>
-              !Number.isSafeInteger(i.subIssueCount) ||
-              i.subIssueCount !== (children.get(i.id) ?? 0),
-          )
-        )
-          throw new ApiError(503, "observation_incomplete");
+        const excludedChildren = [];
+        let relationRead = false;
+        for (const parent of [...output.lanes, ...output.tasks]) {
+          if (!Number.isSafeInteger(parent.subIssueCount))
+            throw new ApiError(503, "observation_incomplete");
+          if (parent.subIssueCount === (children.get(parent.id) ?? 0)) continue;
+          relationRead = true;
+          // A complete Project query may intentionally omit a non-member child.
+          // Verify that distinction; a missing in-Project child remains an incomplete observation.
+          let after = null,
+            count = 0,
+            excluded = 0,
+            complete = false;
+          const childIds = new Set();
+          for (let page = 0; page < 20; page++) {
+            const data = await gql(
+              env,
+              `query ObservationChildren($number:Int!,$after:String) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id subIssues(first:100,after:$after) { nodes { id issueType { name } repository { nameWithOwner } projectItems(first:100,includeArchived:false) { nodes { isArchived project { id } } pageInfo { hasNextPage } } } pageInfo { hasNextPage endCursor } } } } }`,
+              { number: parent.number, after },
+            );
+            const issue = data?.repository?.issue,
+              c = issue?.subIssues;
+            if (
+              issue?.id !== parent.id ||
+              !Array.isArray(c?.nodes) ||
+              typeof c.pageInfo?.hasNextPage !== "boolean"
+            )
+              throw new ApiError(503, "observation_incomplete");
+            for (const child of c.nodes) {
+              if (
+                !child?.id ||
+                childIds.has(child.id) ||
+                !child.repository?.nameWithOwner
+              )
+                throw new ApiError(503, "observation_incomplete");
+              childIds.add(child.id);
+              count++;
+              if (seen.has(child.id)) continue;
+              if (child.issueType?.name === "PBI") continue;
+              if (child.repository.nameWithOwner !== `${OWNER}/${REPO}`) {
+                excluded++;
+                continue;
+              }
+              const membership = child.projectItems;
+              if (
+                !Array.isArray(membership?.nodes) ||
+                membership.pageInfo?.hasNextPage !== false ||
+                membership.nodes.some(
+                  (p) => !p?.project?.id || typeof p.isArchived !== "boolean",
+                )
+              )
+                throw new ApiError(503, "observation_incomplete");
+              if (
+                membership.nodes.some(
+                  (p) => !p.isArchived && p.project.id === result.meta.id,
+                )
+              )
+                throw new ApiError(503, "observation_incomplete");
+              excluded++;
+            }
+            if (!c.pageInfo.hasNextPage) {
+              complete = true;
+              break;
+            }
+            if (
+              typeof c.pageInfo.endCursor !== "string" ||
+              !c.pageInfo.endCursor ||
+              c.pageInfo.endCursor === after
+            )
+              throw new ApiError(503, "observation_incomplete");
+            after = c.pageInfo.endCursor;
+          }
+          if (!complete || count !== parent.subIssueCount)
+            throw new ApiError(503, "observation_incomplete");
+          if (excluded)
+            excludedChildren.push({
+              milestone: (
+                parent.milestone ?? parents.get(parent.lane)?.milestone
+              )?.number,
+              count: excluded,
+            });
+        }
+        if (relationRead) {
+          const final = await assertPublic(env, true);
+          const visibility = hoursVisibility(final?.hoursField, env);
+          if (visibility !== "public")
+            throw new ApiError(
+              visibility === "not_public" ? 403 : 503,
+              visibility === "not_public"
+                ? "estimate_hours_not_public"
+                : "estimate_hours_unavailable",
+            );
+        }
         const tasks = output.tasks
           .filter((t) => t.type !== "PBI" && t.subIssueCount === 0)
           .map((t) => ({
             id: t.id,
-            parent: t.lane,
+            parent: t.parentId,
+            pbi: t.lane,
             estimate: t.estimateHours,
             status: t.status,
             complete: t.status === "完了",
@@ -1738,6 +1826,7 @@ export function createHandler({
             dueOn: m.dueOn ?? null,
           })),
           tasks: tasks.filter((t) => t.milestone),
+          excludedChildren: excludedChildren.filter((v) => v.milestone),
         });
       }
       if (request.method === "GET" && url.pathname === "/api/board") {

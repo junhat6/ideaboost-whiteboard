@@ -98,6 +98,7 @@ test("未設定を0見積と混同せず取消を成果から分ける", () => {
     milestone: 9,
   });
   assert.deepEqual(summarizeBurn(f.data.tasks), {
+    excludedChildren: 0,
     remainingHours: 2,
     estimatedHours: 2,
     unestimated: 1,

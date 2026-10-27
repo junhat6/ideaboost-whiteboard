@@ -2,6 +2,7 @@
 export type BurnTask = {
   id: string;
   parent: string;
+  pbi?: string;
   estimate: number | null;
   status: string | null;
   complete: boolean;
@@ -13,6 +14,7 @@ export type BurnSource = {
   observedAt: string;
   milestones: { number: number; title: string; dueOn: string | null }[];
   tasks: BurnTask[];
+  excludedChildren?: { milestone: number; count: number }[];
 };
 type Summary = ReturnType<typeof summarizeBurn>;
 type Observation = {
@@ -56,6 +58,15 @@ export function validateBurnSource(value: unknown): value is BurnSource {
           (typeof m.dueOn === "string" &&
             Number.isFinite(Date.parse(m.dueOn)))),
     ) &&
+    (v.excludedChildren === undefined ||
+      (Array.isArray(v.excludedChildren) &&
+        v.excludedChildren.length <= 500 &&
+        v.excludedChildren.every(
+          (e) =>
+            Number.isSafeInteger(e.count) &&
+            e.count >= 0 &&
+            v.milestones.some((m) => m.number === e.milestone),
+        ))) &&
     Array.isArray(v.tasks) &&
     v.tasks.length <= 500 &&
     new TextEncoder().encode(JSON.stringify(v)).length < 100000 &&
@@ -66,6 +77,8 @@ export function validateBurnSource(value: unknown): value is BurnSource {
         t.id.length < 100 &&
         typeof t.parent === "string" &&
         t.parent.length < 100 &&
+        (t.pbi === undefined ||
+          (typeof t.pbi === "string" && t.pbi.length < 100)) &&
         (t.estimate === null ||
           (typeof t.estimate === "number" &&
             Number.isFinite(t.estimate) &&
@@ -78,9 +91,10 @@ export function validateBurnSource(value: unknown): value is BurnSource {
     )
   );
 }
-export function summarizeBurn(tasks: BurnTask[]) {
+export function summarizeBurn(tasks: BurnTask[], excludedChildren = 0) {
   const active = tasks.filter((t) => t.status !== "見送り");
   return {
+    excludedChildren,
     remainingHours: active.reduce(
       (sum, t) => sum + (!t.complete && t.estimate !== null ? t.estimate : 0),
       0,
@@ -158,6 +172,7 @@ export class BurnHistory {
               canonical.scope,
               canonical.tasks,
               canonical.milestones,
+              canonical.excludedChildren ?? [],
             ]),
           ),
         ),
@@ -176,7 +191,12 @@ export class BurnHistory {
         for (const m of canonical.milestones) {
           const tasks = canonical.tasks.filter((t) => t.milestone === m.number),
             old = previous.filter((t) => t.milestone === m.number);
-          summaries[m.number] = summarizeBurn(tasks);
+          summaries[m.number] = summarizeBurn(
+            tasks,
+            (canonical.excludedChildren || [])
+              .filter((e) => e.milestone === m.number)
+              .reduce((n, e) => n + e.count, 0),
+          );
           const oldMap = new Map(
             old.filter((t) => t.status !== "見送り").map((t) => [t.id, t]),
           );
@@ -261,7 +281,12 @@ export class BurnHistory {
         observedAt: source.observedAt,
         milestones: source.milestones,
         milestone,
-        current: summarizeBurn(filter(source.tasks)),
+        current: summarizeBurn(
+          filter(source.tasks),
+          (source.excludedChildren || [])
+            .filter((e) => milestone === null || e.milestone === milestone)
+            .reduce((n, e) => n + e.count, 0),
+        ),
         observations: records
           .filter(
             (v) =>

@@ -22,7 +22,7 @@ export function chart(data) {
         "p",
         data.current.total
           ? `見積時間が未設定です（${data.current.unestimated}件）。`
-          : "このスプリントの作業Issueはありません。",
+          : "このスプリントのProject内作業Issueはありません。",
         "burn-empty",
       ),
     );
@@ -262,6 +262,14 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         ),
         observed,
       );
+      if (data.current.excludedChildren)
+        content.append(
+          node(
+            "p",
+            `Projectの対象外と確認した直接の子Issue ${data.current.excludedChildren}件は含みません。`,
+            "burn-note",
+          ),
+        );
       if (data.recordingLimited)
         content.append(
           node(

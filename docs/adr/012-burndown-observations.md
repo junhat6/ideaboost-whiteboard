@@ -15,3 +15,5 @@ milestoneは正式番号を使用。期日は存在するが開始日は確認�
 UI・値・安全境界の詳細は[仕様](../BURNDOWN.md)、[試験](../TESTING.md)を参照。
 
 公開性の確認不能（optional queryのfallback等）は503、一致した正規fieldのORG_ONLY確認は403。いずれも記録を返さず、既存履歴を消去しない。再公開を正規readで確認できた場合のみ保管済み履歴を再び閲覧可能にする。
+
+実データのread-only照合でSprint 9のPBI #132にProject外の子 #226があることを確認した。対象は既存boardと同じProject 3内の末端作業。件数差分がある親だけ正式な直接の子・全Project所属を読み、Project外/対象外を明示する。初回boardにはこの履歴用追加queryを入れない。実Issueを勝手にProjectへ追加せず、Project内の読取欠落は引き続き拒否する。

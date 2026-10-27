@@ -234,6 +234,8 @@ for (const type of ["Bug", "競合調査", "Future work", null])
       ["I3"],
     );
     assert.equal(result.tasks[0].estimate, 1.5);
+    assert.equal(result.tasks[0].parent, "I2");
+    assert.equal(result.tasks[0].pbi, "I1");
   });
 test("Project外に子が欠けた観測は0件や親見積へ置き換えない", async () => {
   const f = fixture({ viewFilter: "type:PBI", parentInProject: true });
@@ -290,3 +292,58 @@ test("時間書込後の公開失効は明示コードとunknown fenceを保持"
   assert.equal(data.ambiguous, true);
   assert.deepEqual(data.completed, ["estimateHours"]);
 });
+for (const inProject of [false, true])
+  test(`正式な子の欠落をProject外と読取不足に分ける ${inProject}`, async () => {
+    const f = fixture({ viewFilter: "type:PBI", parentInProject: true });
+    const h = createHandler({
+      crypto: webcrypto,
+      fetch: async (url, opt) => {
+        const q = opt.body ? JSON.parse(opt.body).query : "";
+        if (q?.includes("ObservationChildren"))
+          return Response.json({
+            data: {
+              repository: {
+                issue: {
+                  id: "I2",
+                  subIssues: {
+                    nodes: [
+                      {
+                        id: "outside",
+                        issueType: { name: "Bug" },
+                        repository: {
+                          nameWithOwner: "engineer-first/idea-boost",
+                        },
+                        projectItems: {
+                          nodes: inProject
+                            ? [{ isArchived: false, project: { id: "P3" } }]
+                            : [],
+                          pageInfo: { hasNextPage: false },
+                        },
+                      },
+                    ],
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                  },
+                },
+              },
+            },
+          });
+        const r = await f.fetch(url, opt),
+          d = await r.json(),
+          p = d.data?.organization?.projectV2;
+        if (p && q?.includes("hoursField:")) p.hoursField = field;
+        if (p && q?.includes("hoursValue:"))
+          for (const item of p.items.nodes) {
+            item.hoursValue = value;
+            item.content.subIssuesSummary.total = 1;
+          }
+        return Response.json(d, { status: r.status });
+      },
+    });
+    const response = await h(req("/api/burndown"), config),
+      data = await response.json();
+    assert.equal(response.status, inProject ? 503 : 200);
+    if (!inProject) {
+      assert.deepEqual(data.tasks, []);
+      assert.deepEqual(data.excludedChildren, [{ milestone: 1, count: 1 }]);
+    } else assert.equal(data.error, "observation_incomplete");
+  });
