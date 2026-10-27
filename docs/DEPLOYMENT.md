@@ -360,3 +360,12 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 表示中チャートは時間／Status保存後に更新する。旧履歴GET中なら描画を破棄して完了後に一度再取得し、サーバーの旧singleflightへ再合流しない。閉じたチャートと無関係なtitle更新では履歴GETを増やさない。
 - 本番1920×1080／2560×1440でapp.js・burndown.js・styles.cssの配信一致、ライブ本文・時間欄・解除ボタン50×40px、チャート開閉を確認。POST等の書き込み0、pageerror0。Sprint9の10h／見積済2件／未見積33件を読取確認。既存Issue値や旧ラベル整理には触れていない。
 - native IMEの実機入力と実Issueへの保存は未実施。入力・競合・保存の書き込み試験はfixtureのみ。通信速度の改善とは区別し、少数本番測定の限界をPERFORMANCE.mdへ記録。本段落は配信後の文書追補で、アプリsourceとは別。残る認証・配信ブロッカーなし。
+
+## 見積時間を選択式へ変更（2026-10-27）
+
+- 配信source `3eb97345e897c53b372425e214533c3cd5dc9880`、Worker `e7fd559e-9fbb-4e83-8af1-5befbfa9ff7d`。
+- CI https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40497252077 success。check 135件、browser 306件（CI 12.0分、local 1.5分）成功。
+- 標準0.5/1/2/3/4/5/6/8hと未設定をStory pointsと共通の選択ボタンで表示。GitHub数値fieldを維持し、既存の0/1.5/13など候補外値も現在値として保持。任意値を丸めず、選択なしでは変更しない。
+- 選択は200ms集約・同Issue単一flightでautosave。本文/titleを便乗送信せず、未知結果/失敗の後続は再送しない。再訪、旧ack、公開失効、チャート更新の既存保護を保持。旧number input専用の未確定文字列/validationを撤去し、本文/titleのIME保護は維持。
+- 対象36browser testsで連打1 POST、同値/未送信の元値復帰0 POST、Space/Enter/focus、解除、候補外、他Issue、本文明示保存、競合/不明結果を確認。新しい依存・API endpoint・GitHub権限・実Issue QA書込なし。
+- 配信後1920/2560の本番read-onlyで9候補、選択欄の矩形包含、Tab focus、配信asset一致を確認。書込み0・pageerror0。初期boardは1.683/1.529秒（共有snapshotを含む単発確認、cold改善とはしない）。
