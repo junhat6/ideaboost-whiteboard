@@ -1288,8 +1288,9 @@ function loadStoryPoints(lanes) {
             for (const { number } of pbis) {
               if (
                 Object.hasOwn(values, number) &&
-                typeof values[number] === "number" &&
-                Number.isFinite(values[number])
+                (values[number] === null ||
+                  (typeof values[number] === "number" &&
+                    Number.isFinite(values[number])))
               )
                 pointsValues[number] = values[number];
             }

@@ -285,3 +285,4 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 2026-10-27、操作時点の明示確認後、既存App 5473658 / installation 175301060へIssue Fields read-onlyのみ追加。UI保存・installation承認の成功を確認し、正規のinstallation metadataでも`issue_fields:read`を照合。既存issues/organization_projectsのwriteとmetadata readは不変、repository selectionはidea-boost一件のみ。新しい鍵・write権限・webhookは追加しない。
 - SP機能フラグtrue時だけinstallation tokenに`issue_fields:read`を指定し、フラグによるtoken cache keyを分離。無効時には追加権限を要求しない。
 - 公開承認済みorg field 49067031（Story points / number / visibility=all）を毎回検証。PBIのみ後読み込みし、org-only項目・不明shape・取得不可を公開しない。値の未設定は正常な空欄。既存7択と解除の明示保存・競合検証を維持し、QAのために実値を入力しない。
+- 実接続では表示中6 PBIの値が全てnullで返り、未設定をクライアントが取得不可へ落としていた既存不具合を検出。公開検証済みnullを保持し、数字バッジは空欄のままサイドバーから初回設定できるよう修正。欠落/失敗は引き続き編集不可。nullから0.1を明示保存する合成回帰を追加（実IssueのQA変更なし）。
