@@ -1363,8 +1363,11 @@ function loadStoryPoints(lanes) {
         const validObject =
           values && typeof values === "object" && !Array.isArray(values);
         // Empty projection can mean the public field definition has been revoked.
-        if (!validObject || !Object.keys(values).length) pointsValues = {};
-        else
+        if (!validObject || !Object.keys(values).length) {
+          pointsValues = {};
+          pointsVerifiedAt.clear();
+          pointsEpoch++; // An older mutation readback cannot revive a revoked field.
+        } else
           for (const { number } of pbis) {
             if (!unchanged(number)) continue;
             const value = values[number];
@@ -2656,6 +2659,14 @@ async function startIssueSave(
     }
     // The server performs uncached preflight and canonical readback; do not fetch
     // the entire board first or tie this operation to the drawer session.
+    if (
+      Object.hasOwn(patch, "storyPoints") &&
+      !Object.hasOwn(pointsValues, baseline.number)
+    )
+      throw new Error(
+        "Story pointsの公開状態を確認できません。再取得してください。",
+      );
+    const pointReadEpoch = pointsEpoch;
     const result = await source.saveIssue({
       kind: target.kind,
       id: target.id,
@@ -2678,7 +2689,10 @@ async function startIssueSave(
       );
     const current = issue(target.kind, target.id);
     if (current) Object.assign(current, result);
-    if (Object.hasOwn(result, "storyPoints")) {
+    if (
+      Object.hasOwn(result, "storyPoints") &&
+      pointReadEpoch === pointsEpoch
+    ) {
       pointsValues[result.number] = result.storyPoints;
       pointsVerifiedAt.set(result.number, Date.now());
     }

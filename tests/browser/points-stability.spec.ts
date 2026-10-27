@@ -180,3 +180,42 @@ test("rapid point choices coalesce and clearing affects only its own PBI", async
   await expect(choices.locator('[aria-pressed="true"]')).toHaveText("解除");
   expect(f.reads()).toBe(1);
 });
+
+test("field revocation before delayed mutation ack cannot revive points or choices", async ({
+  page,
+}) => {
+  const f = await prepare(page);
+  let release: () => void = () => {};
+  let sent = false;
+  await page.route("**/api/issues/1", async (r) => {
+    sent = true;
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await r.fulfill({
+      json: {
+        ok: true,
+        issue: { ...f.s.board.lanes[0], revision: "saved", storyPoints: 13 },
+      },
+    });
+  });
+  await page.locator('.pbi-title[data-pbi="p0"]').click();
+  await page
+    .locator("#story-point-choices")
+    .getByRole("button", { name: "13", exact: true })
+    .click();
+  await expect.poll(() => sent).toBe(true);
+  for (const key of Object.keys(f.values)) delete f.values[key];
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(f.reads).toBe(2);
+  await expect(page.locator(".pbi-context .story-points:visible")).toHaveCount(
+    0,
+  );
+  release();
+  await expect(page.locator("#story-point-editor")).toBeHidden();
+  await expect.poll(f.reads).toBe(3);
+  await expect(page.locator(".pbi-context .story-points:visible")).toHaveCount(
+    0,
+  );
+  await expect(page.locator("#story-point-editor")).toBeHidden();
+});
