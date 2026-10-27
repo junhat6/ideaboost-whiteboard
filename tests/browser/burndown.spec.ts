@@ -629,6 +629,7 @@ test("再openは前回観測を即表示、背景更新/失敗保持と公開失
   await page.locator("#burndown-open").click();
   await expect(page.locator("#burndown-open")).toBeHidden();
   await expect(page.locator(".burn-summary")).toHaveCount(0);
+  await expect(page.locator("#burndown-panel select option")).toHaveCount(0);
   expect(f.posts()).toBe(0);
 });
 
@@ -729,4 +730,44 @@ test("スプリントを切替えても他スプリントのcache/遅い応答�
   release();
   await expect(page.getByLabel("バーンダウンのスプリント")).toHaveValue("9");
   await expect(page.locator(".burn-summary strong")).toHaveText("5 h");
+  await page.getByLabel("バーンダウンのスプリント").selectOption("10");
+  await expect(page.locator(".burn-summary strong")).toHaveText("2 h");
+  await page.keyboard.press("Escape");
+  await page.locator("#burndown-open").click();
+  await expect(page.getByLabel("バーンダウンのスプリント")).toHaveValue("10");
+  await expect(page.locator(".burn-summary strong")).toHaveText("2 h");
+});
+
+test("同じ観測の背景更新は図DOMと開いた内訳を保持し、確認時刻だけ更新", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 1;
+  let reads = 0;
+  await page.route("**/api/burndown**", (r) =>
+    r.fulfill({
+      json: {
+        ...data,
+        observedAt: ++reads === 1 ? data.observedAt : "2026-10-27T08:01:00Z",
+      },
+    }),
+  );
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary")).toBeVisible();
+  await page.locator(".burn-chart summary").click();
+  await page
+    .locator(".burn-chart svg")
+    .evaluate((e) => ((window as any).__burnSvg = e));
+  (f.board.tasks[0] as any).estimateHours = 2;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => reads, { timeout: 10000 }).toBe(2);
+  await expect(page.locator(".burn-observed")).toContainText("17:01");
+  expect(
+    await page
+      .locator(".burn-chart svg")
+      .evaluate((e) => e === (window as any).__burnSvg),
+  ).toBe(true);
+  await expect(page.locator(".burn-chart details")).toHaveAttribute("open", "");
 });

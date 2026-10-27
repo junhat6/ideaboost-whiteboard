@@ -245,6 +245,10 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   const invalidate = () => {
     cache.clear();
     defaultMilestone = null;
+    selected = null;
+    select.replaceChildren();
+    delete select.dataset.options;
+    content.replaceChildren();
     currentData = null;
     scope = null;
     generation++;
@@ -272,58 +276,79 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   };
   function render(data) {
     currentData = data;
-    select.replaceChildren(
-      ...data.milestones.map((m) => {
-        const o = node("option", m.title);
-        o.value = m.number;
-        return o;
-      }),
-    );
+    const optionsKey = JSON.stringify(data.milestones);
+    if (select.dataset.options !== optionsKey) {
+      select.dataset.options = optionsKey;
+      select.replaceChildren(
+        ...data.milestones.map((m) => {
+          const o = node("option", m.title);
+          o.value = m.number;
+          return o;
+        }),
+      );
+    }
     select.value = String(data.milestone);
-    const summary = node("div", undefined, "burn-summary");
-    summary.append(
-      node(
-        "strong",
-        data.current.estimated
-          ? `${hours(data.current.remainingHours)} h`
-          : "—",
-      ),
-      node("span", `未完了の見積合計 · 未見積 ${data.current.unestimated}件`),
-    );
-    content.replaceChildren(
-      summary,
-      chart(data),
-      node(
-        "p",
-        "実消費時間ではなく、見積時間の推移です。青線は現在の対象全体の見積から再計算します。",
-        "burn-note",
-      ),
-      node(
-        "p",
-        `観測: ${new Date(data.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`,
-        "burn-note",
-      ),
-    );
-    if ((data.schedule?.schoolDays?.length || 0) < 2)
-      content.append(
-        node("p", "学校日程を設定すると理想線を表示します。", "burn-note"),
+    const renderKey = JSON.stringify([
+      data.scope,
+      data.milestone,
+      data.current,
+      data.observations,
+      data.schedule?.schoolDays,
+      data.recordingLimited,
+    ]);
+    if (
+      content.dataset.renderKey !== renderKey ||
+      !content.querySelector(".burn-summary")
+    ) {
+      content.dataset.renderKey = renderKey;
+      const summary = node("div", undefined, "burn-summary");
+      summary.append(
+        node(
+          "strong",
+          data.current.estimated
+            ? `${hours(data.current.remainingHours)} h`
+            : "—",
+        ),
+        node("span", `未完了の見積合計 · 未見積 ${data.current.unestimated}件`),
       );
-    if (data.current.excludedChildren)
-      content.append(
+      content.replaceChildren(
+        summary,
+        chart(data),
         node(
           "p",
-          `Projectの対象外と確認した直接の子Issue ${data.current.excludedChildren}件は含みません。`,
+          "実消費時間ではなく、見積時間の推移です。青線は現在の対象全体の見積から再計算します。",
           "burn-note",
         ),
-      );
-    if (data.recordingLimited)
-      content.append(
         node(
           "p",
-          "本日の記録上限に達しました。上の数値は現在値、図は直近の保存済み観測です。",
-          "burn-note",
+          `観測: ${new Date(data.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`,
+          "burn-note burn-observed",
         ),
       );
+      if ((data.schedule?.schoolDays?.length || 0) < 2)
+        content.append(
+          node("p", "学校日程を設定すると理想線を表示します。", "burn-note"),
+        );
+      if (data.current.excludedChildren)
+        content.append(
+          node(
+            "p",
+            `Projectの対象外と確認した直接の子Issue ${data.current.excludedChildren}件は含みません。`,
+            "burn-note",
+          ),
+        );
+      if (data.recordingLimited)
+        content.append(
+          node(
+            "p",
+            "本日の記録上限に達しました。上の数値は現在値、図は直近の保存済み観測です。",
+            "burn-note",
+          ),
+        );
+    } else {
+      content.querySelector(".burn-observed").textContent =
+        `観測: ${new Date(data.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`;
+    }
     settings.hidden = !data.milestone;
     propose.disabled = !data.milestones.find((m) => m.number === data.milestone)
       ?.dueOn;
@@ -571,7 +596,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   return {
     open(milestone) {
       origin = document.activeElement;
-      selected = milestone ? Number(milestone) : null;
+      selected = milestone ? Number(milestone) : selected;
       settingsDirty = false;
       settings.open = false;
       error.hidden = true;
