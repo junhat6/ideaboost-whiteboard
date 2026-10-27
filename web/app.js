@@ -66,7 +66,10 @@ let state = clone(initial),
   bootstrapAttempt = false,
   detailUnavailable = false,
   listContext = null,
-  snapshotPending = false;
+  snapshotPending = false,
+  highlightUnestimated = false,
+  unestimatedScope = null,
+  unestimatedObserver = null;
 function valid(s) {
   return (
     s &&
@@ -337,6 +340,87 @@ function handleAvatarError(event) {
 }
 function issueLabel(t) {
   return adapter ? (t.number ? `#${t.number}` : "Issue") : `DEMO-${t.id}`;
+}
+function unestimatedScopeKey() {
+  const s = state.scope || {};
+  return JSON.stringify([
+    s.owner,
+    s.repo,
+    s.projectNumber,
+    s.projectUrl,
+    s.viewNumber,
+    s.viewFilter,
+  ]);
+}
+function unestimatedEligible(t) {
+  return (
+    highlightUnestimated &&
+    adapter &&
+    !loading &&
+    !snapshotPending &&
+    state.scope?.estimateHoursField === true &&
+    t?.type !== "PBI" &&
+    t?.subIssueCount === 0 &&
+    typeof t.projectItemId === "string" &&
+    t.projectItemId.length > 0 &&
+    t?.estimateHours === null &&
+    state.lanes.some((p) => p.id === t.lane && p.type === "PBI") &&
+    t.status !== "見送り" &&
+    !(t.state === "CLOSED" && t.stateReason === "NOT_PLANNED")
+  );
+}
+function syncUnestimatedToggle() {
+  const available = !!adapter && state.scope?.estimateHoursField === true;
+  if (
+    !available ||
+    (unestimatedScope !== null && unestimatedScope !== unestimatedScopeKey())
+  ) {
+    highlightUnestimated = false;
+    unestimatedScope = null;
+  }
+  const button = $("#highlight-unestimated");
+  button.hidden = !available;
+  button.disabled = loading || snapshotPending;
+  button.setAttribute("aria-pressed", String(highlightUnestimated));
+  button.dataset.tooltip = highlightUnestimated
+    ? "未見積の強調を解除（U）"
+    : "未見積を強調（U）";
+}
+function paintUnestimatedHighlights() {
+  syncUnestimatedToggle();
+  unestimatedObserver?.disconnect();
+  const tasks = new Map(state.tasks.map((t) => [t.id, t]));
+  for (const card of $("#board").querySelectorAll("[data-task]")) {
+    const active = !!unestimatedEligible(tasks.get(card.dataset.task));
+    card.classList.toggle("unestimated-highlight", active);
+    card.classList.remove("unestimated-visible");
+    let cue = card.querySelector(".unestimated-cue");
+    if (active) {
+      if (!cue) {
+        cue = document.createElement("span");
+        cue.className = "unestimated-cue";
+        cue.textContent = "未見積";
+        card.querySelector(".task-top").append(cue);
+      }
+      if (typeof IntersectionObserver === "function") {
+        unestimatedObserver ||= new IntersectionObserver((entries) => {
+          for (const entry of entries)
+            entry.target.classList.toggle(
+              "unestimated-visible",
+              entry.target.classList.contains("unestimated-highlight") &&
+                entry.isIntersecting &&
+                entry.intersectionRatio > 0,
+            );
+        });
+        unestimatedObserver.observe(card);
+      } else card.classList.add("unestimated-visible");
+    } else cue?.remove();
+  }
+}
+function clearUnestimatedHighlights() {
+  highlightUnestimated = false;
+  unestimatedScope = null;
+  paintUnestimatedHighlights();
 }
 function card(t) {
   const kind =
@@ -638,6 +722,7 @@ function revealCard(target) {
 }
 function render() {
   if (dragged) clearDrag();
+  syncUnestimatedToggle();
   if (!adapter) {
     renderInitial();
     return;
@@ -750,6 +835,7 @@ function render() {
       })
       .join("");
   restoreCells();
+  paintUnestimatedHighlights();
   loadStoryPoints(lanes);
   $("#burndown-open").hidden = state.scope?.estimateHoursField !== true;
   renderHoursInput();
@@ -1287,6 +1373,7 @@ function invalidateHours() {
   renderConflicts();
   for (const task of state.tasks || []) delete task.estimateHours;
   if (state.scope) state.scope.estimateHoursField = false;
+  clearUnestimatedHighlights();
   $("#burndown-open").hidden = true;
   burnPanel?.invalidate();
   renderHoursInput();
@@ -3296,6 +3383,36 @@ $("#fullscreen").onclick = async () => {
     );
   }
 };
+$("#highlight-unestimated").onclick = () => {
+  const button = $("#highlight-unestimated");
+  if (button.hidden || button.disabled || dragged) return;
+  highlightUnestimated = !highlightUnestimated;
+  unestimatedScope = highlightUnestimated ? unestimatedScopeKey() : null;
+  paintUnestimatedHighlights();
+};
+document.addEventListener("keydown", (e) => {
+  if (
+    e.key.toLowerCase() !== "u" ||
+    e.repeat ||
+    e.ctrlKey ||
+    e.metaKey ||
+    e.altKey ||
+    e.shiftKey ||
+    e.isComposing ||
+    composing ||
+    commentComposing ||
+    dragged ||
+    document.querySelector("dialog[open]")
+  )
+    return;
+  const writing = (node) =>
+    node?.closest?.("input,textarea,select,[contenteditable],.cm-editor");
+  if (writing(e.target) || writing(document.activeElement)) return;
+  const button = $("#highlight-unestimated");
+  if (button.hidden || button.disabled) return;
+  e.preventDefault();
+  button.click();
+});
 document.addEventListener("keydown", (e) => {
   if (
     e.key.toLowerCase() !== "f" ||

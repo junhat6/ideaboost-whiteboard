@@ -2859,21 +2859,6 @@ input[type="checkbox"] {
 .burn-point {
   fill: #b42337;
 }
-.burn-chart table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.burn-chart td,
-.burn-chart th {
-  text-align: left;
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
-}
-.burn-chart summary {
-  cursor: pointer;
-  margin: 16px 0;
-}
 .burn-empty {
   margin: 40px 0;
   color: var(--muted);
@@ -2932,24 +2917,182 @@ input[type="checkbox"] {
   gap: 8px;
   margin-top: 12px;
 }
-.burn-settings label {
-  font-size: 13px;
-}
-.burn-settings textarea {
-  width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  min-height: 120px;
-}
 .burn-settings-error {
   color: var(--error);
   font-size: 13px;
 }
-.burn-proposal {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 [data-theme="dark"] .burn-actual-label::before {
   background: #ff8896;
+}
+
+.burn-calendar {
+  width: min(100%, 420px);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.burn-calendar-header {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.burn-calendar-month {
+  margin: 0;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.burn-calendar-nav {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-color: var(--input-border);
+  background: var(--surface);
+  font-size: 26px;
+  line-height: 1;
+}
+.burn-calendar-grid {
+  display: grid;
+  gap: 4px;
+}
+.burn-calendar-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.burn-calendar-weekday {
+  padding: 4px 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.burn-calendar-cell {
+  min-width: 0;
+}
+.burn-calendar-day {
+  position: relative;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.burn-calendar-day:hover {
+  border-color: var(--input-border);
+  background: var(--selected);
+}
+.burn-calendar-day[aria-current="date"] {
+  border-color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.burn-calendar-day[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+  font-weight: 700;
+}
+.burn-calendar-day[aria-pressed="true"]:hover {
+  background: var(--accent-hover);
+}
+.burn-calendar-day:focus-visible {
+  z-index: 1;
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.burn-calendar-check {
+  display: none;
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+}
+.burn-calendar-day[aria-pressed="true"] .burn-calendar-check {
+  display: block;
+}
+.burn-calendar-count {
+  margin: 14px 0 4px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.burn-calendar-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.burn-calendar-warning {
+  margin: 10px 0 0;
+  color: var(--error);
+  font-size: 13px;
+  line-height: 1.6;
+}
+@media (max-width: 600px) {
+  .burn-panel {
+    width: 100vw;
+    padding: 18px;
+  }
+  .burn-calendar {
+    padding: 12px;
+  }
+}
+
+/* Optional missing-estimate aid: preserve type fill and animate only visible cards. */
+.unestimated-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--selected);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.unestimated-highlight {
+  position: relative;
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+.unestimated-highlight::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 4px var(--accent);
+  opacity: 0.16;
+}
+.unestimated-highlight.unestimated-visible:not(.dragging)::after {
+  animation: unestimated-breathe 3.8s ease-in-out infinite;
+}
+.unestimated-cue {
+  margin-left: auto;
+  padding: 0 3px;
+  border-radius: 3px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@keyframes unestimated-breathe {
+  0%, 100% {
+    opacity: 0.16;
+  }
+  50% {
+    opacity: 0.28;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .unestimated-highlight.unestimated-visible:not(.dragging)::after {
+    animation: none;
+  }
 }

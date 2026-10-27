@@ -1,3 +1,9 @@
+import {
+  createSchoolCalendar,
+  weekdayProposal,
+  todayJst,
+} from "./school-calendar.js";
+
 const ns = "http://www.w3.org/2000/svg";
 const node = (tag, text, className) => {
   const n = document.createElement(tag);
@@ -135,42 +141,6 @@ export function chart(data) {
         "burn-note",
       ),
     );
-  const tableWrap = node("details"),
-    summary = node("summary", "観測の内訳"),
-    table = node("table"),
-    head = node("tr");
-  for (const text of [
-    "観測日（JST）",
-    "未完了見積",
-    "未見積",
-    "対象作業",
-    "範囲・見積の変化",
-  ])
-    head.append(node("th", text));
-  table.append(head);
-  for (const p of points) {
-    const row = node("tr");
-    for (const text of [
-      p.day,
-      `${hours(p.remainingHours)} h`,
-      `${p.unestimated}件`,
-      `${p.total}件`,
-      p.changes
-        ? [
-            p.changes.added && `追加${p.changes.added}`,
-            p.changes.removed && `除外${p.changes.removed}`,
-            p.changes.reestimated && `再見積${p.changes.reestimated}`,
-            p.changes.reopened && `再開${p.changes.reopened}`,
-          ]
-            .filter(Boolean)
-            .join(" / ") || "—"
-        : "—",
-    ])
-      row.append(node("td", text));
-    table.append(row);
-  }
-  tableWrap.append(summary, table);
-  root.append(tableWrap);
   return root;
 }
 export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
@@ -193,31 +163,24 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   const settings = node("details", undefined, "burn-settings"),
     settingsLabel = node("summary", "学校日程"),
     form = node("form"),
-    label = node("label", "学校がある日（1行に1日、YYYY-MM-DD）"),
-    dates = node("textarea"),
-    start = node("input"),
-    propose = node("button", "期日までの平日を候補にする"),
+    proposal = node("p", undefined, "burn-note burn-calendar-proposal"),
     save = node("button", "日程を保存"),
     error = node("p", undefined, "burn-settings-error");
-  dates.rows = 6;
-  dates.id = "burn-school-days";
-  label.htmlFor = dates.id;
-  start.type = "date";
-  start.setAttribute("aria-label", "候補の開始日");
-  propose.type = "button";
+  const calendar = createSchoolCalendar({
+    onChange(days) {
+      const draft = activeDraft();
+      if (!draft) return;
+      draft.days = days;
+      draft.dirty = true;
+      draft.proposal = false;
+      draft.error = null;
+      renderSettings(currentData);
+    },
+  });
   save.type = "submit";
   error.setAttribute("role", "alert");
   error.hidden = true;
-  const proposal = node("div", undefined, "burn-proposal");
-  proposal.append(start, propose);
-  form.append(
-    label,
-    dates,
-    proposal,
-    node("p", "祝日・休講は日付を取り除いて調整できます。", "burn-note"),
-    save,
-    error,
-  );
+  form.append(calendar.element, proposal, save, error);
   settings.append(settingsLabel, form);
   dialog.append(top, select, content, notice, settings);
   document.body.append(dialog);
@@ -254,7 +217,9 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     currentData = null;
     scope = null;
     generation++;
-    dates.value = "";
+    calendar.setState({ days: [], month: todayJst().slice(0, 7) });
+    delete form.dataset.milestone;
+    delete form.dataset.revision;
     settings.hidden = true;
     hide();
   };
@@ -279,16 +244,19 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     let draft = scheduleDrafts.get(data.milestone);
     if (!draft) {
       draft = {
-        value: "",
+        days: [],
         revision: "0",
         dirty: false,
         saving: false,
         error: null,
+        initialized: false,
+        proposal: false,
+        month: null,
       };
       scheduleDrafts.set(data.milestone, draft);
     }
     if (!draft.dirty && !draft.saving) {
-      draft.value = (data.schedule?.schoolDays || []).join("\n");
+      draft.days = [...(data.schedule?.schoolDays || [])];
       draft.revision = data.schedule?.revision || "0";
     }
     return draft;
@@ -298,11 +266,20 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       ? scheduleDrafts.get(currentData.milestone)
       : null;
   function renderSettings(data) {
+    const previous = scheduleDrafts.get(Number(form.dataset.milestone));
+    if (previous) previous.month = calendar.month;
+    const changed = form.dataset.milestone !== String(data.milestone);
     const draft = draftFor(data);
     settings.hidden = !data.milestone;
-    propose.disabled = !data.milestones.find((m) => m.number === data.milestone)
-      ?.dueOn;
-    if (dates.value !== draft.value) dates.value = draft.value;
+    calendar.setState({
+      days: draft.days,
+      ...(changed
+        ? { month: draft.month || (draft.days[0] || todayJst()).slice(0, 7) }
+        : {}),
+    });
+    proposal.textContent = draft.proposal
+      ? "今日（JST）から期日までの平日を仮選択しました。休講日などはクリックで外してから保存してください。"
+      : "学校がある日を1日ずつ選択・解除できます。選択だけでは保存されません。";
     form.dataset.milestone = String(data.milestone);
     form.dataset.revision = draft.revision;
     save.disabled = draft.saving;
@@ -314,6 +291,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       reset.onclick = () => {
         if (activeDraft() !== draft) return;
         draft.dirty = false;
+        draft.proposal = false;
         draft.error = null;
         renderSettings(currentData);
         void load();
@@ -321,6 +299,29 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       error.append(reset);
     }
   }
+  settings.addEventListener("toggle", () => {
+    if (!settings.open || !currentData) return;
+    const draft = activeDraft();
+    if (!draft || draft.initialized) return;
+    draft.initialized = true;
+    if (
+      !draft.dirty &&
+      !draft.saving &&
+      !draft.days.length &&
+      currentData.schedule?.revision === "0"
+    ) {
+      const due = currentData.milestones.find(
+        (m) => m.number === currentData.milestone,
+      )?.dueOn;
+      const days = weekdayProposal(due);
+      if (days.length) {
+        draft.days = days;
+        draft.dirty = true;
+        draft.proposal = true;
+      }
+    }
+    renderSettings(currentData);
+  });
   function render(data) {
     currentData = data;
     const optionsKey = JSON.stringify(data.milestones);
@@ -353,8 +354,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         node(
           "strong",
           data.current.estimated
-            ? `${hours(data.current.remainingHours)} h`
-            : "—",
+            ? `残り：${hours(data.current.remainingHours)}h`
+            : "残り：—",
         ),
         node("span", `未完了の見積合計 · 未見積 ${data.current.unestimated}件`),
       );
@@ -420,7 +421,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     while (cache.size > 12) {
       const oldest = cache.keys().next().value;
       cache.delete(oldest);
-      if (!scheduleDrafts.get(oldest)?.saving) scheduleDrafts.delete(oldest);
+      // Unsaved choices and the once-only proposal decision survive cache eviction.
     }
   }
   async function load() {
@@ -494,51 +495,12 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       }
     }
   }
-  dates.oninput = () => {
-    const draft = activeDraft();
-    if (!draft) return;
-    draft.value = dates.value;
-    draft.dirty = true;
-    draft.error = null;
-    error.hidden = true;
-  };
-  propose.onclick = () => {
-    const due = currentData?.milestones.find(
-      (m) => m.number === currentData.milestone,
-    )?.dueOn;
-    if (!start.value || !due) {
-      error.textContent = "開始日を選択してください。";
-      error.hidden = false;
-      return;
-    }
-    const end = Date.parse(
-        new Date(due).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" }) +
-          "T00:00:00Z",
-      ),
-      begin = Date.parse(start.value + "T00:00:00Z"),
-      values = [];
-    if (end < begin || end - begin > 180 * 86400000) {
-      error.textContent = "開始日から期日までを180日以内にしてください。";
-      error.hidden = false;
-      return;
-    }
-    for (let t = begin; t <= end; t += 86400000) {
-      const d = new Date(t);
-      if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6)
-        values.push(d.toISOString().slice(0, 10));
-    }
-    dates.value = values.join("\n");
-    dates.oninput();
-  };
   form.onsubmit = async (event) => {
     event.preventDefault();
     const draft = activeDraft();
     if (!draft || draft.saving) return;
-    const submittedDraft = draft.value,
-      days = submittedDraft
-        .split(/[\s,]+/)
-        .filter(Boolean)
-        .sort();
+    const days = [...draft.days].sort(),
+      submittedDraft = JSON.stringify(days);
     if (
       days.length > 60 ||
       new Set(days).size !== days.length ||
@@ -557,6 +519,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       return;
     }
     if (
+      !(days.length === 0 && currentData.schedule?.revision === "0") &&
       JSON.stringify(days) ===
       JSON.stringify(currentData.schedule?.schoolDays || [])
     ) {
@@ -607,7 +570,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         throw new Error(
           "保存結果を確認できません。再取得して確認してください。",
         );
-      draft.dirty = draft.value !== submittedDraft;
+      draft.dirty = JSON.stringify(draft.days) !== submittedDraft;
+      if (!draft.dirty) draft.proposal = false;
       draft.revision = data.schedule.revision;
       const next = {
         ...(cache.get(target) || submittedData),

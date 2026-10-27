@@ -5,6 +5,7 @@ const allowed = new Map([
   ["/", "index.html"],
   ["/app.js", "app.js"],
   ["/burndown.js", "burndown.js"],
+  ["/school-calendar.js", "school-calendar.js"],
   ["/icons.js", "icons.js"],
   ["/ui-tools.js", "ui-tools.js"],
   ["/editor-bundle.js", "editor-bundle.js"],

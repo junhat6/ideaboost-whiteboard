@@ -12,6 +12,7 @@ const assets = [
   "app.js",
   "api-adapter.js",
   "burndown.js",
+  "school-calendar.js",
   "styles.css",
   "editor-bundle.js",
   "diagram-worker.js",
@@ -124,7 +125,7 @@ async function main() {
     try {
       await verifyDeployment(base, expected);
       console.log(
-        "Production health and all 9 assets match; no mutation requests sent",
+        `Production health and all ${assets.length} assets match; no mutation requests sent`,
       );
       return;
     } catch (error) {
