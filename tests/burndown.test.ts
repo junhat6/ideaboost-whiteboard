@@ -57,6 +57,19 @@ function fixture(sourceOverride?: () => Promise<Response>) {
     setAlarm: async (t: number) => {
       alarm = t;
     },
+    getAlarm: async () => alarm || null,
+    transaction: async (run: (tx: any) => Promise<unknown>) => {
+      const before = structuredClone(map),
+        previousAlarm = alarm;
+      try {
+        return await run(storage);
+      } catch (error) {
+        map.clear();
+        for (const [key, value] of before) map.set(key, value);
+        alarm = previousAlarm;
+        throw error;
+      }
+    },
   };
   const history = new BurnHistory(
     storage,
@@ -84,6 +97,9 @@ function fixture(sourceOverride?: () => Promise<Response>) {
     advance(ms: number) {
       now += ms;
       data.observedAt = new Date(now).toISOString();
+    },
+    consumeAlarm() {
+      alarm = 0;
     },
     read: () =>
       history.fetch(new Request("https://test/api/burndown?milestone=9")),
@@ -152,6 +168,8 @@ test("JST日次alarm、同日同内容は冪等、日跨ぎは新観測", async 
   assert.equal(jstDay(Date.parse("2026-10-27T15:00:00Z")), "2026-10-28");
   assert.equal(f.alarm, nextJstDay(Date.parse("2026-10-27T14:00:00Z")));
   f.advance(2 * 3600000);
+  // A fired Durable Object alarm has already consumed its previous reservation.
+  f.consumeAlarm();
   await f.history.alarm();
   assert.equal(
     [...f.map.keys()].filter((k) => k.startsWith("observation:")).length,

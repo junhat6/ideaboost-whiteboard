@@ -1703,6 +1703,15 @@ export function createHandler({
           result = await board(env, null, true, { observation: true });
         } catch (error) {
           if (error.code === "scope_not_public") throw error;
+          if (
+            error instanceof ApiError &&
+            (error.code === "github_network_error" ||
+              (error.code === "github_request_failed" &&
+                [429, 500, 502, 503, 504].includes(
+                  error.extra?.upstreamStatus,
+                )))
+          )
+            throw new ApiError(503, "observation_unavailable");
           throw new ApiError(503, "observation_incomplete");
         }
         const output = result.output;

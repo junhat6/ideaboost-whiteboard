@@ -32,6 +32,9 @@
 ## 保管と負荷の上限
 
 - 日次はJST 00:10。配信後の正規readでDOを起動し、その後は閲覧者なしでもalarmで継続。alarm再実行は同日同内容のsignatureで冪等。
+- alarmの一時取得障害（HTTP 429/500/502/503/504、source呼出しの通信失敗）には60秒・5分・15分のbackoffを使い、JST日ごとの追加短期retry予約は3回まで。`alarm-retry`の`{day, attempts}`を永続化し、GET・成功・再起動では同日のbudgetを戻さない。使い切った場合は次のJST 00:10へ戻す。公開失効403・不完全取得`observation_incomplete`・成功応答のJSON/値検証エラー・storageエラーには短期retryを追加せず、偽の観測を保存しない。`observation_incomplete`・`scope_not_public`・`estimate_hours_not_public`は、HTTPのerror codeだけでなくsource呼出しがrejectしたErrorのmessageでも短期retryから除外する。
+- GETの初期alarm予約とalarm後のbudget/予約を同じqueueで直列化し、budget更新と予約は小さいstorage transactionで確定する。通信はtransaction外。既存の早いalarmを遅い予約で上書きしない。制限はアプリの追加短期予約数であり、runtimeのat-least-onceによる実行回数上限を主張しない（[Alarms](https://developers.cloudflare.com/durable-objects/api/alarms/)、[Storage transaction](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transaction)）。
+- 観測用board取得は確認できたGitHub通信障害・一時HTTP障害だけを`observation_unavailable`とし、形状・ページング・GraphQL等の不完全取得と区別する。後段の子関係取得も、GitHub失敗を包むHTTP502だけではretryせず、`github_request_failed`の`upstreamStatus`が上記一時statusの場合と`github_network_error`だけを対象にする。その他の`github_*`、`invalid_private_key`、`estimate_hours_unavailable`は認証・設定・field契約・応答検証不足として短期retryしない。通常boardの応答と認証処理は変更しない。
 - immutableな各観測と、日ごとの最終観測への小さいindexを原子的に保存。チャート読取は最大180日分のindexだけを読み、全作業snapshotを毎回メモリ展開しない。保持180日、1日最大96観測。上限時も現在値は確認するが履歴の制限を表示し、過去点は上書きしない。
 - 同時閲覧はsingleflightで共有し、完了後の閲覧は新しい公開確認を行う。TTLで公開確認を省略しない。最大500末端作業・100milestone、完全性を超えた応答は観測不能として扱う。
 - 初回boardへ履歴API/チャートimportを加えない。別途数値の初期入力や実Issue QAは行わない。

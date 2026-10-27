@@ -65,8 +65,41 @@ type Observation = {
 };
 type Storage = Pick<
   DurableObjectStorage,
-  "get" | "put" | "list" | "delete" | "setAlarm"
+  "get" | "put" | "list" | "delete" | "getAlarm" | "setAlarm" | "transaction"
 >;
+type AlarmRetry = { day: string; attempts: number };
+const alarmRetryDelays = [60000, 300000, 900000];
+const transientSourceStatuses = [429, 500, 502, 503, 504];
+class ObservationSourceError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | null,
+    readonly code?: string,
+    readonly upstreamStatus?: number,
+  ) {
+    super(message);
+  }
+  get retryable() {
+    if (
+      [
+        "scope_not_public",
+        "estimate_hours_not_public",
+        "observation_incomplete",
+        "invalid_private_key",
+        "estimate_hours_unavailable",
+      ].includes(this.code ?? this.message) ||
+      (this.status !== null && !transientSourceStatuses.includes(this.status))
+    )
+      return false;
+    // GitHub's API boundary wraps all upstream HTTP failures in 502. Do not
+    // mistake an upstream 401 or a malformed GraphQL response for an outage.
+    if (this.code === "github_request_failed")
+      return transientSourceStatuses.includes(this.upstreamStatus ?? 0);
+    if (this.code?.startsWith("github_"))
+      return this.code === "github_network_error";
+    return true;
+  }
+}
 export const jstDay = (time: number) =>
   new Date(time + 9 * 3600000).toISOString().slice(0, 10);
 export const nextJstDay = (time: number) => {
@@ -176,23 +209,71 @@ export class BurnHistory {
     this.tail = next.catch(() => {});
     return next;
   }
+  private planAlarm(retry = false) {
+    // Serialize GET bootstrap and alarm completion. Network collection stays outside
+    // this transaction, and a later GET must never postpone an earlier retry.
+    return this.enqueue(() =>
+      this.storage.transaction(async (tx) => {
+        const time = this.now(),
+          day = jstDay(time),
+          daily = nextJstDay(time);
+        let next = daily,
+          attempts = alarmRetryDelays.length;
+        if (retry) {
+          const previous = await tx.get<AlarmRetry>("alarm-retry");
+          if (previous?.day !== day) attempts = 0;
+          else if (
+            Number.isSafeInteger(previous.attempts) &&
+            previous.attempts >= 0 &&
+            previous.attempts <= alarmRetryDelays.length
+          )
+            attempts = previous.attempts;
+          if (attempts < alarmRetryDelays.length)
+            next = Math.min(next, time + alarmRetryDelays[attempts]);
+        }
+        const current = await tx.getAlarm();
+        if (current === null || next < current) {
+          if (next < daily)
+            await tx.put("alarm-retry", { day, attempts: attempts + 1 });
+          await tx.setAlarm(next);
+        }
+      }),
+    );
+  }
   private async remove(keys: string[]) {
     for (let n = 0; n < keys.length; n += 128)
       await this.storage.delete(keys.slice(n, n + 128));
   }
   private async collect() {
-    const response = await this.source();
+    let response: Response;
+    try {
+      response = await this.source();
+    } catch (error) {
+      // Only rejection of the source call is transport-retryable; parsing,
+      // validation and storage failures below do not spend short-retry budget.
+      throw new ObservationSourceError(
+        error instanceof Error ? error.message : "observation_unavailable",
+        null,
+      );
+    }
     if (!response.ok) {
       // Loss of visibility blocks disclosure; it does not authorize deleting history.
       const error = (await response.json().catch(() => ({}))) as {
-        error?: string;
-      };
-      throw new Error(
+        error?: unknown;
+        upstreamStatus?: unknown;
+      } | null;
+      const code = typeof error?.error === "string" ? error.error : undefined;
+      throw new ObservationSourceError(
         response.status === 403
-          ? error.error === "estimate_hours_not_public"
-            ? error.error
+          ? code === "estimate_hours_not_public"
+            ? code
             : "scope_not_public"
           : "observation_unavailable",
+        response.status,
+        code,
+        typeof error?.upstreamStatus === "number"
+          ? error.upstreamStatus
+          : undefined,
       );
     }
     const source = await response.json();
@@ -398,7 +479,7 @@ export class BurnHistory {
         return await this.saveSchedule(request, Number(raw));
       }
       if (request.method !== "GET") return new Response(null, { status: 405 });
-      await this.storage.setAlarm(nextJstDay(this.now()));
+      await this.planAlarm();
       const { source, records, recordingLimited } = await this.collection();
       const future = source.milestones
         .filter((m) => m.dueOn && Date.parse(m.dueOn) >= this.now())
@@ -460,10 +541,16 @@ export class BurnHistory {
     }
   }
   async alarm() {
+    let retry = false;
     try {
       await this.collection();
+    } catch (error) {
+      retry = error instanceof ObservationSourceError && error.retryable;
+      throw error;
     } finally {
-      await this.storage.setAlarm(nextJstDay(this.now()));
+      // Success/GET do not replenish today's durable budget. A new or already
+      // queued alarm supersedes runtime retries, while the original error remains visible.
+      await this.planAlarm(retry);
     }
   }
 }
