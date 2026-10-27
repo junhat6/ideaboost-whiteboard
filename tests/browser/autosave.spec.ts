@@ -87,6 +87,37 @@ async function open(page: any) {
   await page.locator('[data-open="t0-0-0"]').click();
 }
 
+test("reopening a posting Issue preserves a queued third distinct status before and after acknowledgement", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const writes: any[] = [];
+  await page.route("**/api/issues/100", async (r) => {
+    const p = r.request().postDataJSON();
+    writes.push(p);
+    if (writes.length === 1) await gate;
+    Object.assign(s.board.tasks[0], {
+      status: p.status,
+      revision: `r-${writes.length}`,
+    });
+    await r.fulfill({ json: { ok: true, issue: s.board.tasks[0] } });
+  });
+  await open(page);
+  await status(page, "レビュー中");
+  await expect.poll(() => writes.length).toBe(1);
+  await status(page, "作業中");
+  await page.locator("#close-detail").click();
+  await open(page);
+  await expect(page.locator("#detail-status")).toHaveValue("作業中");
+  release();
+  await expect.poll(() => writes.length).toBe(2);
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await expect(page.locator("#detail-status")).toHaveValue("作業中");
+  expect(writes.map((p) => p.status)).toEqual(["レビュー中", "作業中"]);
+});
+
 test("a rapid local selection burst is one request and a return to original is no request", async ({
   page,
 }) => {

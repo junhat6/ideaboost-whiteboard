@@ -898,7 +898,8 @@ let editorBusy = false,
   editorPosting = false,
   composing = false;
 let editorSession = 0;
-let editorBody = "";
+let editorBody = "",
+  fillingDetail = false;
 let titleEditing = false,
   titleBeforeEdit = "";
 let pendingEditorRemote = undefined,
@@ -1042,7 +1043,8 @@ function updateDirty() {
           : fieldValue(editorBaseline, key),
       ),
   );
-  if (activeSave()?.phase === "posting") activeSave().viewDraft = clone(draft);
+  if (!fillingDetail && activeSave()?.phase === "posting")
+    activeSave().viewDraft = clone(draft);
   if (editMode) editorSaved = false;
   syncEditorControls();
 }
@@ -1455,6 +1457,14 @@ function progressMarkup(done, total) {
 }
 
 function fillDetail() {
+  fillingDetail = true;
+  try {
+    fillDetailFields();
+  } finally {
+    fillingDetail = false;
+  }
+}
+function fillDetailFields() {
   sourceVisible = false;
   $("#markdown-source").setAttribute("aria-pressed", "false");
   $("#markdown-source").innerHTML = "原文を確認 <kbd>F8</kbd>";
