@@ -43,8 +43,15 @@ test("native wheel continues cards, fifth card can drag to Doing, same-column is
 }) => {
   const s = await setup(page);
   const cell = page.locator(firstCell);
-  const box = await cell.locator(".cell-viewport").boundingBox();
-  await page.mouse.move(box!.x + box!.width - 4, box!.y + box!.height / 2);
+  const left = await cell.locator('[data-task="t0-0-0"]').boundingBox();
+  const right = await cell.locator('[data-task="t0-0-1"]').boundingBox();
+  // Use the actual card gutter, not the platform-dependent native scrollbar.
+  const point = { x: (left!.x + left!.width + right!.x) / 2, y: left!.y + left!.height / 2 };
+  expect(await page.evaluate(({x,y}) => {
+    const hit = document.elementFromPoint(x,y);
+    return !!hit?.closest(".cell-viewport") && !hit?.closest(".task");
+  }, point)).toBe(true);
+  await page.mouse.move(point.x, point.y);
   await page.mouse.wheel(0, 500);
   await expect(cell.locator(".cell-range")).toHaveText("5–5 / 5");
   await cell

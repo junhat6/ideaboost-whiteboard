@@ -286,3 +286,7 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - SP機能フラグtrue時だけinstallation tokenに`issue_fields:read`を指定し、フラグによるtoken cache keyを分離。無効時には追加権限を要求しない。
 - 公開承認済みorg field 49067031（Story points / number / visibility=all）を毎回検証。PBIのみ後読み込みし、org-only項目・不明shape・取得不可を公開しない。値の未設定は正常な空欄。既存7択と解除の明示保存・競合検証を維持し、QAのために実値を入力しない。
 - 実接続では表示中6 PBIの値が全てnullで返り、未設定をクライアントが取得不可へ落としていた既存不具合を検出。公開検証済みnullを保持し、数字バッジは空欄のままサイドバーから初回設定できるよう修正。欠落/失敗は引き続き編集不可。nullから0.1を明示保存する合成回帰を追加（実IssueのQA変更なし）。
+- 最終配信source: `de9d0ccdbe3923954eaa9ef7ddf410b99e407cfe`、Worker `13db280b-921b-42d1-bd33-f0fad79103e5`。`STORY_POINTS_READ_ENABLED=true`。check 101 unit/integration、最終全228 browser成功（59.3秒）。途中の新規試験2件失敗はPBIタイトルとDemo goal両方に同じdata属性があったlocator曖昧性で、タイトルへ限定して解消。
+- 本番両サイズでSP API HTTP200・fieldReadStatusなし、6 PBIすべて未設定null、8選択肢を確認。数字バッジは空欄。4assets hash一致、POST0・JSエラー0。既存値の自動入力・実Issueの書込QAはしていない。実書込成功は未検証、正本API契約とmockのnull→0.1/各値/解除/競合/部分失敗を検証。
+- 各1回の読み取り観測: 1920はboard3633ms、Issue shell61ms、SP完了7040ms（navigation起点）。2560はboard1725ms、Issue shell60ms、SP完了4662ms。cold/hit混在で改善率を主張しない。SPは本文/ボードをブロックしない後読込。
+- CI40454374607は227 browser成功、既存desktop native-wheel試験のみ失敗（右端4pxのwheelでscroll不発）。原因候補のOS依存scrollbar領域を避け、2枚の実bbox間のgutterを測り、hit-testで付箋/タイトル内部ではないことを確認してからnative wheelを送る試験へ限定修正。両サイズ各5回、10/10成功。SPの本番/合成検証は成功し、アプリコードの追加変更・再配信は不要。
