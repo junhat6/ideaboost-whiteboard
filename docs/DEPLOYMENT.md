@@ -249,3 +249,12 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 通常本文保存の合成比較は要求15→5回、中央値282→111ms（各upstream20ms、3回）。本番IssueのQA書込み禁止のため実保存レイテンシは未計測。SP保存は別のfresh field確認を要するためこの値を適用しない。
 - Story pointsは数字のみのPBI表示とsidebar7択/解除を実装・mock検証済み。既存Appの通常runtimeで定義GETを試し、HTTP403を確認。追加が必要なのは組織Issue Fields:readの承認とinstallation tokenへの当該権限指定。権限変更・秘密抽出は実行していない。実書込み権限は未検証。
 - 失敗GETを継続しないため`STORY_POINTS_READ_ENABLED=false`へ戻した。health200/storyPointsなしを確認し、SPは本番非表示。通常boardと保存UXは配信済み。承認後に正規readを再確認して有効化する。初回probe版Workerは`88907534-a47c-4681-86c0-1badf078fce2`で、最終版ではない。
+
+### 並行保存の限定安全修正
+
+- 配信source: `22c5090cc30c59148349440e92ca767708564b95`。Worker: `1b7265e6-082d-446d-8784-42ec350f34e2`。
+- 別カードのdrag失敗が全snapshotを戻すraceを対象fieldだけのrollbackへ変更。成功後readは共通のmutation世代保護を通し、先行GETで他Issueの確定値を戻さない。
+- 現表示範囲から消えた失敗Issueはfilterを解除せず、保存復元欄で原文と選択値を確認・コピー可能。既知の非公開化はentryとDOMを即消去。送信中/未解決entryはbeforeunload警告対象で、成功後は解除。ブラウザー終了後の完了保証はしない。
+- SPの最終値読取を本文/Status preflight前へ移し、その読取中の外部本文変更を409/書込みゼロで検出する回帰を追加。GitHubの原子的CASではない。
+- check成功（94 unit/integration）、全214 browser成功（54.2秒）。最後の復元欄の選択値表示後に対象16 browserも成功（10.5秒）。本番両サイズPOST0/JSエラー0、4assets hash一致。各1回のboard4551/1019ms、Issue shell62/50msはcold/hit混在の観測で改善率にしない。
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40436375729 （同一SHAでcheckと全214 browser成功）。SPは権限承認待ちでfalseを維持し、App/installation設定への読み取りはGitHub Confirm access待ち。権限・秘密の変更はない。
