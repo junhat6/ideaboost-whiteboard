@@ -333,3 +333,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 保存ack後に届いた古いboardは引き続き採用しないが、その応答が確認したfield公開失効は優先適用する。失効後のfresh GET失敗でもSPの表示・編集が復活せず、確認済み本文/titleは巻き戻さない回帰を追加。
 - 配信直後の最初のasset読み取りは旧版だったため、再配信せず伝播後に一致確認。本番1920/2560で最終app.js完全一致、詳細開閉・原文補助・SP選択欄表示、POST0・pageerror0。詳細openは71/38/38msと91/136/138ms。boardは4,072/1,466ms（server状態が異なる単発確認で性能比較には使わない）。両画面のスクリーンショットも確認。
 - API/性能経路は上記a67817e測定と同じ。6試行の追加負荷測定は繰り返していない。実Issue・field値・公開設定のQA変更なし。新規権限・秘密・課金変更なし。
+
+## Estimate Hours と観測バーンダウン（2026-10-27）
+
+- 初回配信source `4d25d297249186c712fc54bbe3e569217ebcf3c7`、Worker `4a08d4ce-db7f-44e5-b60c-61e648ba7357`。同じ本番URL、public-temporary、既存App権限を維持。
+- CI https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40487270088 success。check 88 backend＋47 unit、286 browser tests成功。公開失効/古いboard/履歴保持/完全ページ/JSTalarm/Project外中間作業を含む独立レビュー指摘はすべて解消確認。
+- Public Number field `49079931` / `IFN_kgDOAuzmew`、Project参照 `PVTF_lADOEYcVLM4Bb8yFzhnZdjc`。実Appで公開性と全36作業の値取得成功。Issueの値は未変更。PBI以外の正式配下作業を種類によらず扱い、親子時間の二重計上をしない。
+- 対象はProject3/view16の正式PBI行と配下末端作業、正式milestone別。現在view16 filterは `repo:engineer-first/idea-boost is:issue type:PBI is:open`。15PBIがSprint9に属し、個人表示で選ぶ6PBI・検索・担当者フィルタは履歴scopeを変更しない。子自身の別milestoneは優先して別sprintへ分ける。全repoバックログの無条件合算ではない。
+- 本番Sprint9は35件全未見積、Project外の末端子1件除外、観測1件。パネルGET200と初回alarm登録経路が成功。公開失効/確認不能では履歴を消さず返却を遮断。過去の後付けデータ・旧estラベルfallback・開始日の推測はしない。開始baseline未確定のため理想線は省略。
+- 本番1920/2560でoverlay、時間欄、本文、Esc復帰、board寸法不変、asset一致を確認。POST0、pageerror0。数値更新/解除/競合/partial/unknown/再訪はmockで検証し、実Issue QA値は入力していない。新しい資格情報・App権限・有料サービス追加なし。
+- 本番画素確認で解除ボタンの折返しを発見したため、後続のCSS限定追補でnowrap・縮小防止を適用。取得/履歴/保存ロジックは変更しない。

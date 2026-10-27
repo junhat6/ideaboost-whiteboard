@@ -193,3 +193,22 @@ Floating UI DOM 1.8.0をnamed importでローカルbundle化（ui-tools.js約18K
 最初の各1回は非snapshotのfresh応答、残りの初期表示は共有snapshot。新規clientでもwarm共有readerならcached結果であり、約1.5秒を全fresh達成と主張しない。snapshotのポイントはboardと同じ元fetchedAt、最大60秒の既存上限内で、直後のfresh boardから同時更新する。初回非snapshotではboard4.635→5.215秒、SP9.467→5.219秒。前者はindex2ページ目の約0.95秒の上振れ等を含む少数実測で、真のserver cold平均を改善したとは言えない。fresh完了6回では大きな悪化は観測していないが、数十ms差を有意な高速化とも扱わない。
 
 変更前の最初の計測試行はboard表示待機30秒で失敗し、API200確認後に上表の3組を採取。配信後の計測の一部に別のread-only画面QAが重なったため、厳密な負荷隔離ベンチマークではない。今回の確実な改善は追加API待ちの除去と同一応答/描画での表示であり、純粋なGitHub latency改善率を主張しない。別QAでは1920/2560の詳細表示37–138ms、POST0/ページエラー0、配信コード一致を確認。
+
+## Estimate Hours とバーンダウン追加（2026-10-27）
+
+時間は既存BoardChildren GraphQLにlinked Issue fieldを同梱し、36作業IssueのためのREST waterfallを追加しない。公開性とcanonical IDを開始・終了で確認する。チャート用9,169bytesのES moduleと履歴APIはパネル初回表示時だけ読み込む。両解像度の本番確認で、パネル表示前の履歴要求は0、表示時は各1要求。DOは同時の収集だけsingleflightで共有し、チャートは日次indexを読む。履歴公開確認のTTL省略はしない。
+
+少数回のread-only実測（既存GitHub/Cloudflareの状態を含み、真のcold固定ではない）:
+
+| 指標 | 追加前 | 追加後 |
+| --- | --- | --- |
+| fresh board API 3回 | 3.826 / 3.391 / 3.060秒 | 3.796 / 3.512 / 3.158秒 |
+| fresh中央値 | 3.391秒 | 3.512秒 |
+| 1920初回board・非snapshot | 4.059秒 | 4.969秒 |
+| 2560初期board・共有snapshot | 1.572秒 | 1.500秒 |
+| Issue本文準備1920/2560 | 78 / 87ms | 84 / 56ms |
+| 新履歴panel初回1920/2560 | 未実装 | 6.439 / 4.840秒 |
+
+fresh中央値は121ms増、初回単発は910ms増で、高速化や完全な同等性は主張しない。既存GraphQLのネットワーク変動を含む3回のみで統計的有意差は未評価。履歴は全scopeの新しい公開確認・完全性確認を行うため約5〜6秒を要するが、board/本文の準備とは独立している。今回の性能上の保証は追加N+1を作らないことと、未表示のチャート/履歴通信を初期critical pathに入れないことである。
+
+本番では全36作業のEstimate Hoursが公開確認済みnull。Sprint 9の集計35件は全未見積で、UIは「— / 未見積35件」。0時間達成の線を描かず、観測開始前の過去を生成しない。Project外の正式な末端子1件は除外件数として表示。初回観測1件の保存・再訪保持を確認。最終asset一致、1920/2560、POST0、pageerror0。実Issue QA書込なし。実際の日次alarm発火は将来のため未観測で、登録とJST次回00:10計算は合成試験で確認した。

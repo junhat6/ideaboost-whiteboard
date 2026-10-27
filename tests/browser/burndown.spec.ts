@@ -87,6 +87,12 @@ test("時間autosaveは本文を便乗せず、小数/解除と再訪、PBI対�
   await page.reload();
   await page.locator(".task-title").first().click();
   await expect(page.locator("#estimate-hours-editor")).toBeVisible();
+  await expect(page.locator("#clear-estimate-hours")).toHaveCSS(
+    "white-space",
+    "nowrap",
+  );
+  const clearSize = await page.locator("#clear-estimate-hours").boundingBox();
+  expect(clearSize!.width).toBeGreaterThanOrEqual(48);
   await fillEditor(page, "未保存の本文を保持");
   await page.locator("#estimate-hours").fill("1.5");
   expect(f.posts()).toBe(0);

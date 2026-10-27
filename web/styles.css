@@ -2898,6 +2898,11 @@ input[type="checkbox"] {
   width: 100%;
   min-width: 0;
 }
+.hours-input-row button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding-inline: 12px;
+}
 #estimate-hours-error {
   color: var(--error);
   font-size: 12px;
