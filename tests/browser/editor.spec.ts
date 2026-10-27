@@ -300,5 +300,6 @@ test("normal sync stays quiet and typing during POST remains an unsaved draft af
   page.once("dialog", (d) => d.dismiss());
   await page.locator("#close-detail").click();
   await expect(page.locator("#details")).toBeVisible();
-  expect(posts).toBe(1);
+  expect(posts).toBe(2);
+  expect(sent).not.toHaveProperty("body");
 });

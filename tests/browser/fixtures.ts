@@ -106,7 +106,19 @@ export async function setup(
     const issue = [...board.lanes, ...board.tasks].find(
       (i) => i.number === id,
     )!;
-    Object.assign(issue, { ...patch, revision: "2026-10-26T00:00:01Z" });
+    Object.assign(issue, {
+      ...patch,
+      ...(patch.assignees
+        ? {
+            assignees: patch.assignees.map(
+              (login: string) =>
+                board.assigneeOptions.find((a) => a.login === login) ||
+                issue.assignees.find((a) => a.login === login) || { login },
+            ),
+          }
+        : {}),
+      revision: "2026-10-26T00:00:01Z",
+    });
     return route.fulfill({ json: { ok: true, issue } });
   });
   await page.goto(prefix + "/");

@@ -34,11 +34,9 @@ test("drag and detail both request Done and retain the canonical closed response
     .toBe("CLOSED");
   await page.locator('[data-open="t0-0-1"]').click();
   await page.getByRole("button", { name: "完了", exact: true }).click();
-  await page.locator("#save-issue").click();
   await expect.poll(() => payloads.length).toBe(2);
   await expect(page.locator("#save-issue")).toBeDisabled();
   await page.getByRole("button", { name: "作業中", exact: true }).click();
-  await page.locator("#save-issue").click();
   await expect.poll(() => payloads.length).toBe(3);
   expect(payloads.map((p) => p.status)).toEqual(["完了", "完了", "作業中"]);
   expect(payloads.every((p) => !Object.hasOwn(p, "state"))).toBe(true);
@@ -87,7 +85,6 @@ for (const via of ["detail", "drag", "changed-status"])
     if (via !== "drag") {
       await page.locator('[data-open="t0-0-0"]').click();
       await page.getByRole("button", { name: "完了", exact: true }).click();
-      await page.locator("#save-issue").click();
     } else {
       await page
         .locator('[data-task="t0-0-0"]')
@@ -102,12 +99,17 @@ for (const via of ["detail", "drag", "changed-status"])
     expect(posts).toBe(1);
     if (via === "changed-status") {
       await page.getByRole("button", { name: "作業中", exact: true }).click();
-      await expect(page.locator("#save-issue")).not.toHaveText("完了処理を再試行");
+      await expect(page.locator("#save-issue")).not.toHaveText(
+        "完了処理を再試行",
+      );
     }
     await page.locator("#save-issue").click();
     await expect.poll(() => posts).toBe(2);
-    expect(payloads[1].status).toBe(via === "changed-status" ? "作業中" : "完了");
-    if (via !== "changed-status") expect(payloads[1].expectedState).toBe("OPEN");
+    expect(payloads[1].status).toBe(
+      via === "changed-status" ? "作業中" : "完了",
+    );
+    if (via !== "changed-status")
+      expect(payloads[1].expectedState).toBe("OPEN");
     expect(payloads[1].requestId).not.toBe(payloads[0].requestId);
     await expect(page.locator("#save-issue")).toBeDisabled();
     await expect(page.locator("#save-problems")).toBeHidden();
@@ -134,7 +136,6 @@ test("unknown close outcome stays blocked after successful GET", async ({
   });
   await page.locator('[data-open="t0-0-0"]').click();
   await page.getByRole("button", { name: "完了", exact: true }).click();
-  await page.locator("#save-issue").click();
   await expect(page.locator("#recover-edit")).toBeEnabled();
   await page.locator("#recover-edit").click();
   await expect(page.locator("#save-issue")).toBeDisabled();
@@ -167,7 +168,6 @@ test("fresh confirmation of Done and CLOSED clears a known failure without dupli
   });
   await page.locator('[data-open="t0-0-0"]').click();
   await page.getByRole("button", { name: "完了", exact: true }).click();
-  await page.locator("#save-issue").click();
   await expect(page.locator("#recover-edit")).toBeEnabled();
   await page.locator("#recover-edit").click();
   await expect(page.locator("#detail-error")).toBeHidden();

@@ -136,3 +136,13 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 ### セル内の続き・PBI担当者・夜間性能
 
 `cell-viewport.spec.ts` は0/1/4/5/9/20件の実矩形、詳細復帰/同期/resize/filter/anchor削除、実wheel・5枚目drag・同列/別PBI境界、drag auto-scroll取消を検証。PBI正本担当の独立表示、複数/未割当/長い名前/画像失敗も両解像度で確認する。DOM全件数と画面内枚数を区別し、toBeVisibleだけでviewport内と判断しない。測定条件とbefore/afterはOVERNIGHT-2026-10-27.md。
+
+## 2026-10-27 離散項目の自動保存
+
+担当者・Status・Story pointsを選択すると200msのローカル集約後、その項目だけを送信する。本文・タイトルは明示保存。CodeMirror/IMEの部分入力やコメントは自動送信しない。同Issueの1 flight中は最後の選択を保持し、先行成功のrevisionで次の要求を送る。元の値へ戻す選択も、送信済み変更に対しては後続の意図として扱う。未送信で元へ戻した場合はPOSTしない。
+
+`autosave.spec.ts`で、未保存本文/titleの便乗送信・ack上書き防止、担当者名保持、閉じる/再訪、完了送信後のStatus変更（reopenなし）、SPの先行応答欠落時expected値保持、競合・unknown時の後続停止を検証する。本文保存中の離散選択も順番を守り、本文の追加draftは保持する。サーバーの競合検査・DO・未知結果停止は変更していない。
+
+ローカルfixtureでは4回の連続選択が1 POST、元へ戻す4回は0 POST。確認完了まで約357–360ms（200msの集約を含む、ネットワーク即時fixture）で、GitHub本番保存時間の改善率ではない。連続保存の途中でwhole-board GETを行わず、最後の成功後に1回更新する。通常状態のラベルは追加しない。
+
+採用PBIへの見積値設定はユーザー依頼による実データ操作として別管理。#631=5、#542=5、#737=8、#692=5、#749=13を未設定確認後にfield49067031だけ設定し、GitHub REST正規値と本番ボード双方で読戻し済み。UX回帰QAでは実Issueを書き換えない。

@@ -958,9 +958,10 @@ function showSaveProblems() {
 }
 function restoreSave(job) {
   if (!job) return;
-  editorBaseline = clone(job.baseline);
+  editorBaseline = clone(job.viewBaseline || job.baseline);
   editorLatest = clone(job.baseline);
-  for (const key of editorFields) writeField(key, job.draft[key]);
+  for (const key of editorFields)
+    writeField(key, (job.viewDraft || job.draft)[key]);
   editorOutcome = job.outcome || null;
   editorPosting = job.phase === "posting";
   editorBusy = editorPosting;
@@ -1033,10 +1034,15 @@ function updateDirty() {
       !equalField(
         draft[key],
         activeSave()?.phase === "posting"
-          ? activeSave().draft[key]
+          ? Object.hasOwn(activeSave().queued || {}, key)
+            ? activeSave().queued[key]
+            : Object.hasOwn(activeSave().patch, key)
+              ? activeSave().draft[key]
+              : fieldValue(editorBaseline, key)
           : fieldValue(editorBaseline, key),
       ),
   );
+  if (activeSave()?.phase === "posting") activeSave().viewDraft = clone(draft);
   if (editMode) editorSaved = false;
   syncEditorControls();
 }
@@ -1054,13 +1060,14 @@ function syncEditorControls() {
     detailUnavailable ||
     !!editorOutcome ||
     Object.keys(editorConflicts).length > 0;
-  const saveContent = editorPosting
-    ? "保存中…"
-    : editorBusy
-      ? "確認中…"
-      : retryCompletion
-        ? "完了処理を再試行"
-        : `保存 ${saveKeys}`;
+  const saveContent =
+    editorPosting && !activeSave()?.automatic
+      ? "保存中…"
+      : editorBusy && !activeSave()?.automatic
+        ? "確認中…"
+        : retryCompletion
+          ? "完了処理を再試行"
+          : `保存 ${saveKeys}`;
   if ($("#save-issue").innerHTML !== saveContent)
     $("#save-issue").innerHTML = saveContent;
   $("#save-issue").setAttribute(
@@ -1228,6 +1235,7 @@ function renderPointsChoices() {
       b.onclick = () => {
         editorPoints = value;
         updateDirty();
+        autoSaveField("storyPoints");
       };
       return b;
     }),
@@ -1359,9 +1367,9 @@ function renderDetailChoices() {
     root = $("#assignee-tiles");
   const people = new Map(
     [
-      ...(state.assigneeOptions || []),
-      ...(editorLatest?.assignees || []),
       ...(editorBaseline?.assignees || []),
+      ...(editorLatest?.assignees || []),
+      ...(state.assigneeOptions || []),
     ].map((a) => [a.login, a]),
   );
   const existing = new Map([...root.children].map((b) => [b.dataset.login, b]));
@@ -2107,6 +2115,15 @@ function closeDetail() {
   const d = $("#details");
   if (d.classList.contains("closing")) return;
   if (commentEntry()) commentEntry().body = "";
+  const job = activeSave();
+  if (job?.phase === "posting" && job.viewDraft) {
+    for (const key of editorFields)
+      if (
+        !Object.hasOwn(job.patch, key) &&
+        !Object.hasOwn(job.queued || {}, key)
+      )
+        job.viewDraft[key] = fieldValue(job.baseline, key);
+  }
   composerModule?.clearPreview($("#detail-body-view"));
   $("#comments-list")
     .querySelectorAll(".comment-content")
@@ -2352,7 +2369,13 @@ $("#detail-body").addEventListener("input", () => {
   editorBody = $("#detail-body").value;
 });
 $("#detail-fields").addEventListener("input", updateDirty);
-$("#detail-fields").addEventListener("change", updateDirty);
+$("#detail-fields").addEventListener("change", (event) => {
+  updateDirty();
+  const field = { "detail-assignee": "assignees", "detail-status": "status" }[
+    event.target.id
+  ];
+  if (field) autoSaveField(field);
+});
 $("#detail-title").addEventListener("input", updateDirty);
 let sourceVisible = false;
 $("#markdown-source").onclick = () => {
@@ -2460,24 +2483,91 @@ $("#detail-form").onsubmit = async (e) => {
     $("#detail-error").hidden = false;
     return;
   }
+  void startIssueSave(target, baseline, draft, patch, source);
+};
+function autoSaveField(key) {
+  if (
+    !editing ||
+    !$("#details").open ||
+    composing ||
+    detailUnavailable ||
+    editorOutcome ||
+    Object.keys(editorConflicts).length
+  )
+    return;
+  if (key === "storyPoints" && !pointsAvailable()) return;
+  const draft = clone(editorDraft()),
+    job = activeSave();
+  if (job) {
+    if (job.phase !== "posting") return;
+    // Even a return to the original value is a new intent after a sent change.
+    job.queued ||= {};
+    job.queued[key] = draft[key];
+    job.viewDraft = draft;
+    updateDirty();
+    return;
+  }
+  if (equalField(draft[key], fieldValue(editorLatest, key))) return;
+  void startIssueSave(
+    { ...editing },
+    clone(editorLatest),
+    draft,
+    { [key]: draft[key] },
+    adapter,
+    true,
+  );
+}
+async function startIssueSave(
+  target,
+  baseline,
+  draft,
+  patch,
+  source,
+  automatic = false,
+) {
   const job = {
     target,
     baseline,
     draft,
     patch,
+    automatic,
+    viewBaseline: clone(
+      editing?.id === target.id && $("#details").open
+        ? editorBaseline
+        : baseline,
+    ),
     phase: "posting",
     closeIntent: patch.status === "完了",
     requestId: crypto.randomUUID(),
   };
   issueSaves.set(target.id, job);
-  editorPosting = true;
-  editorBusy = true;
-  updateDirty();
+  if (editing?.id === target.id && $("#details").open) {
+    editorPosting = true;
+    editorBusy = true;
+    updateDirty();
+  }
   const isCurrent = () =>
     $("#details").open &&
     !$("#details").classList.contains("closing") &&
     editing?.id === target.id;
   try {
+    if (automatic) {
+      // Short local batching, not network retry. Sent side effects are never undone.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      if (issueSaves.get(target.id) !== job || adapter !== source) return;
+      Object.assign(patch, job.queued || {});
+      Object.assign(draft, patch);
+      job.queued = null;
+      for (const key of Object.keys(patch))
+        if (equalField(patch[key], fieldValue(baseline, key)))
+          delete patch[key];
+      job.closeIntent = patch.status === "完了";
+      if (!Object.keys(patch).length) {
+        issueSaves.delete(target.id);
+        if (isCurrent()) updateDirty();
+        return;
+      }
+    }
     // The server performs uncached preflight and canonical readback; do not fetch
     // the entire board first or tie this operation to the drawer session.
     const result = await source.saveIssue({
@@ -2502,7 +2592,7 @@ $("#detail-form").onsubmit = async (e) => {
       pointsValues[result.number] = result.storyPoints;
     issueSaves.delete(target.id);
     if (isCurrent()) {
-      for (const key of editorFields) setBaseField(key, draft[key]);
+      for (const key of Object.keys(patch)) setBaseField(key, draft[key]);
       editorPosting = false;
       editorBusy = false;
       editorOutcome = null;
@@ -2510,11 +2600,65 @@ $("#detail-form").onsubmit = async (e) => {
       editorSaved = !editMode;
       $("#detail-error").hidden = true;
     }
-    // Reconcile the board separately; a slow GET must not hold close or Save.
-    void refreshBoard(undefined, { silent: true });
+    const nextPatch = Object.fromEntries(
+      Object.entries(job.queued || {}).filter(
+        ([key, value]) => !equalField(value, fieldValue(result, key)),
+      ),
+    );
+    const queuedConflict = Object.keys(nextPatch).some(
+      (key) =>
+        !Object.hasOwn(patch, key) &&
+        Object.hasOwn(result, key) &&
+        !equalField(fieldValue(result, key), fieldValue(baseline, key)),
+    );
+    if (queuedConflict) {
+      job.phase = "failed";
+      job.draft = clone(job.viewDraft || draft);
+      Object.assign(job.draft, nextPatch);
+      job.patch = nextPatch;
+      job.queued = null;
+      job.closeIntent = false; // The pending choice has not been sent.
+      job.outcome = { code: "CONFLICT", uncertain: false, durable: false };
+      job.error =
+        "先の保存は完了しましたが、次の選択はGitHubの変更と競合しています。下書きを確認してください。";
+      issueSaves.set(target.id, job);
+      if (isCurrent()) {
+        editorOutcome = job.outcome;
+        $("#detail-error").textContent = job.error;
+        $("#detail-error").hidden = false;
+      }
+    } else if (Object.keys(nextPatch).length) {
+      const nextDraft = isCurrent()
+        ? clone(editorDraft())
+        : clone(job.viewDraft || draft);
+      Object.assign(nextDraft, nextPatch);
+      // Only acknowledged success releases the next explicit field selection.
+      const nextBaseline = clone(result);
+      // A status/body response need not contain the separately verified field.
+      // Keep its prior expected value; the server rejects any concurrent change.
+      if (
+        !Object.hasOwn(nextBaseline, "storyPoints") &&
+        Object.hasOwn(baseline, "storyPoints")
+      )
+        nextBaseline.storyPoints = baseline.storyPoints;
+      void startIssueSave(
+        target,
+        nextBaseline,
+        nextDraft,
+        nextPatch,
+        source,
+        true,
+      );
+    } else {
+      // One refresh at the end of a burst, never one whole-board GET per choice.
+      void refreshBoard(undefined, { silent: true });
+    }
   } catch (error) {
     if (issueSaves.get(target.id) !== job || adapter !== source) return;
     job.phase = "failed";
+    job.draft = clone(job.viewDraft || draft);
+    Object.assign(job.draft, job.queued || {});
+    job.queued = null;
     job.outcome = {
       durable: error.serverError === "mutation_outcome_unresolved",
       uncertain: !!error.ambiguous,
@@ -2546,7 +2690,7 @@ $("#detail-form").onsubmit = async (e) => {
     render();
     resumeAutoRefresh();
   }
-};
+}
 $("#search").oninput = () => {
   page = 0;
   render();

@@ -231,7 +231,6 @@ test("PBI sidebar edits only an explicit point choice or clear, preserving unkno
     .locator("#story-point-choices")
     .getByRole("button", { name: "8", exact: true })
     .click();
-  await page.locator("#save-issue").click();
   await expect.poll(() => writes.length).toBe(2);
   expect(writes[1].storyPoints).toBe(8);
   expect(writes[1].expectedStoryPoints).toBe(4);
@@ -241,34 +240,47 @@ test("PBI sidebar edits only an explicit point choice or clear, preserving unkno
     .locator("#story-point-choices")
     .getByRole("button", { name: "解除", exact: true })
     .click();
-  await page.locator("#save-issue").click();
   await expect.poll(() => writes.length).toBe(3);
   expect(writes[2].storyPoints).toBeNull();
   expect(writes[2].expectedStoryPoints).toBe(8);
   await expect(page.locator('#board [data-story-points="p0"]')).toBeHidden();
 });
 
-test("verified unset points allow first assignment while missing values stay unavailable", async ({ page }) => {
+test("verified unset points allow first assignment while missing values stay unavailable", async ({
+  page,
+}) => {
   const f = await setup(page);
   const writes: any[] = [];
-  await page.route("**/api/health", r => r.fulfill({json:{configured:true,storyPoints:true}}));
-  await page.route("**/api/story-points?*", r => r.fulfill({json:{values:{1:null}}}));
-  await page.route("**/api/issues/1", r => {
-    const data=r.request().postDataJSON();writes.push(data);
-    return r.fulfill({json:{ok:true,issue:{...f.board.lanes[0],storyPoints:data.storyPoints}}});
+  await page.route("**/api/health", (r) =>
+    r.fulfill({ json: { configured: true, storyPoints: true } }),
+  );
+  await page.route("**/api/story-points?*", (r) =>
+    r.fulfill({ json: { values: { 1: null } } }),
+  );
+  await page.route("**/api/issues/1", (r) => {
+    const data = r.request().postDataJSON();
+    writes.push(data);
+    return r.fulfill({
+      json: {
+        ok: true,
+        issue: { ...f.board.lanes[0], storyPoints: data.storyPoints },
+      },
+    });
   });
   await page.reload();
   await page.locator('.pbi-title[data-pbi="p0"]').click();
-  await expect(page.locator('#story-point-editor')).toBeVisible();
+  await expect(page.locator("#story-point-editor")).toBeVisible();
   await expect(page.locator('#board [data-story-points="p0"]')).toBeHidden();
-  await expect(page.locator('#save-issue')).toBeDisabled();
-  await page.locator('#story-point-choices').getByRole('button',{name:'0.1',exact:true}).click();
-  await page.locator('#save-issue').click();
-  await expect.poll(()=>writes.length).toBe(1);
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await page
+    .locator("#story-point-choices")
+    .getByRole("button", { name: "0.1", exact: true })
+    .click();
+  await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].storyPoints).toBe(0.1);
   expect(writes[0].expectedStoryPoints).toBeNull();
-  await expect(page.locator('#save-issue')).toBeDisabled();
-  await page.locator('#close-detail').click();
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await page.locator("#close-detail").click();
   await page.locator('.pbi-title[data-pbi="p1"]').click();
-  await expect(page.locator('#story-point-editor')).toBeHidden();
+  await expect(page.locator("#story-point-editor")).toBeHidden();
 });

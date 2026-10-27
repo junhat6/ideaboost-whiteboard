@@ -68,13 +68,14 @@ test("author is distinct, avatar tiles preserve multiple and outside assignments
       .locator(".board-head .status-dot.wait")
       .evaluate((el) => getComputedStyle(el).borderTopColor),
   );
-  expect(s.posts()).toBe(0);
+  await expect.poll(s.posts).toBeGreaterThan(0);
   page.once("dialog", (d) => d.accept());
   await page.locator("#close-detail").click();
   await expect(page.locator("#details")).not.toBeVisible();
-  await page.locator(".task-title").first().click();
-  await tile.click();
+  await page.locator('[data-open="t0-0-0"]').click();
   await expect(tile).toHaveAttribute("aria-pressed", "true");
+  await tile.click();
+  await expect(tile).toHaveAttribute("aria-pressed", "false");
   await page.screenshot({
     path: `.wrangler/rich-${page.viewportSize()!.width}.png`,
   });
@@ -457,7 +458,10 @@ test("assignee badges and focus fit inside the scroll viewport at first row and 
     await page.keyboard.press("Space");
     await expect(tile).toHaveAttribute("aria-pressed", "true");
   }
-  expect(s.posts()).toBe(0);
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await expect(page.locator('.assignee-tile[aria-pressed="true"]')).toHaveCount(
+    6,
+  );
   await page.screenshot({
     path: `.wrangler/assignee-contained-${page.viewportSize()!.width}.png`,
   });
