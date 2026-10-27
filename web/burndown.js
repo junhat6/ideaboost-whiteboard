@@ -524,8 +524,9 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       JSON.stringify(currentData.schedule?.schoolDays || [])
     ) {
       draft.dirty = false;
+      draft.proposal = false;
       draft.error = null;
-      error.hidden = true;
+      renderSettings(currentData);
       return;
     }
     const target = currentData.milestone,

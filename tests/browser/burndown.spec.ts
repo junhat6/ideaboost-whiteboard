@@ -1106,6 +1106,135 @@ test("未設定から全候補を解除して空日程を明示保存すると�
   expect(f.posts()).toBe(0);
 });
 
+test("初回候補と外部保存が同値なら明示保存で送信せずrevisionを同期し、次の追記に使う", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-10-27T08:00:00Z"));
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  const current = {
+      ...structuredClone(data),
+      schedule: { schoolDays: [] as string[], revision: "0" },
+    },
+    proposal = ["2026-10-27", "2026-10-28"],
+    posts: any[] = [];
+  await page.route("**/api/burndown**", (r) => {
+    if (r.request().method() === "POST") {
+      const patch = r.request().postDataJSON();
+      posts.push(patch);
+      current.schedule = {
+        schoolDays: patch.schoolDays,
+        revision: "saved-1",
+      };
+      return r.fulfill({ json: { ok: true, schedule: current.schedule } });
+    }
+    return r.fulfill({ json: current });
+  });
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await page.locator(".burn-settings summary").click();
+  await expectSchoolDays(page, proposal);
+  const form = page.locator(".burn-settings form"),
+    save = page.getByRole("button", { name: "日程を保存", exact: true }),
+    hint = page.locator(".burn-calendar-proposal");
+  await expect(form).toHaveAttribute("data-revision", "0");
+  await expect(hint).toContainText("仮選択");
+
+  current.schedule = { schoolDays: proposal, revision: "external-1" };
+  current.observedAt = "2026-10-27T08:01:00Z";
+  await page.keyboard.press("Escape");
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-observed")).toContainText("17:01");
+  await page.locator(".burn-settings summary").click();
+  await expectSchoolDays(page, proposal);
+  // A background read must not silently acknowledge the unsaved proposal.
+  await expect(form).toHaveAttribute("data-revision", "0");
+  await expect(hint).toContainText("仮選択");
+  expect(posts).toHaveLength(0);
+
+  await save.click();
+  await expect(form).toHaveAttribute("data-revision", "external-1");
+  await expect(hint).not.toContainText("仮選択");
+  await expect(page.locator(".burn-settings-error")).toBeHidden();
+  expect(posts).toHaveLength(0);
+  const next = [...proposal, "2026-10-29"];
+  await setSchoolDays(page, proposal, next);
+  await save.click();
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].expectedRevision).toBe("external-1");
+  expect(posts[0].schoolDays).toEqual(next);
+  await expect(form).toHaveAttribute("data-revision", "saved-1");
+  await expectSchoolDays(page, next);
+  expect(f.posts()).toBe(0);
+});
+
+test("保存応答503後の同値再取得は明示保存で再送せずエラーとrevisionを同期する", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-10-27T08:00:00Z"));
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  const initial = ["2026-10-27"],
+    chosen = [...initial, "2026-10-28"],
+    current = {
+      ...structuredClone(data),
+      schedule: { schoolDays: initial, revision: "initial-1" },
+    },
+    posts: any[] = [];
+  let reads = 0;
+  await page.route("**/api/burndown**", (r) => {
+    if (r.request().method() === "POST") {
+      const patch = r.request().postDataJSON();
+      posts.push(patch);
+      current.schedule = {
+        schoolDays: patch.schoolDays,
+        revision: `saved-${posts.length}`,
+      };
+      current.observedAt = `2026-10-27T08:0${posts.length}:00Z`;
+      // The mock persisted the value, but the client cannot trust this response.
+      if (posts.length === 1)
+        return r.fulfill({ status: 503, json: { error: "unavailable" } });
+      return r.fulfill({ json: { ok: true, schedule: current.schedule } });
+    }
+    reads++;
+    return r.fulfill({ json: current });
+  });
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await page.locator(".burn-settings summary").click();
+  await expectSchoolDays(page, initial);
+  await setSchoolDays(page, initial, chosen);
+  const form = page.locator(".burn-settings form"),
+    save = page.getByRole("button", { name: "日程を保存", exact: true }),
+    error = page.locator(".burn-settings-error");
+  await save.click();
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].expectedRevision).toBe("initial-1");
+  expect(posts[0].schoolDays).toEqual(chosen);
+  await expect.poll(() => reads).toBe(2);
+  await expect(page.locator(".burn-observed")).toContainText("17:01");
+  await expect(save).toBeEnabled();
+  await expect(error).toContainText("保存結果");
+  await expect(form).toHaveAttribute("data-revision", "initial-1");
+  await expectSchoolDays(page, chosen);
+  expect(posts).toHaveLength(1);
+
+  await save.click();
+  await expect(error).toBeHidden();
+  await expect(form).toHaveAttribute("data-revision", "saved-1");
+  expect(posts).toHaveLength(1);
+  const next = [...chosen, "2026-10-29"];
+  await setSchoolDays(page, chosen, next);
+  await save.click();
+  await expect.poll(() => posts.length).toBe(2);
+  expect(posts[1].expectedRevision).toBe("saved-1");
+  expect(posts[1].schoolDays).toEqual(next);
+  await expect(form).toHaveAttribute("data-revision", "saved-2");
+  await expect(error).toBeHidden();
+  await expectSchoolDays(page, next);
+  expect(f.posts()).toBe(0);
+});
+
 test("連続範囲ではなく月をまたぐ6日を独立選択し、明示保存した日だけ送る", async ({
   page,
 }) => {
