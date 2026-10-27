@@ -188,9 +188,10 @@ test("live image completion during accepted close never starts queued transfers"
       ),
     ];
     const waiting = images.filter((i) => !i.hasAttribute("src"));
+    const active = images.find((i) => i.hasAttribute("src"))!;
     (document.querySelector("#close-detail") as HTMLButtonElement).click();
-    // A network completion queued just after close, before the 160ms teardown.
-    images.find((i) => i.hasAttribute("src"))!.dispatchEvent(new Event("load"));
+    // A retained network callback after synchronous teardown must stay inert.
+    active.dispatchEvent(new Event("load"));
     await Promise.resolve();
     return {
       closing: document
@@ -201,7 +202,7 @@ test("live image completion during accepted close never starts queued transfers"
     };
   });
   release();
-  expect(result).toEqual({ closing: true, waiting: 3, newlyStarted: 0 });
+  expect(result).toEqual({ closing: false, waiting: 3, newlyStarted: 0 });
   await expect(page.locator("#details")).not.toBeVisible();
   expect(s.posts()).toBe(0);
 });

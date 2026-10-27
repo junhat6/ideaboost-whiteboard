@@ -115,15 +115,16 @@ test("partial result prevents replay and preserves recoverable draft", async ({
   await expect(page.locator("#detail-error")).not.toBeVisible();
   expect(state.posts()).toBe(1);
 });
-test("pending save blocks closing and duplicate submit", async ({ page }) => {
+test("pending save allows closing and keeps one submitted intent", async ({
+  page,
+}) => {
   const state = await setup(page, { slow: true });
   await page.locator(".task-title").first().click();
   await page.locator("#rename-issue").click();
   await page.locator("#detail-title").fill("通信中の変更");
   await page.locator("#save-issue").click();
   await page.locator("#close-detail").click();
-  await expect(page.locator("#details")).toBeVisible();
-  await expect(page.locator("#detail-heading")).toHaveText("通信中の変更");
+  await expect(page.locator("#details")).not.toBeVisible();
   expect(state.posts()).toBe(1);
 });
 test("Markdown remains literal and malicious HTML cannot execute", async ({

@@ -42,12 +42,12 @@ test("late points never block board or editor; every scale value uses a compact 
   await page.locator("#close-detail").click();
   await expect(page.locator("#details")).not.toBeVisible();
   await expect(page.locator(".pbi-context .story-points:visible")).toHaveText([
-    "SP 0.1",
-    "SP 1",
-    "SP 2",
-    "SP 3",
-    "SP 5",
-    "SP 8",
+    "0.1",
+    "1",
+    "2",
+    "3",
+    "5",
+    "8",
   ]);
   expect(
     await page.locator(".pbi-cell").evaluateAll((cells) =>
@@ -85,7 +85,7 @@ test("poll replaces points, unset/private/failed reads hide badges and stale res
   await page.evaluate(() =>
     (window as any).pointsReads[0].resolve({ values: { 1: 13 } }),
   );
-  await expect(page.locator('[data-story-points="p0"]')).toHaveText("SP 13");
+  await expect(page.locator('[data-story-points="p0"]')).toHaveText("13");
   await page.clock.fastForward(46000);
   await expect(page.locator(".story-points:visible")).toHaveCount(0);
   await page.clock.fastForward(46000);
@@ -186,7 +186,64 @@ test("enabled API capability connects the separate late-read endpoint without de
   release!();
   await expect(page.locator("#detail-story-points")).toHaveText("SP 0.1");
   await expect(page.locator('#board [data-story-points="p1"]')).toHaveText(
-    "SP 13",
+    "13",
   );
   expect(f.posts()).toBe(0);
+});
+
+test("PBI sidebar edits only an explicit point choice or clear, preserving unknown original values", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  let points: number | null = 4;
+  const writes: any[] = [];
+  await page.route("**/api/health", (r) =>
+    r.fulfill({ json: { configured: true, storyPoints: true } }),
+  );
+  await page.route("**/api/story-points?*", (r) =>
+    r.fulfill({ json: { values: { 1: points } } }),
+  );
+  await page.route("**/api/issues/1", (r) => {
+    const data = r.request().postDataJSON();
+    writes.push(data);
+    if (Object.hasOwn(data, "storyPoints")) points = data.storyPoints;
+    Object.assign(f.board.lanes[0], {
+      title: data.title || f.board.lanes[0].title,
+      revision: `2026-10-27T00:00:0${writes.length}Z`,
+    });
+    return r.fulfill({
+      json: { ok: true, issue: { ...f.board.lanes[0], storyPoints: points } },
+    });
+  });
+  await page.reload();
+  await expect(page.locator('#board [data-story-points="p0"]')).toHaveText("4");
+  await page.locator('[data-pbi="p0"]').first().click();
+  await expect(page.locator("#story-point-choices button")).toHaveCount(8);
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await page.locator("#rename-issue").click();
+  await page.locator("#detail-title").fill("タイトルだけ");
+  await page.keyboard.press("Enter");
+  await page.locator("#save-issue").click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).not.toHaveProperty("storyPoints");
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await page
+    .locator("#story-point-choices")
+    .getByRole("button", { name: "8", exact: true })
+    .click();
+  await page.locator("#save-issue").click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1].storyPoints).toBe(8);
+  expect(writes[1].expectedStoryPoints).toBe(4);
+  expect(writes[1]).not.toHaveProperty("body");
+  await expect(page.locator('#board [data-story-points="p0"]')).toHaveText("8");
+  await page
+    .locator("#story-point-choices")
+    .getByRole("button", { name: "解除", exact: true })
+    .click();
+  await page.locator("#save-issue").click();
+  await expect.poll(() => writes.length).toBe(3);
+  expect(writes[2].storyPoints).toBeNull();
+  expect(writes[2].expectedStoryPoints).toBe(8);
+  await expect(page.locator('#board [data-story-points="p0"]')).toBeHidden();
 });

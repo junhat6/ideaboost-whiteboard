@@ -615,3 +615,88 @@ test("focused full data never silently truncates assignees at the GitHub limit",
   assert.equal(r.status, 502);
   assert.equal((await r.json()).error, "assignees_truncated");
 });
+
+test("PBI points writes touch only canonical field, support decimal and deletion, preserve unknown original until explicit edit", async () => {
+  const f = fixture({ storyPoints: 4 });
+  const e = { ...env, STORY_POINTS_READ_ENABLED: "true" };
+  const change = (value, old, requestId) =>
+    patch({
+      storyPoints: value,
+      expectedStoryPoints: old,
+      title: "Issue 1",
+      expectedFingerprint: parentFingerprint,
+      requestId,
+    });
+  let response = await f.handler(
+    req("/api/issues/1", change(0.1, 4, "points-request-0001")),
+    e,
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).issue.storyPoints, 0.1);
+  response = await f.handler(
+    req("/api/issues/1", change(null, 0.1, "points-request-0002")),
+    e,
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).issue.storyPoints, null);
+  const writes = f.calls.filter(
+    (c) =>
+      c.url.includes("issue-field-values") &&
+      ["POST", "DELETE", "PUT"].includes(c.method),
+  );
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes[0].parsed, {
+    issue_field_values: [{ field_id: 49067031, value: 0.1 }],
+  });
+  assert.ok(writes[1].url.endsWith("/issue-field-values/49067031"));
+  assert.equal(writes[1].method, "DELETE");
+});
+test("points conflict, definition denial and Task input never cause writes", async () => {
+  for (const [opts, number, value, expected] of [
+    [{ storyPoints: 8 }, 1, 5, 3],
+    [{ fieldsDenied: true }, 1, 5, null],
+    [{}, 2, 5, null],
+  ]) {
+    const f = fixture(opts);
+    const r = await f.handler(
+      req(
+        `/api/issues/${number}`,
+        patch({
+          storyPoints: value,
+          expectedStoryPoints: expected,
+          expectedFingerprint:
+            number === 1 ? parentFingerprint : originalFingerprint,
+        }),
+      ),
+      { ...env, STORY_POINTS_READ_ENABLED: "true" },
+    );
+    assert.ok(r.status >= 400);
+    assert.equal(
+      f.calls.filter(
+        (c) => c.url.includes("issue-field-values") && c.method !== "GET",
+      ).length,
+      0,
+    );
+  }
+});
+test("save uses bounded single-Issue context instead of loading the entire board twice", async () => {
+  const f = fixture();
+  const r = await f.handler(
+    req("/api/issues/2", patch({ title: "Focused save" })),
+    env,
+  );
+  assert.equal(r.status, 200);
+  assert.equal(
+    f.calls.filter((c) => c.parsed?.query?.includes("MutationContext")).length,
+    2,
+  );
+  assert.equal(
+    f.calls.filter((c) =>
+      /BoardItems|BoardRelations|IssueDetails|BoardBootstrap/.test(
+        c.parsed?.query || "",
+      ),
+    ).length,
+    0,
+  );
+  assert.equal(f.calls.filter((c) => c.url.includes("/assignees")).length, 0);
+});

@@ -74,3 +74,13 @@ Appの実読取は未検証。現在の通常クライアントは秘密鍵をCl
 次の正規接続確認は、配信承認を得た後に限定endpointを通常runtimeで実行して可否を確認するか、既存の安全なApp検証経路が親側で提供された場合だけ行う。403なら別経路へ迂回せず必要な組織read承認を求める。現在は本番配信・App検証のための秘密移動をせず、ローカルmockで閉じる。
 
 確定契約接続後のローカル検証: `npm run check`成功（52 server＋38 integration＝90件）、全E2E198件成功（57.1秒、1920/2560）。追加API試験は未有効時の要求ゼロ、確定field、PBI正式所属、定義403/Taskで値要求ゼロ、型・公開性変更、Linkの外部URL拒否、repo非公開化の403、最大6件/重複/不正query、token要求権限不変を検証。ブラウザーではhealth capability→専用GET→board/detailの後読込接続をmockで検証。実値・実App権限の検証ではない。push/deployは親の禁止を維持し、ローカルコミットのみ。
+
+## 保存UXと編集接続（2026-10-27、ローカル検証）
+
+最新の承認でmain反映と配信が許可された。PBIセルは数字のみ、sidebarは7択と解除。公開field49067031の現在値を確認してから変更可能にし、未操作の未知値は保持する。POSTは対象field1件だけ、解除は対象fieldのDELETEを使い、全置換PUTは使わない。実Appのorg Issue Fields read可否は通常runtimeの読取で確認する。権限追加は別承認であり、この変更では実行しない。
+
+Issue保存はdrawerから独立したIssue別jobとimmutable intentを持つ。同Issueは1flightで、送信後の入力は別の未保存差分として保持する。X→Yの送信中にXへ戻しても、Y確認後の明示SaveでXを送れる。別Issueは並行可能。closeは同期的にmodalを解除し、失敗は画面外から下書きを復元できる。unknown/partial/conflictは自動再送しない。先行GETは確認済みmutation世代を越えてstateを巻き戻せない。
+
+保存前のclient全board GETを削除し、serverの全board構築2回を対象Issueのfresh context/preflight/readbackへ置換した。正式所属・公開状態・revision/fingerprint/rawStatus確認は維持。担当者一覧は担当変更時だけ取得する。SP値は別のfresh値preconditionで競合検出する。
+
+合成計測（各upstream要求20ms遅延、3回、実GitHub書込みなし）: 旧要求数15回、292/278/282ms（中央値282ms）。新要求数5回、113/109/111ms（中央値111ms）。通常本文保存の比較であり、SP保存や実GitHubのネットワーク時間ではない。実IssueへのQA書込みは行わないため本番保存時間は未計測。

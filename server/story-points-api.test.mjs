@@ -129,7 +129,10 @@ test("disabled feature makes no requests; enabled exact field is read only after
 test("definition denial does not read values or expand permissions; Task never reads PBI points", async () => {
   for (const options of [{ deny: true }, { type: "Task" }]) {
     const f = fixture(options);
-    assert.deepEqual(await (await f.read()).json(), { values: {} });
+    assert.deepEqual(
+      await (await f.read()).json(),
+      options.deny ? { values: {}, fieldReadStatus: 403 } : { values: {} },
+    );
     assert.ok(f.calls.every((c) => !c.url.includes("issue-field-values")));
   }
 });

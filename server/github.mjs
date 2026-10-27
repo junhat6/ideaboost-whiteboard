@@ -123,6 +123,8 @@ export function validateMutation(v) {
           "author",
           "assignees",
           "status",
+          "storyPoints",
+          "expectedStoryPoints",
           "expectedRevision",
           "expectedStatus",
           "expectedFingerprint",
@@ -173,7 +175,20 @@ export function validateMutation(v) {
     throw new ApiError(400, "invalid_assignees");
   if ("status" in v && v.status !== null && !STATUSES.includes(v.status))
     throw new ApiError(400, "invalid_status");
-  if (!["title", "body", "assignees", "status"].some((k) => k in v))
+  if (
+    "storyPoints" in v &&
+    (![null, 0.1, 1, 2, 3, 5, 8, 13].includes(v.storyPoints) ||
+      !Object.hasOwn(v, "expectedStoryPoints") ||
+      (v.expectedStoryPoints !== null &&
+        (typeof v.expectedStoryPoints !== "number" ||
+          !Number.isFinite(v.expectedStoryPoints))))
+  )
+    throw new ApiError(400, "invalid_story_points");
+  if ("expectedStoryPoints" in v && !("storyPoints" in v))
+    throw new ApiError(400, "invalid_story_points");
+  if (
+    !["title", "body", "assignees", "status", "storyPoints"].some((k) => k in v)
+  )
     throw new ApiError(400, "no_changes");
 }
 export function createHandler({
@@ -282,7 +297,7 @@ export function createHandler({
     }
     let data;
     try {
-      data = await r.json();
+      data = r.status === 204 ? null : await r.json();
     } catch {
       throw new ApiError(502, "github_invalid_response", {
         uncertain: method !== "GET",
@@ -910,9 +925,96 @@ export function createHandler({
         )
         .sort(),
     );
+  async function pointValue(env, number) {
+    if (env.STORY_POINTS_READ_ENABLED !== "true")
+      throw new ApiError(503, "story_points_unavailable");
+    const result = await readPublicPbiStoryPoints({
+      approved: true,
+      fieldId: 49067031,
+      pbis: [{ number, type: "PBI" }],
+      assertScope: async () => {
+        await assertPublic(env);
+        return true;
+      },
+      getDefinitions: () => api(env, `/orgs/${OWNER}/issue-fields`),
+      getValues: async (n, { page, per_page }) => {
+        const path = `/repos/${OWNER}/${REPO}/issues/${n}/issue-field-values?per_page=${per_page}&page=${page}`;
+        const result = await api(env, path, { withHeaders: true });
+        return {
+          data: result.data,
+          hasNextPage: storyPointsNextPage(result.link, BASE + path, page),
+        };
+      },
+    });
+    if (!Object.hasOwn(result.values, number))
+      throw new ApiError(503, "story_points_unavailable");
+    return result.values[number];
+  }
+  async function mutationContext(env, number) {
+    let after = null,
+      candidate = null,
+      meta = null,
+      issue = null;
+    for (let page = 0; page < 100; page++) {
+      const data = await gql(
+        env,
+        `query MutationContext($number:Int!,$after:String) {
+        repository(owner:"${OWNER}",name:"${REPO}") { isPrivate issue(number:$number) {
+          ${CORE}
+          projectItems(first:100,after:$after,includeArchived:false) { nodes {
+            id isArchived project { id }
+            fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          } pageInfo { hasNextPage endCursor } }
+        } }
+        organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} } }
+      }`,
+        { number, after },
+      );
+      meta = data?.organization?.projectV2;
+      issue = data?.repository?.issue;
+      if (
+        env.AUTH_MODE === "public-temporary" &&
+        (data?.repository?.isPrivate !== false || meta?.public !== true)
+      )
+        throw new ApiError(403, "scope_not_public");
+      if (
+        !meta?.id ||
+        !issue?.id ||
+        issue.number !== number ||
+        issue.repository?.nameWithOwner !== `${OWNER}/${REPO}` ||
+        typeof issue.title !== "string" ||
+        typeof issue.body !== "string" ||
+        !Array.isArray(issue.assignees?.nodes)
+      )
+        throw new ApiError(404, "issue_not_in_project");
+      const c = issue.projectItems;
+      if (
+        !Array.isArray(c?.nodes) ||
+        typeof c.pageInfo?.hasNextPage !== "boolean"
+      )
+        throw new ApiError(502, "issue_membership_unavailable");
+      candidate = c.nodes.find(
+        (item) => item?.isArchived === false && item.project?.id === meta.id,
+      );
+      if (candidate || !c.pageInfo.hasNextPage) break;
+      if (
+        !c.pageInfo.endCursor ||
+        c.pageInfo.endCursor === after ||
+        page === 99
+      )
+        throw new ApiError(502, "pagination_error");
+      after = c.pageInfo.endCursor;
+    }
+    if (candidate && typeof candidate.id !== "string")
+      throw new ApiError(502, "issue_membership_unavailable");
+    if (!candidate) await commentScope(env, number);
+    const current = normalize(issue, candidate);
+    current.fingerprint = await fingerprint(issue);
+    return { current, meta };
+  }
   async function save(env, number, v) {
-    const before = await board(env, null, false),
-      current = [...before.all.values()].find((i) => i.number === number);
+    const before = await mutationContext(env, number),
+      current = before.current;
     if (!current) throw new ApiError(404, "issue_not_in_project");
     if (
       current.revision !== v.expectedRevision ||
@@ -920,12 +1022,21 @@ export function createHandler({
       current.fingerprint !== v.expectedFingerprint
     )
       throw new ApiError(409, "conflict", { issue: current });
+    const changePoints = Object.hasOwn(v, "storyPoints");
+    let oldPoints;
+    if (changePoints) {
+      if (current.type !== "PBI")
+        throw new ApiError(400, "story_points_pbi_only");
+      oldPoints = await pointValue(env, number);
+      if (oldPoints !== v.expectedStoryPoints)
+        throw new ApiError(409, "conflict", { issue: current });
+    }
     const patch = {};
     for (const k of ["title", "body"])
       if (k in v && v[k] !== current[k]) patch[k] = v[k];
     if ("assignees" in v && !equalUsers(v.assignees, current.assignees)) {
       const allowed = new Set(
-        before.output.assigneeOptions.map((a) => a.login.toLowerCase()),
+        (await assignees(env)).map((a) => a.login.toLowerCase()),
       );
       if (v.assignees.some((a) => !allowed.has(a.toLowerCase())))
         throw new ApiError(400, "assignee_not_assignable");
@@ -959,6 +1070,9 @@ export function createHandler({
           (fresh.node.fieldValueByName?.name ?? null) !== v.expectedStatus))
     )
       throw new ApiError(409, "conflict", { issue: current });
+    // Recheck this independently versioned org field immediately before writes.
+    if (changePoints && (await pointValue(env, number)) !== oldPoints)
+      throw new ApiError(409, "conflict", { issue: current });
     const completed = [];
     let failure = null;
     try {
@@ -984,18 +1098,36 @@ export function createHandler({
         });
         completed.push("status");
       }
+      if (changePoints && v.storyPoints !== oldPoints) {
+        const path = `/repos/${OWNER}/${REPO}/issues/${number}/issue-field-values`;
+        if (v.storyPoints === null)
+          await api(env, path + "/49067031", { method: "DELETE" });
+        else
+          await api(env, path, {
+            method: "POST",
+            body: {
+              issue_field_values: [
+                { field_id: 49067031, value: v.storyPoints },
+              ],
+            },
+          });
+        completed.push("storyPoints");
+      }
     } catch (e) {
       failure = e;
     }
     let latest;
     try {
-      latest = await board(env, null, false);
-    } catch {
+      latest = await mutationContext(env, number);
+      if (changePoints)
+        latest.current.storyPoints = await pointValue(env, number);
+    } catch (error) {
       return {
-        status: 502,
+        status: error.code === "scope_not_public" ? 403 : 502,
         data: {
           ok: false,
-          error: "readback_failed",
+          error:
+            error.code === "scope_not_public" ? error.code : "readback_failed",
           partial: completed.length > 0,
           ambiguous: true,
           completed,
@@ -1004,8 +1136,7 @@ export function createHandler({
         },
       };
     }
-    const actual =
-      [...latest.all.values()].find((i) => i.number === number) ?? null;
+    const actual = latest.current;
     const confirmed =
       actual &&
       Object.entries(patch).every(([k, val]) =>
@@ -1013,7 +1144,8 @@ export function createHandler({
           ? equalUsers(val, actual.assignees)
           : val === actual[k],
       ) &&
-      (!changeStatus || actual.status === v.status);
+      (!changeStatus || actual.status === v.status) &&
+      (!changePoints || actual.storyPoints === v.storyPoints);
     if (failure || !confirmed)
       return {
         status: 502,
@@ -1212,6 +1344,7 @@ export function createHandler({
         const numbers = raw.split(",").map(Number);
         if (new Set(numbers).size !== numbers.length)
           throw new ApiError(400, "invalid_query");
+        let fieldReadStatus = null;
         const result = await readPublicPbiStoryPoints({
           approved: true,
           fieldId: 49067031,
@@ -1221,7 +1354,14 @@ export function createHandler({
             await assertPublic(env);
             return true;
           },
-          getDefinitions: () => api(env, `/orgs/${OWNER}/issue-fields`),
+          getDefinitions: async () => {
+            try {
+              return await api(env, `/orgs/${OWNER}/issue-fields`);
+            } catch (error) {
+              fieldReadStatus = error.extra?.upstreamStatus ?? null;
+              throw error;
+            }
+          },
           getValues: async (number, { page, per_page }) => {
             if (page === 1) {
               const scope = await commentScope(env, number);
@@ -1236,7 +1376,10 @@ export function createHandler({
             };
           },
         });
-        return reply(result);
+        return reply({
+          ...result,
+          ...(fieldReadStatus ? { fieldReadStatus } : {}),
+        });
       }
       if (request.method === "GET" && url.pathname === "/api/board") {
         if (

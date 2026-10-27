@@ -149,10 +149,20 @@
             body: JSON.stringify({ body, requestId }),
           });
         },
-        async saveIssue({ kind, id, patch, expectedRevision, expectedStatus }) {
-          const old = (kind === "PBI" ? latest?.lanes : latest?.tasks)?.find(
-            (i) => i.id === id,
-          );
+        async saveIssue({
+          kind,
+          id,
+          patch,
+          expectedRevision,
+          expectedStatus,
+          baseline,
+          requestId,
+        }) {
+          const old =
+            baseline ||
+            (kind === "PBI" ? latest?.lanes : latest?.tasks)?.find(
+              (i) => i.id === id,
+            );
           if (
             !old ||
             !Number.isSafeInteger(old.number) ||
@@ -173,12 +183,15 @@
             body: JSON.stringify({
               ...patch,
               expectedRevision,
+              ...(Object.hasOwn(patch, "storyPoints")
+                ? { expectedStoryPoints: baseline?.storyPoints }
+                : {}),
               expectedFingerprint: old.fingerprint,
               expectedStatus:
                 expectedStatus === undefined
                   ? (old.status ?? null)
                   : expectedStatus,
-              requestId: crypto.randomUUID(),
+              requestId: requestId || crypto.randomUUID(),
             }),
           });
           if (

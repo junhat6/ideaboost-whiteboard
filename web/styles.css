@@ -2655,3 +2655,43 @@ input[type="checkbox"] {
 .story-points[hidden] {
   display: none;
 }
+
+#save-problems {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 90;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+}
+#save-problems[hidden] {
+  display: none;
+}
+
+#story-point-editor h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+#story-point-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#story-point-choices button {
+  min-width: 36px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+#story-point-choices button[aria-pressed="true"] {
+  background: var(--selected);
+  border: 2px solid var(--accent);
+  padding: 3px 7px;
+}

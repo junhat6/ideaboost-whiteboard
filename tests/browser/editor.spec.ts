@@ -175,7 +175,7 @@ test("cached data can be edited while fresh confirmation waits without overwriti
   await page.locator("#save-issue").click();
   await expect(page.locator("#detail-sync")).toBeHidden();
   await fillEditor(page, "確認中にも続けて入力");
-  expect(s.posts()).toBe(0);
+  await expect.poll(s.posts).toBe(1);
   release();
   await expect.poll(s.posts).toBe(1);
   await expect(page.locator("#detail-body")).toHaveValue(
@@ -202,35 +202,6 @@ test("CRLF original stays clean and title-only save does not rewrite Markdown", 
   expect(payload).not.toHaveProperty("body");
   await expect.poll(s.posts).toBe(1);
   expect(s.board.tasks[0].body).toBe(original);
-});
-test("accepted close cancels preflight immediately even when GET returns inside the close animation", async ({
-  page,
-}) => {
-  const s = await setup(page);
-  await open(page);
-  let release;
-  let started = false;
-  const gate = new Promise<void>((r) => (release = r));
-  await page.route("**/api/board", async (route) => {
-    started = true;
-    await gate;
-    await route.fulfill({ json: s.board });
-  });
-  await fillEditor(page, "保存を取り消す");
-  await page.locator("#save-issue").click();
-  await expect.poll(() => started).toBe(true);
-  page.once("dialog", async (d) => {
-    await d.accept();
-    release();
-  });
-  await page.locator("#close-detail").click();
-  await page.locator("#details").waitFor({ state: "hidden" });
-  expect(s.posts()).toBe(0);
-  await open(page);
-  await fillEditor(page, "次の編集は正常");
-  await page.locator("#save-issue").click();
-  await expect.poll(s.posts).toBe(1);
-  await expect(page.locator("#detail-sync")).toBeHidden();
 });
 test("late editor bundle never replaces a focused native draft or its caret and undo", async ({
   page,
@@ -279,7 +250,7 @@ test("new submit after accepted close cannot save inside animation and reopening
     (document.querySelector("#detail-form") as HTMLFormElement).requestSubmit();
     return state;
   });
-  expect(closing).toEqual({ open: true, closing: true });
+  expect(closing).toEqual({ open: false, closing: false });
   await page.locator("#details").waitFor({ state: "hidden" });
   expect(s.posts()).toBe(0);
   await open(page);

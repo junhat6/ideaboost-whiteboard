@@ -765,9 +765,17 @@ function render() {
 // Adapter contract: load() -> snapshot; saveIssue({kind,id,patch,expectedRevision})
 // -> canonical issue (with revision). Reject with code CONFLICT on stale revisions.
 // A real adapter owns authentication/server validation; this demo never stores tokens.
-let saveBlocked = false;
+let saveBlocked = false,
+  confirmedSaveEpoch = 0;
 async function updateIssue(kind, id, patch, baseline = null) {
-  if (pending || snapshotPending || saveBlocked || !adapter) return false;
+  if (
+    pending ||
+    snapshotPending ||
+    saveBlocked ||
+    !adapter ||
+    issueSaves.has(id)
+  )
+    return false;
   $("#detail-error").hidden = true;
   const t = issue(kind, id),
     before = clone(state);
@@ -869,14 +877,53 @@ let titleEditing = false,
 let pendingEditorRemote = undefined,
   editorSaved = false,
   refreshFlight = null;
-const editorFields = ["title", "body", "assignees", "status"];
+// 保存はdrawerではなくIssue IDに所属する。送信後の下書きは別に扱う。
+const issueSaves = new Map();
+function activeSave() {
+  return editing && issueSaves.get(editing.id);
+}
+function showSaveProblems() {
+  const root = $("#save-problems");
+  root.replaceChildren();
+  for (const job of issueSaves.values()) {
+    if (!job.error) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `#${job.baseline.number} 保存を確認`;
+    button.setAttribute(
+      "aria-label",
+      `#${job.baseline.number} ${job.baseline.title} の保存エラーと下書きを確認`,
+    );
+    button.onclick = () => openIssue(job.target.kind, job.target.id);
+    root.append(button);
+  }
+  root.hidden = !root.childElementCount;
+}
+function restoreSave(job) {
+  if (!job) return;
+  editorBaseline = clone(job.baseline);
+  editorLatest = clone(job.baseline);
+  for (const key of editorFields) writeField(key, job.draft[key]);
+  editorOutcome = job.outcome || null;
+  editorPosting = job.phase === "posting";
+  editorBusy = editorPosting;
+  if (job.error) {
+    $("#detail-error").textContent = job.error;
+    $("#detail-error").hidden = false;
+  }
+  updateDirty();
+}
+const editorFields = ["title", "body", "assignees", "status", "storyPoints"];
+let editorPoints;
 const fieldNames = {
   title: "タイトル",
   body: "本文",
   assignees: "担当者",
   status: "ステータス",
+  storyPoints: "Story points",
 };
 function fieldValue(item, key) {
+  if (key === "storyPoints") return item?.storyPoints;
   return key === "assignees"
     ? (item.assignees || []).map((a) => a.login).sort()
     : (item[key] ?? null);
@@ -886,6 +933,7 @@ function equalField(a, b) {
 }
 function editorDraft() {
   return {
+    storyPoints: editorPoints,
     title: $("#detail-title").value,
     body: editorBody,
     assignees: [...$("#detail-assignee").selectedOptions]
@@ -895,7 +943,10 @@ function editorDraft() {
   };
 }
 function writeField(key, value) {
-  if (key === "body") {
+  if (key === "storyPoints") {
+    editorPoints = value;
+    renderPointsChoices();
+  } else if (key === "body") {
     editorBody = value || "";
     $("#detail-body").value = value || "";
     composer?.set(value || "");
@@ -921,7 +972,13 @@ function updateDirty() {
   if (!editorBaseline) return;
   const draft = editorDraft();
   editMode = editorFields.some(
-    (key) => !equalField(draft[key], fieldValue(editorBaseline, key)),
+    (key) =>
+      !equalField(
+        draft[key],
+        activeSave()?.phase === "posting"
+          ? activeSave().draft[key]
+          : fieldValue(editorBaseline, key),
+      ),
   );
   if (editMode) editorSaved = false;
   syncEditorControls();
@@ -965,6 +1022,7 @@ function syncEditorControls() {
   updateDetailSync();
   syncCommentControls();
   renderDetailChoices();
+  renderPointsChoices();
 }
 function setComposition(value) {
   composing = value;
@@ -1070,10 +1128,74 @@ function paintStoryPoints() {
         : undefined;
     const available = typeof value === "number" && Number.isFinite(value);
     badge.hidden = !available;
-    badge.textContent = available ? `SP ${value}` : "";
+    badge.textContent = available
+      ? badge.id === "detail-story-points"
+        ? `SP ${value}`
+        : String(value)
+      : "";
     if (available) badge.setAttribute("aria-label", `Story points ${value}`);
     else badge.removeAttribute("aria-label");
   }
+  reconcilePointValue();
+}
+function pointsAvailable() {
+  return (
+    editing?.kind === "PBI" &&
+    pointsSnapshot === state &&
+    Object.hasOwn(pointsValues, editorLatest?.number)
+  );
+}
+function renderPointsChoices() {
+  const group = $("#story-point-editor");
+  const ready = pointsAvailable();
+  group.hidden = !ready;
+  if (!ready) return;
+  const root = $("#story-point-choices");
+  const values = [0.1, 1, 2, 3, 5, 8, 13, null];
+  const key = JSON.stringify(editorPoints);
+  if (root.dataset.value === key) return;
+  const focused = root.contains(document.activeElement)
+    ? document.activeElement.textContent
+    : null;
+  root.dataset.value = key;
+  root.replaceChildren(
+    ...values.map((value) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = value === null ? "解除" : String(value);
+      b.setAttribute("aria-pressed", String(editorPoints === value));
+      b.onclick = () => {
+        editorPoints = value;
+        updateDirty();
+      };
+      return b;
+    }),
+  );
+  if (focused)
+    [...root.children]
+      .find((b) => b.textContent === focused)
+      ?.focus({ preventScroll: true });
+}
+function reconcilePointValue() {
+  if (!$("#details").open || !editorBaseline || !pointsAvailable()) {
+    renderPointsChoices();
+    return;
+  }
+  if (activeSave()?.phase === "posting") return;
+  const remote = pointsValues[editorLatest.number],
+    base = editorBaseline.storyPoints;
+  if (
+    editorPoints === base ||
+    editorPoints === remote ||
+    editorPoints === undefined
+  ) {
+    editorPoints = remote;
+    editorBaseline.storyPoints = remote;
+    delete editorConflicts.storyPoints;
+  } else if (remote !== base) editorConflicts.storyPoints = { remote };
+  editorLatest.storyPoints = remote;
+  renderConflicts();
+  updateDirty();
 }
 function loadStoryPoints(lanes) {
   const key = lanes.map((l) => l.id).join("|");
@@ -1268,8 +1390,15 @@ function fillDetail() {
   $("#markdown-source").innerHTML = "原文を確認 <kbd>F8</kbd>";
   $("#editor-options").dataset.tooltip = "本文の補助操作（原文切替: F8）";
   composer?.source(false);
-  const t = issue(editing.kind, editing.id);
-  if (!t) return;
+  const original = issue(editing.kind, editing.id);
+  if (!original) return;
+  const t = clone(original);
+  if (
+    pointsSnapshot === state &&
+    Object.hasOwn(pointsValues, t.number) &&
+    editing.kind === "PBI"
+  )
+    t.storyPoints = pointsValues[t.number];
   renderAuthor(t);
   detailStoryPoints(t);
   editorBaseline = clone(t);
@@ -1330,6 +1459,7 @@ function updateDetailSync() {
 }
 function reconcileEditor(current) {
   if (!$("#details").open) return;
+  if (activeSave()?.phase === "posting") return;
   if (composing) {
     pendingEditorRemote = current;
     return;
@@ -1339,7 +1469,12 @@ function reconcileEditor(current) {
     syncEditorControls();
     return;
   }
-  editorLatest = clone(current);
+  editorLatest = {
+    ...clone(current),
+    ...(Object.hasOwn(editorBaseline, "storyPoints")
+      ? { storyPoints: editorBaseline.storyPoints }
+      : {}),
+  };
   renderAuthor(current);
   for (const person of [
     ...(state.assigneeOptions || []),
@@ -1356,6 +1491,7 @@ function reconcileEditor(current) {
   }
   const draft = editorDraft();
   for (const key of editorFields) {
+    if (key === "storyPoints" && !Object.hasOwn(current, key)) continue;
     const base = fieldValue(editorBaseline, key),
       remote = fieldValue(current, key),
       local = draft[key];
@@ -1682,6 +1818,8 @@ function renderComments() {
 function stopPrivateScope(message) {
   cellPositions.clear();
   state = clone(initial);
+  issueSaves.clear();
+  showSaveProblems();
   pointsEpoch++;
   pointsValues = {};
   paintStoryPoints();
@@ -1884,6 +2022,7 @@ function openIssue(kind, id) {
       }
     : null;
   fillDetail();
+  restoreSave(activeSave());
   setupComments();
   setEdit(false);
   $("#details").showModal();
@@ -1897,8 +2036,7 @@ function openIssue(kind, id) {
   $("#close-detail").focus();
 }
 function closeDetail() {
-  if (composing || editorPosting || commentPosting() || commentComposing)
-    return;
+  if (composing || commentPosting() || commentComposing) return;
   if (
     (editMode || commentDirty()) &&
     !confirm("未保存の変更・コメントを破棄して閉じますか？")
@@ -1911,11 +2049,11 @@ function closeDetail() {
   $("#comments-list")
     .querySelectorAll(".comment-content")
     .forEach((n) => composerModule?.clearPreview(n));
-  editorSession++; // Accepted close cancels a pending preflight before animation.
+  editorSession++; // Drawer cleanup never cancels an explicitly submitted Issue save.
   clearLinkedPrs();
   $("#editor-tools").hidePopover();
   d.classList.add("closing");
-  setTimeout(() => {
+  {
     d.close();
     editMode = false;
     editorBusy = false;
@@ -1940,7 +2078,7 @@ function closeDetail() {
         document.querySelector(`[data-pbi="${CSS.escape(returnCell.lane)}"]`));
     revealCard(target);
     (target || fallback || $("#operations")).focus({ preventScroll: true });
-  }, 160);
+  }
 }
 function openList(lane, column) {
   listContext = { lane, column };
@@ -2234,94 +2372,114 @@ $("#detail-form").onsubmit = async (e) => {
     editorBusy ||
     editorOutcome ||
     detailUnavailable ||
-    Object.keys(editorConflicts).length
+    Object.keys(editorConflicts).length ||
+    issueSaves.has(editing.id)
   )
     return;
-  const target = { ...editing };
-  const session = editorSession;
+  const target = { ...editing },
+    source = adapter;
+  const baseline = clone(editorLatest),
+    draft = clone(editorDraft()),
+    patch = {};
+  for (const key of editorFields)
+    if (!equalField(draft[key], fieldValue(baseline, key)))
+      patch[key] = draft[key];
+  if (!Object.keys(patch).length) return;
+  if (Object.hasOwn(patch, "storyPoints") && !pointsAvailable()) {
+    $("#detail-error").textContent =
+      "Story pointsの公開状態を確認できません。再取得してから保存してください。";
+    $("#detail-error").hidden = false;
+    return;
+  }
+  if (!draft.title.trim()) {
+    $("#detail-error").textContent = "タイトルを入力してください。";
+    $("#detail-error").hidden = false;
+    return;
+  }
+  const job = {
+    target,
+    baseline,
+    draft,
+    patch,
+    phase: "posting",
+    requestId: crypto.randomUUID(),
+  };
+  issueSaves.set(target.id, job);
+  editorPosting = true;
   editorBusy = true;
-  syncEditorControls();
+  updateDirty();
+  const isCurrent = () =>
+    $("#details").open &&
+    !$("#details").classList.contains("closing") &&
+    editing?.id === target.id;
   try {
-    const fresh = await refreshBoard(undefined, { silent: true });
-    if (
-      !$("#details").open ||
-      $("#details").classList.contains("closing") ||
-      editorSession !== session
-    )
-      return;
-    if (
-      !fresh ||
-      detailUnavailable ||
-      composing ||
-      Object.keys(editorConflicts).length
-    )
-      return;
-    const latest = editorLatest,
-      draft = editorDraft(),
-      patch = {};
-    for (const key of editorFields)
-      if (!equalField(draft[key], fieldValue(latest, key)))
-        patch[key] = draft[key];
-    if (!Object.keys(patch).length) {
-      editorSaved = true;
-      return;
-    }
-    if (!draft.title.trim()) {
-      $("#detail-error").textContent = "タイトルを入力してください。";
-      $("#detail-error").hidden = false;
-      return;
-    }
-    editorPosting = true;
-    pending = true;
-    syncEditorControls();
-    const result = await adapter.saveIssue({
+    // The server performs uncached preflight and canonical readback; do not fetch
+    // the entire board first or tie this operation to the drawer session.
+    const result = await source.saveIssue({
       kind: target.kind,
       id: target.id,
       patch,
-      expectedRevision: latest.revision,
-      expectedStatus: latest.status ?? null,
+      baseline,
+      expectedRevision: baseline.revision,
+      expectedStatus: baseline.status ?? null,
+      requestId: job.requestId,
     });
+    if (issueSaves.get(target.id) !== job || adapter !== source) return;
     if (!result || result.id !== target.id)
       throw Object.assign(new Error("保存結果を確認できません。"), {
         ambiguous: true,
       });
+    confirmedSaveEpoch++;
+    pointsEpoch++; // Fence a point read started before this acknowledged mutation.
     const current = issue(target.kind, target.id);
     if (current) Object.assign(current, result);
-    // Confirm only the sent baseline; edits made during POST remain local drafts.
-    for (const key of editorFields) setBaseField(key, draft[key]);
-    reconcileEditor(result);
-    editorSaved = true;
-    editorOutcome = null;
-    $("#detail-error").hidden = true;
-    editorPosting = false;
-    pending = false;
-    editorBusy = false;
-    syncEditorControls();
-    await refreshBoard(undefined, { silent: true });
-    if (editorSession === session) editorSaved = !editMode;
+    if (Object.hasOwn(result, "storyPoints"))
+      pointsValues[result.number] = result.storyPoints;
+    issueSaves.delete(target.id);
+    if (isCurrent()) {
+      for (const key of editorFields) setBaseField(key, draft[key]);
+      editorPosting = false;
+      editorBusy = false;
+      editorOutcome = null;
+      reconcileEditor(result);
+      editorSaved = !editMode;
+      $("#detail-error").hidden = true;
+    }
+    // Reconcile the board separately; a slow GET must not hold close or Save.
+    void refreshBoard(undefined, { silent: true });
   } catch (error) {
-    const durable = error.serverError === "mutation_outcome_unresolved";
-    editorOutcome = {
-      durable,
+    if (issueSaves.get(target.id) !== job || adapter !== source) return;
+    job.phase = "failed";
+    job.outcome = {
+      durable: error.serverError === "mutation_outcome_unresolved",
       uncertain: !!(error.ambiguous || error.partial),
       code: error.serverError || error.code,
     };
-    $("#detail-error").textContent =
+    job.error =
       error.message +
-      (durable
-        ? " 管理者がGitHubの状態を確認するまで追加保存できません。"
-        : " 入力は保持しています。自動再送はしません。");
-    $("#detail-error").hidden = false;
+      (job.outcome.durable
+        ? " 管理者による保存結果の確認が必要です。"
+        : " 下書きを保持しています。自動再送はしません。");
+    if (isCurrent()) {
+      // Keep edits typed after submission as well as the original intent.
+      job.draft = clone(editorDraft());
+      editorOutcome = job.outcome;
+      editorPosting = false;
+      editorBusy = false;
+      $("#detail-error").textContent = job.error;
+      $("#detail-error").hidden = false;
+      updateDirty();
+    }
     if (error.code === "scope_not_public") stopPrivateScope(error.message);
   } finally {
-    if (editorSession === session && $("#details").open) {
+    if (isCurrent() && issueSaves.get(target.id)?.phase !== "posting") {
       editorPosting = false;
-      pending = false;
       editorBusy = false;
       syncEditorControls();
-      render();
-      resumeAutoRefresh();
     }
+    showSaveProblems();
+    render();
+    resumeAutoRefresh();
   }
 };
 $("#search").oninput = () => {
@@ -2361,7 +2519,12 @@ async function performRefresh(options, { silent = false } = {}) {
   updateDetailSync();
   render();
   try {
+    const readEpoch = confirmedSaveEpoch;
     const next = await adapter.load(options);
+    if (readEpoch !== confirmedSaveEpoch) {
+      autoRefreshRequested = true;
+      return false;
+    }
     if (!valid(next)) throw new Error("無効なIssueデータです");
     state = clone(next);
     if (options && Object.hasOwn(options, "milestone"))
@@ -2411,6 +2574,8 @@ $("#recover-edit").onclick = async () => {
       )
     ) {
       editorOutcome = null;
+      issueSaves.delete(editing.id);
+      showSaveProblems();
       $("#detail-error").hidden = true;
       editorSaved = same;
     }

@@ -41,6 +41,8 @@ export function fixture({
   extraTasks = false,
   commentFailure = false,
   comments = [],
+  storyPoints = null,
+  fieldsDenied = false,
 } = {}) {
   const parent = makeIssue(1, "PBI");
   const issue = makeIssue(2, "Task", parent);
@@ -54,6 +56,35 @@ export function fixture({
         token: "SECRET",
         expires_at: "2099-01-01T00:00:00Z",
       });
+    if (url.endsWith("/issue-fields"))
+      return fieldsDenied
+        ? Response.json({ message: "denied" }, { status: 403 })
+        : Response.json([
+            {
+              id: 49067031,
+              name: "Story points",
+              data_type: "number",
+              visibility: "all",
+            },
+          ]);
+    if (url.includes("/issue-field-values")) {
+      if (opt.method === "POST") storyPoints = body.issue_field_values[0].value;
+      if (opt.method === "DELETE") {
+        storyPoints = null;
+        return new Response(null, { status: 204 });
+      }
+      return Response.json(
+        storyPoints === null
+          ? []
+          : [
+              {
+                issue_field_id: 49067031,
+                data_type: "number",
+                value: storyPoints,
+              },
+            ],
+      );
+    }
     if (body?.query?.includes("query CommentScope")) {
       const n = body.variables.number;
       const i = n === 1 ? parent : n === 2 ? issue : null;
@@ -246,6 +277,49 @@ export function fixture({
           })),
         },
       });
+    if (body.query.includes("MutationContext")) {
+      const i = body.variables.number === 1 ? parent : issue;
+      return Response.json({
+        data: {
+          repository: {
+            isPrivate: false,
+            issue: {
+              ...i,
+              projectItems: {
+                nodes:
+                  i === parent && !parentInProject
+                    ? []
+                    : [
+                        {
+                          id: i === parent ? "ITEM1" : "ITEM2",
+                          isArchived: false,
+                          project: { id: "P3" },
+                          fieldValueByName:
+                            i === parent
+                              ? { name: "レビュー中" }
+                              : status === null
+                                ? null
+                                : { name: status },
+                        },
+                      ],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+          organization: {
+            projectV2: {
+              id: "P3",
+              public: true,
+              field: {
+                id: "STATUS",
+                options: [{ id: "WORK", name: "作業中", color: "YELLOW" }],
+              },
+              view: { filter: viewFilter },
+            },
+          },
+        },
+      });
+    }
     if (body.query.includes("SavePreflight"))
       return Response.json({
         data: {

@@ -122,15 +122,21 @@ test("public data rejects private repo/project and privacy change during board r
           const body = opt.body ? JSON.parse(opt.body) : {};
           if (
             body.query?.includes("PublicScope") ||
-            body.query?.includes("BoardBootstrap")
+            body.query?.includes("BoardBootstrap") ||
+            body.query?.includes("MutationContext")
           ) {
             checks++;
-            const original = body.query.includes("BoardBootstrap")
-              ? await (await f.fetch(url, opt)).json()
-              : { data: { organization: { projectV2: {} } } };
+            const original =
+              body.query.includes("BoardBootstrap") ||
+              body.query.includes("MutationContext")
+                ? await (await f.fetch(url, opt)).json()
+                : { data: { organization: { projectV2: {} } } };
             return Response.json({
               data: {
-                repository: { isPrivate: mode === "private-repo" },
+                repository: {
+                  ...original.data.repository,
+                  isPrivate: mode === "private-repo",
+                },
                 organization: {
                   projectV2: {
                     ...original.data.organization.projectV2,

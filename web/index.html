@@ -8,6 +8,12 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <aside
+      id="save-problems"
+      aria-live="polite"
+      aria-label="保存の確認が必要なIssue"
+      hidden
+    ></aside>
     <div id="chrome" class="chrome">
       <div class="top-edge" aria-hidden="true"></div>
       <header class="control-panel">
@@ -245,6 +251,14 @@
                 aria-label="ステータスを選択"
               ></div
             ></label>
+            <section id="story-point-editor" hidden>
+              <h3>Story points</h3>
+              <div
+                id="story-point-choices"
+                role="group"
+                aria-label="Story pointsを選択"
+              ></div>
+            </section>
             <p id="body-hint" class="body-hint" hidden>
               Demo goalは本文の「ユーザーに提供する体験」から表示します。
             </p>
