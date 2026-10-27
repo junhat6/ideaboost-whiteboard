@@ -97,7 +97,6 @@ compositionstart直後（本文変更なし）から非選択行の記法も露�
 
 CIの媒体回帰は、ライブ面から読み取り面へ明示切替した際に画像要求が各面で1回（合計1〜2回）となるタイミングを許容する。当時の契約では動画は操作前0件を維持し（現在は下記自動previewへ変更）、遅い画像が本文を妨げないこととclose cleanupを検証する。
 
-
 媒体追加回帰: 両解像度で同じコメント本文/作者変更後もvideo DOMを保持、本文URL変更・削除で旧video停止、14遅延画像の同時要求上限3とdialog共有observer、閉じる際の待機要求破棄を検証する。当時の再生前通信ゼロ（現在は近傍previewを許可）、悪意Markdown、scope非公開化、IME/source/undo、投稿receipt/結果不明も全体試験に含める。実添付は読み取りのみであり、実IssueへのQA書き込みは行わない。
 
 閉じるアニメーション境界: live媒体6画像の3件を保留し、閉じる承認直後・160ms破棄前にactive画像のloadを合成する。改善前は両サイズで待機1件へsrc設定、追補後は0。closing/非open dialogではqueueを取消し、接続が残るlive widgetでも新規取得しない。実ネットワーク完了を保証するテストではなく、完了イベントの競合順を決定的に検証する。
@@ -121,6 +120,7 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 最終配信SHA ca687e7 のCI40326588045で、追加分を含む全148 browserケースと69 backendが成功。本番の入力境界/画像失敗fallbackも両サイズで一致した。
 
 ### Statusラベルとflat進捗
+
 詳細のstatus-chipと列見出しの輪郭/内側/文字/角丸の一致、canonical option色の更新と未知色neutral fallback、固定ヘッダー高を両サイズで確認。進捗は0/1/6/40/41件・全完了について件数/要素数、8px・padding0・shadowなし・外端丸・内部直線を検証。読み取り検証のみ、実IssueへのQA書込みなし。
 
 正常な同期/保存済みはhiddenでlive通知しない。POSTをgateした合成試験で、送信本文と後続入力を分離し、後続本文・Status変更・dirty-close警告を保持、重複POSTなしを確認する。担当者checkは全6候補の矩形がtile/scroll領域内に収まりSpaceで選択解除/再選択可能であることを両サイズで検証。
@@ -128,6 +128,7 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 関連PRは正式relationのみ・固定repo/public・全状態・50件cursor・unsafeURL・遅延切替・非公開で消去を確認。OcticonsのviewBox/filled path、MacとWindows keycapsの22px同寸、refresh中の16px維持を確認。detailsはcomplete source範囲、CRLF/コードフェンス/不正終端/ネスト過多、展開前の媒体0、展開後Markdown/Mermaid、malicious属性/HTML、close cleanupを検証。ライブラリは非DOM parse5を使い、構造解析で外部通信しない。
 
 ### ライブ一本化・リンク・即時tooltip追補
+
 - 表示モード切替は通常UIから除去。原文はその他メニュー/F8のみ。共有preview rendererはコメント/折り畳みのため保持し、その安全性のbrowser試験はtest-only harnessで呼び出す。製品へ読み取り切替を戻さない。
 - Cmd/Ctrlリンク、通常クリック編集、noopener/noreferrer、参照リンク、危険URL/code除外、原文不変。
 - tooltipは即時hover/focus・hover保持・Escape・modal内viewport包含・native titleなし。F8はIME中無効。
@@ -152,9 +153,14 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 配信前レビューの破棄回帰: 本文/titleを明示送信後に追記し、離散選択も追加して閉じる際に破棄を承認、送信が失敗すると追記まで復元されることを再現。close時の復元内容は各fieldで「queued値→送信snapshot→元baseline」の優先順に確定する。送信済み原文と未送信の離散選択は保持し、承認して破棄した追加本文/titleは復活させない。unknown fenceと後続停止も同fixtureで確認。
 
 ### Story points の投影とヘルプ（2026-10-27）
+
 - 異なる値の6PBIで1件保存後のboard応答を受けても他5件を保持する。確認済み45秒以内の同集合では保存後の追加SP一括GETは0（従来1）。
 - 先行SP GETの対象Aだけ保存ack後の古値を拒否し、同batchのBの更新は採用。空projectionはfield公開失効として全消去。null/キー欠落/失敗は完了時点で空欄へ戻す。
 - 待機中は値を維持し、重なるpollは同一flightを利用。通常のfocus/pollで再検証。失敗保存、解除、未設定、未知値、公開scope失効と既存autosave queueを回帰試験。
 - ヘルプは3見出しと短い対応表。最大6件/F/Escapeの説明を省略し、既存shortcutは維持。1920/2560の画素・高さ・Escape/focus復帰を確認する。
 
 Project同梱SP: PVTF→canonical IFN ID/type/ALL、通常Project独自numberの拒否、nullと欠落、開始/終了private、GraphQL任意field error時base query、shared reader公開失効を検証。browserではboard応答と同時の数字表示、追加SP endpoint 0、refreshでnull/空へ置換、SP autosaveに未保存本文を便乗させないことを確認。実値QA書込みなし。
+
+### 見積時間・バーンダウン
+
+`server/estimate-hours.test.mjs`は公開canonical field/未取得とnull/単一field保存/解除/種類なし・未知種類/末端集計/階層欠落を確認。`tests/burndown.test.ts`はJST日次、immutable観測、singleflight、失効purge、記録上限を確認。`tests/browser/burndown.spec.ts`は両解像度で遅延load、edge/ボタン/Escape、drawer非発火、本文を巻き込まないautosave、連続変更/再訪、公開失効後ackを確認。実Issue値のQA変更は禁止。

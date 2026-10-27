@@ -78,6 +78,9 @@ export class BoardReader {
             ...(Object.hasOwn(data.scope || {}, "storyPointsField")
               ? [data.scope.storyPointsField]
               : []),
+            ...(Object.hasOwn(data.scope || {}, "estimateHoursField")
+              ? [data.scope.estimateHoursField]
+              : []),
           ])
         ) {
           this.snapshot = null;

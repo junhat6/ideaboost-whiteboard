@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 const allowed = new Map([
   ["/", "index.html"],
   ["/app.js", "app.js"],
+  ["/burndown.js", "burndown.js"],
   ["/icons.js", "icons.js"],
   ["/ui-tools.js", "ui-tools.js"],
   ["/editor-bundle.js", "editor-bundle.js"],

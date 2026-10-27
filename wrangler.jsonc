@@ -3,9 +3,15 @@
   "name": "ideaboost-whiteboard",
   "main": "worker/entry.ts",
   "durable_objects": {
-    "bindings": [{ "name": "MUTATIONS", "class_name": "IssueCoordinator" }],
+    "bindings": [
+      { "name": "MUTATIONS", "class_name": "IssueCoordinator" },
+      { "name": "HISTORY", "class_name": "HistoryCoordinator" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["IssueCoordinator"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["IssueCoordinator"] },
+    { "tag": "v2", "new_sqlite_classes": ["HistoryCoordinator"] },
+  ],
   "compatibility_date": "2026-10-26",
   "ratelimits": [
     {

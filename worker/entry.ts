@@ -2,8 +2,34 @@ import { DurableObject } from "cloudflare:workers";
 import { createHandler } from "../server/github.mjs";
 import { BoardReader, withReadInvalidation } from "./reader";
 import { MutationCoordinator } from "./coordinator";
+import { BurnHistory } from "./burndown";
 import type { Env } from "./index";
 export { default } from "./index";
+export class HistoryCoordinator extends DurableObject<Env> {
+  private history: BurnHistory;
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    const handler = createHandler();
+    this.history = new BurnHistory(ctx.storage, async () => {
+      const response = await handler(
+        new Request("https://internal/api/burndown", {
+          headers: { "x-verified-user-id": "history-observer" },
+        }),
+        env,
+      );
+      return (
+        response ??
+        Response.json({ error: "observation_unavailable" }, { status: 503 })
+      );
+    });
+  }
+  fetch(request: Request) {
+    return this.history.fetch(request);
+  }
+  alarm() {
+    return this.history.alarm();
+  }
+}
 export class IssueCoordinator extends DurableObject<Env> {
   private coordinator: MutationCoordinator;
   private reader: BoardReader;

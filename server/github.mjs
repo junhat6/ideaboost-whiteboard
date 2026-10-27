@@ -1,4 +1,12 @@
 import {
+  HOURS_META,
+  HOURS_VALUE,
+  hoursContract,
+  publicHours,
+  projectHours,
+  validHours,
+} from "./estimate-hours.mjs";
+import {
   POINT_META,
   POINT_VALUE,
   publicProjectPoints,
@@ -23,10 +31,10 @@ const STATUSES = [
   "見送り",
 ];
 const BASE = "https://api.github.com";
-const CORE = `id number url title body updatedAt state stateReason author { login avatarUrl url __typename ... on User { name } } repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:10) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
-const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state } parent { id repository { nameWithOwner } }`;
+const CORE = `id number url title body updatedAt state stateReason author { login avatarUrl url __typename ... on User { name } } repository { nameWithOwner } issueType { name } milestone { number title state dueOn } assignees(first:10) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
+const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state dueOn } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
-const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state } } } } pageInfo { hasNextPage endCursor }`;
+const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state dueOn } } } } pageInfo { hasNextPage endCursor }`;
 const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name color } } } view(number:16) { filter }`;
 const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100) { ${INDEX} } } } }`;
 const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after) { ${INDEX} } } } }`;
@@ -131,6 +139,8 @@ export function validateMutation(v) {
           "status",
           "storyPoints",
           "expectedStoryPoints",
+          "estimateHours",
+          "expectedEstimateHours",
           "expectedRevision",
           "expectedStatus",
           "expectedState",
@@ -200,10 +210,26 @@ export function validateMutation(v) {
           !Number.isFinite(v.expectedStoryPoints))))
   )
     throw new ApiError(400, "invalid_story_points");
+  if (
+    "estimateHours" in v &&
+    (!validHours(v.estimateHours) ||
+      !Object.hasOwn(v, "expectedEstimateHours") ||
+      !validHours(v.expectedEstimateHours))
+  )
+    throw new ApiError(400, "invalid_estimate_hours");
+  if ("expectedEstimateHours" in v && !("estimateHours" in v))
+    throw new ApiError(400, "invalid_estimate_hours");
   if ("expectedStoryPoints" in v && !("storyPoints" in v))
     throw new ApiError(400, "invalid_story_points");
   if (
-    !["title", "body", "assignees", "status", "storyPoints"].some((k) => k in v)
+    ![
+      "title",
+      "body",
+      "assignees",
+      "status",
+      "storyPoints",
+      "estimateHours",
+    ].some((k) => k in v)
   )
     throw new ApiError(400, "no_changes");
 }
@@ -224,7 +250,9 @@ export function createHandler({
       ":" +
       env.GITHUB_APP_PRIVATE_KEY +
       ":" +
-      (env.STORY_POINTS_READ_ENABLED === "true" ? "issue-fields-read" : "base");
+      (env.STORY_POINTS_READ_ENABLED === "true" || hoursContract(env)
+        ? "issue-fields-read"
+        : "base");
     const old = tokens.get(key);
     if (old && old.until > now() + 60000) return old.value;
     if (tokenFlights.has(key)) return tokenFlights.get(key);
@@ -275,7 +303,7 @@ export function createHandler({
           permissions: {
             issues: "write",
             organization_projects: "write",
-            ...(env.STORY_POINTS_READ_ENABLED === "true"
+            ...(env.STORY_POINTS_READ_ENABLED === "true" || hoursContract(env)
               ? { issue_fields: "read" }
               : {}),
           },
@@ -346,7 +374,7 @@ export function createHandler({
     return r.data;
   }
   async function optionalPointsQuery(env, base, enhanced, variables = {}) {
-    if (env.STORY_POINTS_READ_ENABLED !== "true")
+    if (env.STORY_POINTS_READ_ENABLED !== "true" && !hoursContract(env))
       return gql(env, base, variables);
     try {
       return await gql(env, enhanced, variables);
@@ -358,13 +386,18 @@ export function createHandler({
     }
   }
   async function assertPublic(env, points = false) {
-    const includePoints = points && env.STORY_POINTS_READ_ENABLED === "true";
+    const includePoints =
+      points &&
+      (env.STORY_POINTS_READ_ENABLED === "true" || !!hoursContract(env));
     if (env.AUTH_MODE !== "public-temporary" && !includePoints) return;
     const data = await (includePoints
       ? optionalPointsQuery(
           env,
           VISIBILITY,
-          VISIBILITY.replace("{ public }", `{ public ${POINT_META} }`),
+          VISIBILITY.replace(
+            "{ public }",
+            `{ public ${POINT_META} ${hoursContract(env) ? HOURS_META : ""} }`,
+          ),
         )
       : gql(env, VISIBILITY));
     if (
@@ -420,6 +453,9 @@ export function createHandler({
       projectItemId: item?.id ?? null,
       statusEditable: !!item?.id,
       parentId: i.parent?.id ?? null,
+      ...(Number.isSafeInteger(i.subIssuesSummary?.total)
+        ? { subIssueCount: i.subIssuesSummary.total }
+        : {}),
       milestone: i.milestone ?? null,
       state: i.state,
       stateReason: i.stateReason ?? null,
@@ -439,7 +475,10 @@ export function createHandler({
       optionalPointsQuery(
         env,
         BOOTSTRAP,
-        BOOTSTRAP.replace(META_FIELDS, `${META_FIELDS} ${POINT_META}`),
+        BOOTSTRAP.replace(
+          META_FIELDS,
+          `${META_FIELDS} ${POINT_META} ${hoursContract(env) ? HOURS_META : ""}`,
+        ),
       ),
     );
     const meta = bootstrap?.organization?.projectV2;
@@ -783,7 +822,8 @@ export function createHandler({
   async function focusedBoard(env, milestone, meta, read, timings) {
     const own = (i) =>
       i?.id && i.repository?.nameWithOwner === `${OWNER}/${REPO}`;
-    const pointValues = {};
+    const pointValues = {},
+      hourValues = {};
     const fullFields = `nodes { id isArchived content { ... on Issue { ${CORE} parent { id repository { nameWithOwner } } subIssuesSummary { total } } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } pageInfo { hasNextPage endCursor }`;
     async function pages(name, filter) {
       const items = [];
@@ -791,13 +831,14 @@ export function createHandler({
       for (let page = 0; page < 100; page++) {
         const base = `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter) { ${fullFields} } } } }`;
         const data = await read(name, () =>
-          name === "BoardRowsFull" && publicProjectPoints(meta.pointsField)
+          (name === "BoardRowsFull" && publicProjectPoints(meta.pointsField)) ||
+          (name === "BoardChildren" && publicHours(meta.hoursField, env))
             ? optionalPointsQuery(
                 env,
                 base,
                 base.replace(
                   "nodes { id isArchived",
-                  `nodes { ${POINT_VALUE} id isArchived`,
+                  `nodes { ${name === "BoardRowsFull" ? POINT_VALUE : HOURS_VALUE} id isArchived`,
                 ),
                 { after, filter },
               )
@@ -820,6 +861,10 @@ export function createHandler({
           if (name === "BoardRowsFull" && i.issueType?.name === "PBI") {
             const point = projectPoint(item.pointsValue);
             if (point !== undefined) pointValues[i.number] = point;
+          }
+          if (name === "BoardChildren" && i.issueType?.name !== "PBI") {
+            const hours = projectHours(item.hoursValue, env);
+            if (hours !== undefined) hourValues[i.number] = hours;
           }
           items.push({
             issue: normalize(i, item),
@@ -940,6 +985,16 @@ export function createHandler({
       ).values(),
     ];
     const endMeta = await read("visibilityEnd", () => assertPublic(env, true));
+    const hoursPublic =
+      publicHours(meta.hoursField, env) &&
+      publicHours(endMeta?.hoursField, env);
+    for (const task of visibleTasks)
+      if (
+        task.type !== "PBI" &&
+        hoursPublic &&
+        Object.hasOwn(hourValues, task.number)
+      )
+        task.estimateHours = hourValues[task.number];
     const pointsPublic =
       publicProjectPoints(meta.pointsField) &&
       publicProjectPoints(endMeta?.pointsField);
@@ -972,6 +1027,7 @@ export function createHandler({
           ...(env.STORY_POINTS_READ_ENABLED === "true"
             ? { storyPointsField: pointsPublic }
             : {}),
+          ...(hoursContract(env) ? { estimateHoursField: hoursPublic } : {}),
           owner: OWNER,
           repo: REPO,
           projectNumber: PROJECT,
@@ -1040,6 +1096,49 @@ export function createHandler({
       throw new ApiError(503, "story_points_unavailable");
     return result.values[number];
   }
+  async function hourValue(env, number) {
+    const contract = hoursContract(env);
+    if (!contract) throw new ApiError(503, "estimate_hours_unavailable");
+    const verify = async () => {
+      await assertPublic(env);
+      const fields = await api(env, `/orgs/${OWNER}/issue-fields`);
+      if (
+        !Array.isArray(fields) ||
+        fields.filter(
+          (f) =>
+            f.id === contract.id &&
+            f.name === "Estimate Hours" &&
+            f.data_type === "number" &&
+            f.visibility === "all",
+        ).length !== 1
+      )
+        throw new ApiError(403, "estimate_hours_not_public");
+    };
+    await verify();
+    let value = null,
+      found = false,
+      complete = false;
+    for (let page = 1; page <= 10; page++) {
+      const path = `/repos/${OWNER}/${REPO}/issues/${number}/issue-field-values?per_page=100&page=${page}`;
+      const result = await api(env, path, { withHeaders: true });
+      if (!Array.isArray(result.data))
+        throw new ApiError(502, "estimate_hours_unavailable");
+      for (const entry of result.data)
+        if (entry?.issue_field_id === contract.id) {
+          if (found || entry.data_type !== "number" || !validHours(entry.value))
+            throw new ApiError(502, "estimate_hours_unavailable");
+          found = true;
+          value = entry.value;
+        }
+      if (!storyPointsNextPage(result.link, BASE + path, page)) {
+        complete = true;
+        break;
+      }
+    }
+    if (!complete) throw new ApiError(502, "estimate_hours_unavailable");
+    await verify();
+    return value;
+  }
   async function mutationContext(env, number) {
     let after = null,
       candidate = null,
@@ -1102,6 +1201,33 @@ export function createHandler({
     current.fingerprint = await fingerprint(issue);
     return { current, meta };
   }
+  async function assertWorkScope(env, number, expectedId) {
+    let fields = "id issueType { name } repository { nameWithOwner }";
+    for (let n = 0; n < 8; n++)
+      fields +=
+        " parent {" + "id issueType { name } repository { nameWithOwner }";
+    fields += "}".repeat(8);
+    const data = await gql(
+      env,
+      `query WorkScope($number:Int!) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { ${fields} } } }`,
+      { number },
+    );
+    let issue = data?.repository?.issue;
+    if (issue?.id !== expectedId || issue.issueType?.name === "PBI")
+      throw new ApiError(403, "issue_out_of_scope");
+    const seen = new Set();
+    while (issue) {
+      if (
+        issue.repository?.nameWithOwner !== `${OWNER}/${REPO}` ||
+        seen.has(issue.id)
+      )
+        throw new ApiError(403, "issue_out_of_scope");
+      seen.add(issue.id);
+      if (issue.issueType?.name === "PBI") return;
+      issue = issue.parent;
+    }
+    throw new ApiError(403, "issue_out_of_scope");
+  }
   async function save(env, number, v) {
     const before = await mutationContext(env, number),
       current = before.current;
@@ -1125,6 +1251,16 @@ export function createHandler({
         throw new ApiError(400, "story_points_pbi_only");
       oldPoints = await pointValue(env, number);
       if (oldPoints !== v.expectedStoryPoints)
+        throw new ApiError(409, "conflict", { issue: current });
+    }
+    const changeHours = Object.hasOwn(v, "estimateHours");
+    let oldHours;
+    if (changeHours) {
+      if (current.type === "PBI")
+        throw new ApiError(400, "estimate_hours_work_only");
+      await assertWorkScope(env, number, current.id);
+      oldHours = await hourValue(env, number);
+      if (oldHours !== v.expectedEstimateHours)
         throw new ApiError(409, "conflict", { issue: current });
     }
     const patch = {};
@@ -1153,6 +1289,8 @@ export function createHandler({
     }
     // Read independently versioned points before the final body/status preflight.
     if (changePoints && (await pointValue(env, number)) !== oldPoints)
+      throw new ApiError(409, "conflict", { issue: current });
+    if (changeHours && (await hourValue(env, number)) !== oldHours)
       throw new ApiError(409, "conflict", { issue: current });
     // Narrow final preflight after all potentially slow reads. Still not atomic CAS.
     const freshQuery = `query SavePreflight($number:Int!,$item:ID!) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id updatedAt state stateReason title body assignees(first:10) { nodes { login } pageInfo { hasNextPage } } } } node(id:$item) { ... on ProjectV2Item { id fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } }`;
@@ -1219,12 +1357,28 @@ export function createHandler({
           });
         completed.push("storyPoints");
       }
+      if (changeHours && v.estimateHours !== oldHours) {
+        const field = hoursContract(env).id,
+          path = `/repos/${OWNER}/${REPO}/issues/${number}/issue-field-values`;
+        if (v.estimateHours === null)
+          await api(env, path + "/" + field, { method: "DELETE" });
+        else
+          await api(env, path, {
+            method: "POST",
+            body: {
+              issue_field_values: [{ field_id: field, value: v.estimateHours }],
+            },
+          });
+        completed.push("estimateHours");
+      }
     } catch (e) {
       failure = e;
     }
     let latest;
     try {
       latest = await mutationContext(env, number);
+      if (changeHours)
+        latest.current.estimateHours = await hourValue(env, number);
       if (changePoints)
         latest.current.storyPoints = await pointValue(env, number);
     } catch (error) {
@@ -1254,7 +1408,8 @@ export function createHandler({
       (v.status !== "完了" || actual.state === "CLOSED") &&
       (!closeOnDone ||
         (actual.state === "CLOSED" && actual.stateReason === "COMPLETED")) &&
-      (!changePoints || actual.storyPoints === v.storyPoints);
+      (!changePoints || actual.storyPoints === v.storyPoints) &&
+      (!changeHours || actual.estimateHours === v.estimateHours);
     if (failure || !confirmed)
       return {
         status: 502,
@@ -1421,7 +1576,10 @@ export function createHandler({
         const data = await optionalPointsQuery(
           env,
           base,
-          base.replace(META_FIELDS, `${META_FIELDS} ${POINT_META}`),
+          base.replace(
+            META_FIELDS,
+            `${META_FIELDS} ${POINT_META} ${hoursContract(env) ? HOURS_META : ""}`,
+          ),
         );
         const meta = data?.organization?.projectV2;
         if (
@@ -1442,6 +1600,7 @@ export function createHandler({
             ...(env.STORY_POINTS_READ_ENABLED === "true"
               ? [publicProjectPoints(meta.pointsField)]
               : []),
+            ...(hoursContract(env) ? [publicHours(meta.hoursField, env)] : []),
           ]),
         });
       }
@@ -1493,6 +1652,52 @@ export function createHandler({
         return reply({
           ...result,
           ...(fieldReadStatus ? { fieldReadStatus } : {}),
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/api/burndown") {
+        if (!hoursContract(env))
+          throw new ApiError(503, "estimate_hours_unavailable");
+        const result = await board(env);
+        const output = result.output;
+        if (output.scope.estimateHoursField === false)
+          throw new ApiError(403, "estimate_hours_not_public");
+        if (output.scope.estimateHoursField !== true)
+          throw new ApiError(503, "estimate_hours_unavailable");
+        const parents = new Map(output.lanes.map((p) => [p.id, p]));
+        // Missing Project descendants are not zero work. Do not commit a partial tree.
+        const children = new Map();
+        for (const t of output.tasks)
+          children.set(t.parentId, (children.get(t.parentId) ?? 0) + 1);
+        if (
+          [...output.lanes, ...output.tasks].some(
+            (i) =>
+              !Number.isSafeInteger(i.subIssueCount) ||
+              i.subIssueCount !== (children.get(i.id) ?? 0),
+          )
+        )
+          throw new ApiError(503, "observation_incomplete");
+        const tasks = output.tasks
+          .filter((t) => t.type !== "PBI" && t.subIssueCount === 0)
+          .map((t) => ({
+            id: t.id,
+            parent: t.lane,
+            estimate: t.estimateHours,
+            status: t.status,
+            complete: t.status === "完了",
+            milestone: (t.milestone ?? parents.get(t.lane)?.milestone)?.number,
+          }));
+        if (tasks.some((t) => t.estimate === undefined))
+          throw new ApiError(503, "observation_incomplete");
+        return reply({
+          ok: true,
+          scope: output.scope.viewFilter,
+          observedAt: output.fetchedAt,
+          milestones: output.scope.milestones.map((m) => ({
+            number: m.number,
+            title: m.title,
+            dueOn: m.dueOn ?? null,
+          })),
+          tasks: tasks.filter((t) => t.milestone),
         });
       }
       if (request.method === "GET" && url.pathname === "/api/board") {

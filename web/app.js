@@ -751,6 +751,8 @@ function render() {
       .join("");
   restoreCells();
   loadStoryPoints(lanes);
+  $("#burndown-open").hidden = state.scope?.estimateHoursField !== true;
+  renderHoursInput();
   fitCardTitles();
   if (focused) document.querySelector(focused)?.focus({ preventScroll: true });
   $("#empty").hidden = !connectionError && tasks.length !== 0;
@@ -867,6 +869,11 @@ async function updateIssue(kind, id, patch, baseline = null) {
           current[key] = clone(original[key]);
     }
     if (error.code === "scope_not_public") stopPrivateScope(error.message);
+    if (
+      error.serverError === "estimate_hours_not_public" ||
+      error.code === "estimate_hours_not_public"
+    )
+      invalidateHours();
     stale = !!adapter;
     announce(
       error.partial || error.ambiguous
@@ -979,7 +986,16 @@ function restoreSave(job) {
   }
   updateDirty();
 }
-const editorFields = ["title", "body", "assignees", "status", "storyPoints"];
+const editorFields = [
+  "title",
+  "body",
+  "assignees",
+  "status",
+  "storyPoints",
+  "estimateHours",
+];
+let editorHours,
+  hoursEpoch = 0;
 let editorPoints;
 const fieldNames = {
   title: "タイトル",
@@ -987,9 +1003,10 @@ const fieldNames = {
   assignees: "担当者",
   status: "ステータス",
   storyPoints: "Story points",
+  estimateHours: "見積時間",
 };
 function fieldValue(item, key) {
-  if (key === "storyPoints") return item?.storyPoints;
+  if (key === "storyPoints" || key === "estimateHours") return item?.[key];
   return key === "assignees"
     ? (item.assignees || []).map((a) => a.login).sort()
     : (item[key] ?? null);
@@ -1000,6 +1017,7 @@ function equalField(a, b) {
 function editorDraft() {
   return {
     storyPoints: editorPoints,
+    estimateHours: editorHours,
     title: $("#detail-title").value,
     body: editorBody,
     assignees: [...$("#detail-assignee").selectedOptions]
@@ -1009,7 +1027,11 @@ function editorDraft() {
   };
 }
 function writeField(key, value) {
-  if (key === "storyPoints") {
+  if (key === "estimateHours") {
+    editorHours = value;
+    $("#estimate-hours").value = value ?? "";
+    renderHoursInput();
+  } else if (key === "storyPoints") {
     editorPoints = value;
     renderPointsChoices();
   } else if (key === "body") {
@@ -1221,6 +1243,55 @@ function paintStoryPoints() {
   }
   reconcilePointValue();
 }
+function hoursAvailable() {
+  return (
+    editing?.kind === "Task" &&
+    state.scope?.estimateHoursField === true &&
+    Object.hasOwn(issue(editing.kind, editing.id) || {}, "estimateHours")
+  );
+}
+function renderHoursInput() {
+  $("#estimate-hours-editor").hidden = !hoursAvailable();
+}
+function invalidateHours() {
+  hoursEpoch++;
+  for (const task of state.tasks || []) delete task.estimateHours;
+  if (state.scope) state.scope.estimateHoursField = false;
+  $("#burndown-open").hidden = true;
+  burnPanel?.close();
+  renderHoursInput();
+}
+function commitHours() {
+  const input = $("#estimate-hours");
+  if (!hoursAvailable() || composing) return;
+  const value = input.value === "" ? null : input.valueAsNumber;
+  const valid =
+    input.validity.valid &&
+    (value === null || (Number.isFinite(value) && value >= 0 && value <= 1000));
+  $("#estimate-hours-error").hidden = valid;
+  if (!valid) return;
+  editorHours = value;
+  updateDirty();
+  autoSaveField("estimateHours");
+}
+$("#estimate-hours").addEventListener("input", () => {
+  const input = $("#estimate-hours");
+  if (input.validity.valid) {
+    editorHours = input.value === "" ? null : input.valueAsNumber;
+    updateDirty();
+  }
+});
+$("#estimate-hours").addEventListener("blur", commitHours);
+$("#estimate-hours").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing && !composing) {
+    e.preventDefault();
+    commitHours();
+  }
+});
+$("#clear-estimate-hours").onclick = () => {
+  $("#estimate-hours").value = "";
+  commitHours();
+};
 function pointsAvailable() {
   return (
     editing?.kind === "PBI" &&
@@ -1658,6 +1729,10 @@ function reconcileEditor(current) {
   }
   editorLatest = {
     ...clone(current),
+    ...(!Object.hasOwn(current, "estimateHours") &&
+    Object.hasOwn(editorBaseline, "estimateHours")
+      ? { estimateHours: editorBaseline.estimateHours }
+      : {}),
     ...(Object.hasOwn(editorBaseline, "storyPoints")
       ? { storyPoints: editorBaseline.storyPoints }
       : {}),
@@ -1678,7 +1753,11 @@ function reconcileEditor(current) {
   }
   const draft = editorDraft();
   for (const key of editorFields) {
-    if (key === "storyPoints" && !Object.hasOwn(current, key)) continue;
+    if (
+      ["storyPoints", "estimateHours"].includes(key) &&
+      !Object.hasOwn(current, key)
+    )
+      continue;
     const base = fieldValue(editorBaseline, key),
       remote = fieldValue(current, key),
       local = draft[key];
@@ -2003,6 +2082,8 @@ function renderComments() {
     }
 }
 function stopPrivateScope(message) {
+  burnPanel?.close();
+  invalidateHours();
   cellPositions.clear();
   state = clone(initial);
   issueSaves.clear();
@@ -2171,6 +2252,11 @@ $("#comment-form").onsubmit = async (e) => {
           "投稿できませんでした。下書きは保持しています。内容・接続を確認して再度操作してください。";
     }
     if (error.code === "scope_not_public") stopPrivateScope(error.message);
+    if (
+      error.serverError === "estimate_hours_not_public" ||
+      error.code === "estimate_hours_not_public"
+    )
+      invalidateHours();
   } finally {
     entry.posting = false;
     if (session === editorSession) syncCommentControls();
@@ -2613,6 +2699,7 @@ function autoSaveField(key) {
   )
     return;
   if (key === "storyPoints" && !pointsAvailable()) return;
+  if (key === "estimateHours" && !hoursAvailable()) return;
   const draft = clone(editorDraft()),
     job = activeSave();
   if (job) {
@@ -2694,6 +2781,15 @@ async function startIssueSave(
       throw new Error(
         "Story pointsの公開状態を確認できません。再取得してください。",
       );
+    if (
+      Object.hasOwn(patch, "estimateHours") &&
+      (state.scope?.estimateHoursField !== true ||
+        !Object.hasOwn(issue(target.kind, target.id) || {}, "estimateHours"))
+    )
+      throw new Error(
+        "見積時間の公開状態を確認できません。再取得してください。",
+      );
+    const hourReadEpoch = hoursEpoch;
     const pointReadEpoch = pointsEpoch;
     const result = await source.saveIssue({
       kind: target.kind,
@@ -2710,6 +2806,7 @@ async function startIssueSave(
         ambiguous: true,
       });
     confirmedSaveEpoch++;
+    if (hourReadEpoch !== hoursEpoch) delete result.estimateHours;
     if (Object.hasOwn(result, "storyPoints"))
       pointsGenerations.set(
         result.number,
@@ -2770,6 +2867,11 @@ async function startIssueSave(
       Object.assign(nextDraft, nextPatch);
       // Only acknowledged success releases the next explicit field selection.
       const nextBaseline = clone(result);
+      if (
+        !Object.hasOwn(nextBaseline, "estimateHours") &&
+        Object.hasOwn(baseline, "estimateHours")
+      )
+        nextBaseline.estimateHours = baseline.estimateHours;
       // A status/body response need not contain the separately verified field.
       // Keep its prior expected value; the server rejects any concurrent change.
       if (
@@ -2816,6 +2918,11 @@ async function startIssueSave(
       updateDirty();
     }
     if (error.code === "scope_not_public") stopPrivateScope(error.message);
+    if (
+      error.serverError === "estimate_hours_not_public" ||
+      error.code === "estimate_hours_not_public"
+    )
+      invalidateHours();
   } finally {
     if (isCurrent() && issueSaves.get(target.id)?.phase !== "posting") {
       editorPosting = false;
@@ -2870,6 +2977,7 @@ async function performRefresh(
     const readEpoch = confirmedSaveEpoch;
     const next = await adapter.load(options);
     if (!valid(next)) throw new Error("無効なIssueデータです");
+    if (next.scope?.estimateHoursField === false) invalidateHours();
     if (readEpoch !== confirmedSaveEpoch) {
       const points = next.storyPoints?.values;
       if (
@@ -3025,6 +3133,68 @@ function dismissControls() {
   syncControls();
 }
 $("#board").addEventListener("pointerdown", dismissControls);
+let burnPanel = null,
+  burnLoading = false,
+  burnHoverBlocked = false,
+  burnTimer = null;
+async function openBurndown() {
+  clearTimeout(burnTimer);
+  burnTimer = null;
+  if (
+    burnLoading ||
+    dragged ||
+    document.querySelector("dialog[open]") ||
+    $("#burndown-open").hidden
+  )
+    return;
+  burnLoading = true;
+  try {
+    if (!burnPanel) {
+      const module = await import("./burndown.js");
+      burnPanel = module.createBurndown({
+        onPrivate: () => stopPrivateScope("公開範囲を確認できません。"),
+        onClose: () => {
+          clearTimeout(burnTimer);
+          burnTimer = null;
+          burnHoverBlocked = true;
+        },
+      });
+    }
+    if (!dragged && !document.querySelector("dialog[open]"))
+      burnPanel.open(selectedMilestone);
+  } catch {
+    announce("バーンダウンを開けませんでした。もう一度お試しください。");
+  } finally {
+    burnLoading = false;
+  }
+}
+$("#burndown-open").onclick = openBurndown;
+document.addEventListener("pointermove", (event) => {
+  const near = event.clientX >= innerWidth * 0.965;
+  if (!near) {
+    burnHoverBlocked = false;
+    clearTimeout(burnTimer);
+    burnTimer = null;
+    return;
+  }
+  if (
+    dragged ||
+    event.buttons ||
+    burnHoverBlocked ||
+    document.querySelector("dialog[open]") ||
+    $("#burndown-open").hidden
+  )
+    return;
+  if (!burnTimer)
+    burnTimer = setTimeout(() => {
+      burnTimer = null;
+      openBurndown();
+    }, 180);
+});
+document.addEventListener("dragstart", () => {
+  clearTimeout(burnTimer);
+  burnTimer = null;
+});
 // Reveal only after intentional movement at the top edge, not a stationary
 // pointer at (0,0) during initial layout or a hidden overlay bounding box.
 document.addEventListener("pointermove", (event) => {

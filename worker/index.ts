@@ -6,6 +6,11 @@ export interface Env extends AuthConfig {
   PUBLIC_PATH?: string;
   PUBLIC_LIMITER?: RateLimit;
   MUTATIONS?: DurableObjectNamespace;
+  HISTORY?: DurableObjectNamespace;
+  ESTIMATE_HOURS_READ_ENABLED?: string;
+  ESTIMATE_HOURS_FIELD_ID?: string;
+  ESTIMATE_HOURS_NODE_ID?: string;
+  ESTIMATE_HOURS_PROJECT_FIELD_ID?: string;
   STORY_POINTS_READ_ENABLED?: string;
   GITHUB_APP_ID?: string;
   GITHUB_INSTALLATION_ID?: string;
@@ -84,6 +89,24 @@ export function createWorker(auth = authenticate, api = handleApi) {
         headers.delete("oai-authenticated-user-id");
         headers.set("x-verified-user-id", user.id);
         const internal = new Request(request, { headers });
+        if (new URL(request.url).pathname === "/api/burndown") {
+          if (request.method !== "GET")
+            throw new AccessError(405, "method_not_allowed");
+          const params = new URL(request.url).searchParams;
+          let invalidKey = false;
+          params.forEach((_, key) => {
+            if (key !== "milestone") invalidKey = true;
+          });
+          if (invalidKey || params.getAll("milestone").length > 1)
+            throw new AccessError(400, "invalid_query");
+          if (!env.HISTORY || env.ESTIMATE_HOURS_READ_ENABLED !== "true")
+            throw new AccessError(503, "estimate_hours_unavailable");
+          return secure(
+            await env.HISTORY.getByName(
+              "engineer-first/idea-boost:observations-v1",
+            ).fetch(internal),
+          );
+        }
         const issue = new URL(request.url).pathname.match(
           /^\/api\/issues\/([1-9]\d{0,8})(?:\/comments)?$/,
         );

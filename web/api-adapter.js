@@ -189,6 +189,9 @@
                     expectedStateReason: old.stateReason ?? null,
                   }
                 : {}),
+              ...(Object.hasOwn(patch, "estimateHours")
+                ? { expectedEstimateHours: baseline?.estimateHours }
+                : {}),
               ...(Object.hasOwn(patch, "storyPoints")
                 ? { expectedStoryPoints: baseline?.storyPoints }
                 : {}),

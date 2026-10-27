@@ -287,6 +287,12 @@ export function fixture({
           })),
         },
       });
+    if (body.query.includes("WorkScope"))
+      return Response.json({
+        data: {
+          repository: { issue: body.variables.number === 1 ? parent : issue },
+        },
+      });
     if (body.query.includes("MutationContext")) {
       const i = body.variables.number === 1 ? parent : issue;
       return Response.json({

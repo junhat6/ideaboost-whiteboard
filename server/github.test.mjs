@@ -241,7 +241,11 @@ test("SP capability requests only Issue Fields read and separates token cache pe
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[1].parsed, {
     repositories: ["idea-boost"],
-    permissions: { issues: "write", organization_projects: "write", issue_fields: "read" },
+    permissions: {
+      issues: "write",
+      organization_projects: "write",
+      issue_fields: "read",
+    },
   });
 });
 test("dynamic status option mutation and null clearing", async () => {
@@ -524,8 +528,13 @@ test("focused PBI path matches full-scan hierarchy, full editor data and milesto
   });
   const a = await (await fast.handler(req(), env)).json();
   const b = await (await scan.handler(req(), env)).json();
-  assert.deepEqual(a.lanes, b.lanes);
-  assert.deepEqual(a.tasks, b.tasks);
+  // Focused traversal additionally exposes complete direct-child counts for leaf observations.
+  const core = (items) =>
+    items.map(({ subIssueCount: _count, ...item }) => item);
+  assert.deepEqual(core(a.lanes), core(b.lanes));
+  assert.deepEqual(core(a.tasks), core(b.tasks));
+  assert.equal(a.lanes[0].subIssueCount, 1);
+  assert.equal(a.tasks[0].subIssueCount, 1);
   assert.deepEqual(a.scope.milestones, b.scope.milestones);
   assert.equal(
     fast.calls.some((c) =>
@@ -842,7 +851,10 @@ test("Done success plus failed or uncertain close is partial and never a success
       assert.equal(result.partial, true);
       assert.ok(result.completed.includes("status"));
     }
-    assert.equal(result.ambiguous, !!(options.closeUncertain || options.statusFailure));
+    assert.equal(
+      result.ambiguous,
+      !!(options.closeUncertain || options.statusFailure),
+    );
     const count = f.calls.filter(
       (c) => c.method === "PATCH" && c.parsed.state,
     ).length;
