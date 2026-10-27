@@ -1263,6 +1263,8 @@ function invalidateHours() {
   hoursEpoch++;
   hoursInputPending = false;
   editorHours = undefined;
+  if (editorBaseline) delete editorBaseline.estimateHours;
+  if (editorLatest) delete editorLatest.estimateHours;
   $("#estimate-hours").value = "";
   $("#estimate-hours-error").hidden = true;
   delete editorConflicts.estimateHours;

@@ -463,3 +463,28 @@ test("時間の0とIME確定、他Issue値保持とchartの無関係同期要求
   await expect.poll(() => f.reads(), { timeout: 10000 }).toBeGreaterThan(n);
   await expect.poll(() => reads).toBe(2);
 });
+
+test("時間field失効後も本文の明示保存へ時間を便乗させない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 1;
+  const patches: any[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST") patches.push(r.postDataJSON());
+  });
+  await page.reload();
+  await page.locator(".task-title").first().click();
+  await fillEditor(page, "非公開fieldと独立した本文");
+  (f.board.scope as any).estimateHoursField = false;
+  delete (f.board.tasks[0] as any).estimateHours;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator("#estimate-hours-editor")).toBeHidden({
+    timeout: 10000,
+  });
+  await page.locator("#save-issue").click();
+  await expect.poll(() => f.posts()).toBe(1);
+  expect(patches[0]).not.toHaveProperty("estimateHours");
+  expect(patches[0].body).toBe("非公開fieldと独立した本文");
+});
