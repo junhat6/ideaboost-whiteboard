@@ -343,3 +343,10 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 本番Sprint9は35件全未見積、Project外の末端子1件除外、観測1件。パネルGET200と初回alarm登録経路が成功。公開失効/確認不能では履歴を消さず返却を遮断。過去の後付けデータ・旧estラベルfallback・開始日の推測はしない。開始baseline未確定のため理想線は省略。
 - 本番1920/2560でoverlay、時間欄、本文、Esc復帰、board寸法不変、asset一致を確認。POST0、pageerror0。数値更新/解除/競合/partial/unknown/再訪はmockで検証し、実Issue QA値は入力していない。新しい資格情報・App権限・有料サービス追加なし。
 - 本番画素確認で解除ボタンの折返しを発見したため、後続のCSS限定追補でnowrap・縮小防止を適用。取得/履歴/保存ロジックは変更しない。
+
+### 最終表示追補の配信確認
+
+- 最終アプリsource `6ec1b753c25e31351900d260136093580c324055`、Worker `12efe02e-c42c-481f-9eb3-00d2aef5d5f1`。
+- CI https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40489252381 success。88 backend＋47 unit、286 browser tests成功（10.8分）。
+- 配信後にapp.js / burndown.js / styles.cssのlocal一致、1920/2560の時間欄、解除ボタン50×40px・横一行、POST0を確認し画素も再確認。最初の画面撮影はdrawerのアニメーション中だったため、終了を待って撮り直した。保存/履歴APIの変更はなく、前段の読み取り性能・履歴検証結果を維持する。
+- 本段落は配信後の文書追補であり、アプリsourceと区別する。未解決の認証・権限ブロッカーなし。将来の日次発火と実Issueへの時間書込は本番QA対象外である。
