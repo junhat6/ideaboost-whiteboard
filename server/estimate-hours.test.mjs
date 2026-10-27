@@ -353,3 +353,259 @@ for (const [inProject, descendants] of [
       assert.deepEqual(data.excludedChildren, [{ milestone: 1, count: 1 }]);
     } else assert.equal(data.error, "observation_incomplete");
   });
+
+function assertObservationReadOnly(...fixtures) {
+  for (const fixture of fixtures)
+    for (const call of fixture.f.calls) {
+      // Installation token minting is fixture auth, not an Issue/Project mutation.
+      if (call.url.includes("/access_tokens")) continue;
+      if (call.url.endsWith("/graphql"))
+        assert.match(
+          call.parsed.query,
+          /^\s*query\b/,
+          "観測中にGraphQL mutationを送っている",
+        );
+      else assert.equal(call.method, "GET", "観測中にREST書込を送っている");
+    }
+}
+
+function observationReadFixture({
+  viewFilter = "type:PBI",
+  assigneesStatus = 200,
+  assigneesGate,
+  onAssigneesRead = () => {},
+  visibility = "public",
+} = {}) {
+  const f = fixture({ viewFilter, parentInProject: true });
+  f.issue.body = "観測元の本文を保持";
+  f.issue.assignees.nodes = [
+    {
+      login: "assigned",
+      name: "現在の担当",
+      avatarUrl: "https://example.test/a",
+    },
+  ];
+  let assigneesReads = 0,
+    finalVisibilityReads = 0;
+  const handler = createHandler({
+    crypto: webcrypto,
+    now: () => Date.parse("2026-10-27T08:00:00Z"),
+    fetch: async (url, options) => {
+      if (url.includes("/assignees")) {
+        assigneesReads++;
+        onAssigneesRead();
+        if (assigneesGate) await assigneesGate;
+        if (assigneesStatus !== 200)
+          return Response.json(
+            { message: "fixture assignees failure" },
+            { status: assigneesStatus },
+          );
+      }
+      const query = options.body ? JSON.parse(options.body).query : "",
+        response = await f.fetch(url, options),
+        data = await response.json(),
+        project = data.data?.organization?.projectV2;
+      if (query?.includes("PublicScope")) finalVisibilityReads++;
+      if (project && query?.includes("hoursField:")) {
+        project.hoursField = {
+          ...field,
+          issueField: {
+            ...field.issueField,
+            visibility:
+              (visibility === "hours-private-end" &&
+                query.includes("PublicScope")) ||
+              (visibility === "hours-private-start" &&
+                query.includes("BoardBootstrap"))
+                ? "ORG_ONLY"
+                : "ALL",
+          },
+        };
+      }
+      if (project && query?.includes("hoursValue:"))
+        for (const item of project.items.nodes) item.hoursValue = value;
+      if (
+        project &&
+        ((visibility === "project-private-start" &&
+          query?.includes("BoardBootstrap")) ||
+          (visibility === "project-private-end" &&
+            query?.includes("PublicScope")))
+      )
+        project.public = false;
+      return Response.json(data, { status: response.status });
+    },
+  });
+  return {
+    f,
+    handler,
+    assigneesReads: () => assigneesReads,
+    finalVisibilityReads: () => finalVisibilityReads,
+  };
+}
+
+test("観測は担当者候補503に依存せず、候補一覧なしで同じsourceを返す", async () => {
+  const healthy = observationReadFixture(),
+    failed = observationReadFixture({ assigneesStatus: 503 });
+  const baseline = await healthy.handler(req("/api/burndown"), config),
+    response = await failed.handler(req("/api/burndown"), config);
+  assert.equal(baseline.status, 200);
+  assert.equal(response.status, 200);
+  const source = await response.json();
+  assert.deepEqual(source, await baseline.json());
+  assert.deepEqual(source, {
+    ok: true,
+    scope: "type:PBI",
+    observedAt: "2026-10-27T08:00:00.000Z",
+    milestones: [{ number: 1, title: "Sprint", dueOn: null }],
+    tasks: [
+      {
+        id: "I2",
+        parent: "I1",
+        pbi: "I1",
+        estimate: 1.5,
+        status: null,
+        state: "OPEN",
+        stateReason: null,
+        complete: false,
+        milestone: 1,
+      },
+    ],
+    excludedChildren: [],
+  });
+  assert.equal(healthy.assigneesReads(), 0);
+  assert.equal(failed.assigneesReads(), 0);
+  assert.equal(failed.finalVisibilityReads(), 1);
+  assertObservationReadOnly(healthy, failed);
+});
+
+test("担当者候補の未解放gateでも観測は完了し、通常boardは候補完了を待つ（合成遅延）", async (t) => {
+  let release = () => {},
+    assigneesEntered = () => {},
+    timeout;
+  const gate = new Promise((resolve) => (release = resolve)),
+    entered = new Promise((resolve) => (assigneesEntered = resolve)),
+    chart = observationReadFixture({ assigneesGate: gate }),
+    board = observationReadFixture({
+      assigneesGate: gate,
+      onAssigneesRead: assigneesEntered,
+    });
+  let boardFinished = false;
+  const start = performance.now(),
+    chartFlight = chart.handler(req("/api/burndown"), config),
+    boardFlight = board.handler(req(), config).then((response) => {
+      boardFinished = true;
+      return response;
+    });
+  try {
+    const deadline = new Promise((resolve) => {
+      timeout = setTimeout(() => resolve({ kind: "deadline" }), 1000);
+    });
+    const outcome = await Promise.race([
+      Promise.all([chartFlight, entered]).then(([response]) => ({
+        kind: "chart",
+        response,
+      })),
+      deadline,
+    ]);
+    assert.equal(
+      outcome.kind,
+      "chart",
+      "観測が候補一覧の未解放gateを待っている",
+    );
+    assert.equal(outcome.response.status, 200);
+    assert.equal(chart.assigneesReads(), 0);
+    assert.equal(board.assigneesReads(), 1);
+    assert.equal(boardFinished, false);
+    t.diagnostic(
+      `合成gate未解放の観測完了: ${(performance.now() - start).toFixed(1)}ms。通常boardは待機中（実API性能の主張ではない）。`,
+    );
+  } finally {
+    clearTimeout(timeout);
+    release();
+    // Regression failures also release both handlers: no dangling gate or timeout.
+    await Promise.all([chartFlight, boardFlight]);
+  }
+  assertObservationReadOnly(chart, board);
+  const response = await boardFlight;
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).assigneeOptions, [
+    {
+      login: "alice",
+      name: null,
+      avatarUrl: "https://avatars.githubusercontent.com/a",
+    },
+  ]);
+});
+
+for (const viewFilter of ["type:PBI", "milestone:Sprint"])
+  test(`通常boardは候補一覧と本文/担当を維持し、候補503も従来どおり失敗 ${viewFilter}`, async () => {
+    const healthy = observationReadFixture({ viewFilter }),
+      failed = observationReadFixture({ viewFilter, assigneesStatus: 503 });
+    const response = await healthy.handler(req(), config);
+    assert.equal(response.status, 200);
+    const board = await response.json();
+    assert.deepEqual(board.assigneeOptions, [
+      {
+        login: "alice",
+        name: null,
+        avatarUrl: "https://avatars.githubusercontent.com/a",
+      },
+    ]);
+    assert.equal(board.tasks[0].body, "観測元の本文を保持");
+    assert.deepEqual(board.tasks[0].assignees, healthy.f.issue.assignees.nodes);
+    assert.equal(healthy.assigneesReads(), 1);
+    const unavailable = await failed.handler(req(), config);
+    assert.equal(unavailable.status, 502);
+    const error = await unavailable.json();
+    assert.equal(error.error, "github_request_failed");
+    assert.equal(error.upstreamStatus, 503);
+    assert.equal(failed.assigneesReads(), 1);
+    assertObservationReadOnly(healthy, failed);
+  });
+
+test("一般viewの観測は候補一覧を取得せず、既存のhours未対応503を維持", async () => {
+  for (const assigneesStatus of [200, 503]) {
+    const f = observationReadFixture({
+      viewFilter: "milestone:Sprint",
+      assigneesStatus,
+    });
+    const response = await f.handler(req("/api/burndown"), config);
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, "estimate_hours_unavailable");
+    assert.equal(f.assigneesReads(), 0);
+    assertObservationReadOnly(f);
+  }
+});
+
+for (const visibility of [
+  "project-private-start",
+  "project-private-end",
+  "hours-private-start",
+  "hours-private-end",
+])
+  test(`候補一覧を省略しても観測の公開性guardは維持 ${visibility}`, async () => {
+    const f = observationReadFixture({ visibility, assigneesStatus: 503 });
+    const response = await f.handler(req("/api/burndown"), config);
+    assert.equal(response.status, 403);
+    assert.equal(
+      (await response.json()).error,
+      visibility.startsWith("project-")
+        ? "scope_not_public"
+        : "estimate_hours_not_public",
+    );
+    assert.equal(f.assigneesReads(), 0);
+    assert.equal(
+      f.finalVisibilityReads(),
+      visibility === "project-private-start" ? 0 : 1,
+    );
+    assertObservationReadOnly(f);
+  });
+
+test("候補一覧省略はIssue自身の担当者完全性確認を弱めない", async () => {
+  const f = observationReadFixture();
+  f.f.issue.assignees.pageInfo.hasNextPage = true;
+  const response = await f.handler(req("/api/burndown"), config);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, "observation_incomplete");
+  assert.equal(f.assigneesReads(), 0);
+  assertObservationReadOnly(f);
+});

@@ -462,7 +462,12 @@ export function createHandler({
       stateReason: i.stateReason ?? null,
     };
   }
-  async function board(env, milestone = null, applyView = true) {
+  async function board(
+    env,
+    milestone = null,
+    applyView = true,
+    { observation = false } = {},
+  ) {
     const timings = [];
     const read = async (name, operation) => {
       const start = performance.now();
@@ -495,7 +500,7 @@ export function createHandler({
       !/@/.test(meta.view.filter ?? "") &&
       /(?:^|\s)type:(?:PBI|"PBI")(?:\s|$)/i.test(meta.view.filter ?? "")
     )
-      return focusedBoard(env, milestone, meta, read, timings);
+      return focusedBoard(env, milestone, meta, read, timings, observation);
     const loadMetadata = async () => {
       const viewFilter = meta.view?.filter ?? null;
       const filterApplied =
@@ -644,7 +649,7 @@ export function createHandler({
     ] = await Promise.all([
       loadMetadata(),
       loadItems(),
-      read("assignees", () => assignees(env)),
+      observation ? [] : read("assignees", () => assignees(env)),
     ]);
     // A parent excluded by the view may still be in Project 3: fetch its real membership/status.
     const missing = [...parents.values()].filter(
@@ -820,7 +825,7 @@ export function createHandler({
     await read("visibilityEnd", () => assertPublic(env));
     return { output, meta, all, timings };
   }
-  async function focusedBoard(env, milestone, meta, read, timings) {
+  async function focusedBoard(env, milestone, meta, read, timings, observation) {
     const own = (i) =>
       i?.id && i.repository?.nameWithOwner === `${OWNER}/${REPO}`;
     const pointValues = {},
@@ -965,7 +970,7 @@ export function createHandler({
     const [order, { roots, tasks: found }, options] = await Promise.all([
       index(),
       hierarchy(),
-      read("assignees", () => assignees(env)),
+      observation ? [] : read("assignees", () => assignees(env)),
     ]);
     // Reconcile membership and preserve original Project order across traversal depths.
     const ordered = [...order.keys()];
@@ -1693,7 +1698,9 @@ export function createHandler({
           throw new ApiError(503, "estimate_hours_unavailable");
         let result;
         try {
-          result = await board(env);
+          // Historical observations never render the editor's assignee picker.
+          // Do not let that unrelated REST read delay or fail a complete source.
+          result = await board(env, null, true, { observation: true });
         } catch (error) {
           if (error.code === "scope_not_public") throw error;
           throw new ApiError(503, "observation_incomplete");
