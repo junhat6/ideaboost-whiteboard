@@ -167,11 +167,14 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   let controller,
     generation = 0,
     origin,
-    selected = null;
+    selected = null,
+    loading = false,
+    refreshQueued = false;
   const hide = () => {
     if (!dialog.open) return;
     generation++;
-    controller?.abort();
+    refreshQueued = false;
+    // Let an already-sent read finish so reopening cannot rejoin its server flight.
     dialog.close();
     content.replaceChildren();
     origin?.focus?.({ preventScroll: true });
@@ -195,6 +198,12 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     }
   };
   async function load() {
+    if (loading) {
+      refreshQueued = true;
+      generation++; // The old observation must never be rendered after a mutation.
+      return;
+    }
+    loading = true;
     controller?.abort();
     controller = new AbortController();
     const session = ++generation;
@@ -205,16 +214,14 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         { signal: controller.signal, cache: "no-store" },
       );
       const data = await response.json();
-      if (session !== generation || !dialog.open) return;
-      if (!response.ok) {
-        if (response.status === 403) {
-          hide();
-          if (data.error === "scope_not_public") onPrivate();
-          else onFieldPrivate();
-          return;
-        }
-        throw new Error("記録を取得できませんでした。");
+      if (response.status === 403) {
+        hide();
+        if (data.error === "scope_not_public") onPrivate();
+        else onFieldPrivate();
+        return;
       }
+      if (session !== generation || !dialog.open) return;
+      if (!response.ok) throw new Error("記録を取得できませんでした。");
       if (
         !data.ok ||
         !Array.isArray(data.milestones) ||
@@ -284,6 +291,12 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       retry.type = "button";
       retry.onclick = load;
       content.replaceChildren(node("p", error.message), retry);
+    } finally {
+      loading = false;
+      if (refreshQueued && dialog.open) {
+        refreshQueued = false;
+        void load();
+      }
     }
   }
   select.onchange = () => {
@@ -297,6 +310,12 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       dialog.showModal();
       close.focus();
       load();
+    },
+    get visible() {
+      return dialog.open;
+    },
+    refresh() {
+      if (dialog.open) void load();
     },
     close: hide,
   };

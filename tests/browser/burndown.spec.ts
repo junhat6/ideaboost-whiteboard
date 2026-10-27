@@ -306,3 +306,160 @@ test("時間field失効は競合のremote値も隠し、他の本文を消さな
   await expect(page.locator("#detail-body")).toHaveValue(f.board.tasks[0].body);
   expect(f.posts()).toBe(0);
 });
+
+test("時間の不正な入力途中は同期で上書きせず、別Issueへ検証エラーを持ち越さない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 1;
+  (f.board.tasks[1] as any).estimateHours = 4;
+  await page.reload();
+  await page.locator(".task-title").first().click();
+  const input = page.locator("#estimate-hours");
+  await input.fill("1001");
+  await input.press("Enter");
+  await expect(page.locator("#estimate-hours-error")).toBeVisible();
+  await input.fill("1");
+  await input.press("End");
+  await input.pressSequentially("e");
+  expect(
+    await input.evaluate((e: HTMLInputElement) => e.validity.badInput),
+  ).toBe(true);
+  const readCount = f.reads();
+  await page.screenshot({
+    path: `.wrangler/hours-invalid-before-${page.viewportSize()!.width}.png`,
+  });
+  (f.board.tasks[0] as any).estimateHours = 2;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect
+    .poll(() => f.reads(), { timeout: 10000 })
+    .toBeGreaterThan(readCount);
+  await page.screenshot({
+    path: `.wrangler/hours-invalid-after-${page.viewportSize()!.width}.png`,
+  });
+  await expect(input).toHaveValue("");
+  expect(
+    await input.evaluate((e: HTMLInputElement) => e.validity.badInput),
+  ).toBe(true);
+  expect(f.posts()).toBe(0);
+  page.on("dialog", (d) => d.accept());
+  await page.locator("#close-detail").click();
+  await page.locator(".task-title").nth(1).click();
+  await expect(input).toHaveValue("4");
+  await expect(page.locator("#estimate-hours-error")).toBeHidden();
+});
+
+for (const action of ["click", "Meta+Enter", "Control+Enter"])
+  test(`時間欄からの明示保存は本文を一度で保存する ${action}`, async ({
+    page,
+  }) => {
+    const f = await setup(page);
+    (f.board.scope as any).estimateHoursField = true;
+    (f.board.tasks[0] as any).estimateHours = 1;
+    await page.reload();
+    await page.locator(".task-title").first().click();
+    await fillEditor(page, "明示保存した本文");
+    await page.locator("#estimate-hours").fill("2");
+    if (action === "click") await page.locator("#save-issue").click();
+    else await page.locator("#estimate-hours").press(action);
+    await expect.poll(() => f.posts()).toBe(1);
+    await expect.poll(() => f.board.tasks[0].body).toBe("明示保存した本文");
+    expect((f.board.tasks[0] as any).estimateHours).toBe(2);
+  });
+
+test("背景保存後のchartは旧flightを待って一度だけ更新、閉じていれば要求しない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 1;
+  let releaseSave!: () => void, releaseOld!: () => void;
+  const saving = new Promise<void>((r) => (releaseSave = r));
+  const old = new Promise<void>((r) => (releaseOld = r));
+  let posts = 0,
+    reads = 0;
+  await page.route("**/api/issues/100", async (route) => {
+    posts++;
+    await saving;
+    Object.assign(f.board.tasks[0], { estimateHours: 2, revision: "new" });
+    await route.fulfill({ json: { ok: true, issue: f.board.tasks[0] } });
+  });
+  await page.route("**/api/burndown*", async (route) => {
+    const n = ++reads;
+    if (n === 1) await old;
+    await route.fulfill({
+      json: {
+        ...data,
+        current: { ...data.current, remainingHours: n === 1 ? 1 : 2 },
+      },
+    });
+  });
+  await page.reload();
+  await page.locator(".task-title").first().click();
+  await page.locator("#estimate-hours").fill("2");
+  await page.locator("#estimate-hours").press("Enter");
+  await expect.poll(() => posts).toBe(1);
+  await page.locator("#close-detail").click();
+  await page.locator("#burndown-open").click();
+  await expect.poll(() => reads).toBe(1);
+  releaseSave();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).Whiteboard.getSnapshot().tasks[0].estimateHours,
+      ),
+    )
+    .toBe(2);
+  expect(reads).toBe(1);
+  releaseOld();
+  await expect(page.locator(".burn-summary strong")).toHaveText("2 h");
+  expect(reads).toBe(2);
+  await page.keyboard.press("Escape");
+  await page.locator(".task-title").first().click();
+  await page.locator("#estimate-hours").fill("3");
+  await page.locator("#estimate-hours").press("Enter");
+  await expect.poll(() => posts).toBe(2);
+  expect(reads).toBe(2);
+});
+
+test("時間の0とIME確定、他Issue値保持とchartの無関係同期要求ゼロ", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 1;
+  (f.board.tasks[1] as any).estimateHours = 6;
+  let reads = 0;
+  await page.route("**/api/burndown*", (r) => {
+    reads++;
+    return r.fulfill({ json: data });
+  });
+  await page.reload();
+  await page.locator(".task-title").first().click();
+  const input = page.locator("#estimate-hours");
+  await input.dispatchEvent("compositionstart");
+  await input.fill("0");
+  await input.press("Enter");
+  expect(f.posts()).toBe(0);
+  await input.dispatchEvent("compositionend");
+  await input.press("Enter");
+  await expect.poll(() => f.posts()).toBe(1);
+  await expect.poll(() => (f.board.tasks[0] as any).estimateHours).toBe(0);
+  expect((f.board.tasks[1] as any).estimateHours).toBe(6);
+  expect(reads).toBe(0);
+  await page.locator("#close-detail").click();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary")).toBeVisible();
+  expect(reads).toBe(1);
+  let n = f.reads();
+  f.board.tasks[0].title = "タイトルだけの外部変更";
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => f.reads(), { timeout: 10000 }).toBeGreaterThan(n);
+  expect(reads).toBe(1);
+  n = f.reads();
+  (f.board.tasks[1] as any).estimateHours = 8;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => f.reads(), { timeout: 10000 }).toBeGreaterThan(n);
+  await expect.poll(() => reads).toBe(2);
+});

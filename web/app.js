@@ -817,6 +817,7 @@ async function updateIssue(kind, id, patch, baseline = null) {
       Object.assign(issue(kind, id) || t, result);
       confirmedSaveEpoch++;
       savedRemotely = true;
+      if (Object.hasOwn(patch, "status")) burnPanel?.refresh();
     }
     announce(
       adapter
@@ -994,6 +995,7 @@ const editorFields = [
   "storyPoints",
   "estimateHours",
 ];
+let hoursInputPending = false;
 let editorHours,
   hoursEpoch = 0;
 let editorPoints;
@@ -1028,6 +1030,8 @@ function editorDraft() {
 }
 function writeField(key, value) {
   if (key === "estimateHours") {
+    hoursInputPending = false;
+    $("#estimate-hours-error").hidden = true;
     editorHours = value;
     $("#estimate-hours").value = value ?? "";
     renderHoursInput();
@@ -1059,19 +1063,21 @@ function setBaseField(key, value) {
 function updateDirty() {
   if (!editorBaseline) return;
   const draft = editorDraft();
-  editMode = editorFields.some(
-    (key) =>
-      !equalField(
-        draft[key],
-        activeSave()?.phase === "posting"
-          ? Object.hasOwn(activeSave().queued || {}, key)
-            ? activeSave().queued[key]
-            : Object.hasOwn(activeSave().patch, key)
-              ? activeSave().draft[key]
-              : fieldValue(editorBaseline, key)
-          : fieldValue(editorBaseline, key),
-      ),
-  );
+  editMode =
+    hoursInputPending ||
+    editorFields.some(
+      (key) =>
+        !equalField(
+          draft[key],
+          activeSave()?.phase === "posting"
+            ? Object.hasOwn(activeSave().queued || {}, key)
+              ? activeSave().queued[key]
+              : Object.hasOwn(activeSave().patch, key)
+                ? activeSave().draft[key]
+                : fieldValue(editorBaseline, key)
+            : fieldValue(editorBaseline, key),
+        ),
+    );
   if (!fillingDetail && activeSave()?.phase === "posting")
     activeSave().viewDraft = clone(draft);
   if (editMode) editorSaved = false;
@@ -1255,6 +1261,10 @@ function renderHoursInput() {
 }
 function invalidateHours() {
   hoursEpoch++;
+  hoursInputPending = false;
+  editorHours = undefined;
+  $("#estimate-hours").value = "";
+  $("#estimate-hours-error").hidden = true;
   delete editorConflicts.estimateHours;
   renderConflicts();
   for (const task of state.tasks || []) delete task.estimateHours;
@@ -1271,21 +1281,37 @@ function commitHours() {
     input.validity.valid &&
     (value === null || (Number.isFinite(value) && value >= 0 && value <= 1000));
   $("#estimate-hours-error").hidden = valid;
-  if (!valid) return;
+  hoursInputPending = !valid;
+  if (!valid) {
+    updateDirty();
+    return;
+  }
   editorHours = value;
   updateDirty();
   autoSaveField("estimateHours");
 }
 $("#estimate-hours").addEventListener("input", () => {
   const input = $("#estimate-hours");
-  if (input.validity.valid) {
+  hoursInputPending = !input.validity.valid;
+  $("#estimate-hours-error").hidden = true;
+  if (input.validity.valid && !composing) {
     editorHours = input.value === "" ? null : input.valueAsNumber;
-    updateDirty();
   }
+  updateDirty();
 });
-$("#estimate-hours").addEventListener("blur", commitHours);
+$("#estimate-hours").addEventListener("blur", (event) => {
+  // A click/keyboard focus on explicit Save belongs to that form submission.
+  if (event.relatedTarget === $("#save-issue")) return;
+  commitHours();
+});
 $("#estimate-hours").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.isComposing && !composing) {
+  if (
+    e.key === "Enter" &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.isComposing &&
+    !composing
+  ) {
     e.preventDefault();
     commitHours();
   }
@@ -1760,6 +1786,13 @@ function reconcileEditor(current) {
       !Object.hasOwn(current, key)
     )
       continue;
+    if (key === "estimateHours" && hoursInputPending) {
+      if (
+        !equalField(fieldValue(current, key), fieldValue(editorBaseline, key))
+      )
+        editorConflicts[key] = { remote: fieldValue(current, key) };
+      continue;
+    }
     const base = fieldValue(editorBaseline, key),
       remote = fieldValue(current, key),
       local = draft[key];
@@ -2562,7 +2595,7 @@ $("#detail-title").addEventListener("blur", () => {
   if (titleEditing && !composing) finishTitle();
 });
 $("#detail-title").addEventListener("input", sizeTitle);
-for (const id of ["#detail-title", "#detail-body"]) {
+for (const id of ["#detail-title", "#detail-body", "#estimate-hours"]) {
   $(id).addEventListener("compositionstart", () => setComposition(true));
   $(id).addEventListener("compositionend", () => {
     setComposition(false);
@@ -2668,6 +2701,11 @@ $("#detail-form").onsubmit = async (e) => {
     return;
   const target = { ...editing },
     source = adapter;
+  if (hoursAvailable() && hoursInputPending) {
+    $("#estimate-hours-error").hidden = false;
+    $("#estimate-hours").focus();
+    return;
+  }
   const baseline = clone(editorLatest),
     draft = clone(editorDraft()),
     patch = {};
@@ -2816,6 +2854,8 @@ async function startIssueSave(
       );
     const current = issue(target.kind, target.id);
     if (current) Object.assign(current, result);
+    if (Object.hasOwn(patch, "estimateHours") || Object.hasOwn(patch, "status"))
+      burnPanel?.refresh();
     if (
       Object.hasOwn(result, "storyPoints") &&
       pointReadEpoch === pointsEpoch
@@ -2955,6 +2995,22 @@ $("#next-page").onclick = () => {
 };
 $("#show-deferred").onclick = () => openList(null, "見送り");
 $("#show-unmapped").onclick = () => openList(null, "未分類");
+function burnScopeKey(board) {
+  return JSON.stringify([
+    board.scope?.viewFilter,
+    board.lanes.map((p) => [p.id, p.milestone?.number]).sort(),
+    board.tasks
+      .map((t) => [
+        t.id,
+        t.parentId,
+        t.lane,
+        t.status,
+        t.estimateHours,
+        t.milestone?.number,
+      ])
+      .sort(),
+  ]);
+}
 function refreshBoard(options, flags = {}) {
   if (refreshFlight) return refreshFlight;
   refreshFlight = performRefresh(options, flags).finally(() => {
@@ -3007,7 +3063,10 @@ async function performRefresh(
       autoRefreshRequested = true;
       return false;
     }
+    const previousBurnScope = burnPanel?.visible ? burnScopeKey(state) : null;
     state = clone(next);
+    if (previousBurnScope !== null && previousBurnScope !== burnScopeKey(state))
+      burnPanel.refresh();
     if (pointsConfirmed) pointsSkipSnapshot = state;
     if (options && Object.hasOwn(options, "milestone"))
       selectedMilestone = String(options.milestone ?? "");
