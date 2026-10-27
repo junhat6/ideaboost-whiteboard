@@ -291,3 +291,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 各1回の読み取り観測: 1920はboard3633ms、Issue shell61ms、SP完了7040ms（navigation起点）。2560はboard1725ms、Issue shell60ms、SP完了4662ms。cold/hit混在で改善率を主張しない。SPは本文/ボードをブロックしない後読込。
 - CI40454374607は227 browser成功、既存desktop native-wheel試験のみ失敗（右端4pxのwheelでscroll不発）。原因候補のOS依存scrollbar領域を避け、2枚の実bbox間のgutterを測り、hit-testで付箋/タイトル内部ではないことを確認してからnative wheelを送る試験へ限定修正。両サイズ各5回、10/10成功。SPの本番/合成検証は成功し、アプリコードの追加変更・再配信は不要。
 - 最終CI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40455375575 （`61e05842d4599800e48c7acaf8ff227ec591e666`、check・全228 browser成功）。配信source `de9d0cc` との差分は試験座標と本記録のみ。認証・権限ブロッカーは解消済み。
+
+## 2026-10-27 離散項目の自動保存
+
+- 配信source: `16b275175252bc8d801b2f18c795965ae9d71f60`。Worker version: `ceafea2f-2749-44b6-b84d-f058c7334e1a`。既存URL・public-temporary・Story points有効を維持。
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40462284652 SUCCESS。check（63+38件）と両画面248 browser tests成功。
+- 担当者/Status/Story pointsは選択項目だけ自動保存。200ms集約、同Issue1 flight、先行成功後の最新revisionで後続最新意図を送信。本文/titleは明示保存のまま、未送信原文をackへ混ぜない。競合・partial・unknownは後続停止。Done送信後の未完了選択は自動reopenしない。
+- 配信前レビューの再訪初期化によるviewDraft上書き、破棄した送信後追記の復活はそれぞれ再現→修正→回帰済み。候補タイルの正式名/avatarが保存後にloginだけへ落ちる優先順も修正。
+- 性能fixture各解像度3回: 4連続選択→1 POST、未送信で元の値へ戻す→0 POST。反映確認中央値1920=358ms（358–359）、2560=363ms（359–363）。200msの集約と即時fixture応答を含み、本番GitHub保存レイテンシの測定ではない。連続要求の最後だけwhole-board更新。app.js gzipは28,212→29,482bytes（+1,270）、依存追加なし。
+- 本番read-only: 配信app.jsとローカル最終sourceの完全一致、1920/2560でPBI/Task/再訪と原文補助を確認。詳細open各3回は1920=65/37/40ms、2560=76/37/38ms。各viewport POST0、pageerror0。board実データ表示4,738/2,015msは別々のcold-client試行でserver状態が異なり、性能改善率とはしない。実IssueのQA書込なし。
+- 正常の保存中/同期中バッジを増やさず、失敗のみ復元導線を維持。native日本語IMEの実機操作は未実施、composition合成試験を実施。タブ自体を閉じた後の保存完了は保証しない。
