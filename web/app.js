@@ -831,8 +831,30 @@ async function updateIssue(kind, id, patch, baseline = null) {
       );
       return true;
     }
-    const current = issue(kind, id);
     const original = issueFrom(before, kind, id);
+    if (patch.status === "完了") {
+      const draft = Object.fromEntries(
+        editorFields.map((key) => [key, fieldValue(original, key)]),
+      );
+      Object.assign(draft, patch);
+      issueSaves.set(id, {
+        target: { kind, id },
+        baseline: clone(original),
+        draft,
+        patch: clone(patch),
+        phase: "failed",
+        closeIntent: true,
+        outcome: {
+          durable: error.serverError === "mutation_outcome_unresolved",
+          uncertain: !!error.ambiguous,
+          code: error.serverError || error.code,
+        },
+        error:
+          error.message + " 完了処理を確認してください。自動再送はしません。",
+      });
+      showSaveProblems();
+    }
+    const current = issue(kind, id);
     if (current && original) {
       for (const key of Object.keys(optimistic))
         if (equalField(current[key], optimistic[key]))
@@ -1022,7 +1044,9 @@ function setEdit() {
   updateDirty();
 }
 function syncEditorControls() {
-  const dirty = editMode || composing;
+  const retryCompletion =
+    activeSave()?.retryReady === true && editorDraft().status === "完了";
+  const dirty = editMode || composing || retryCompletion;
   $("#save-issue").disabled =
     !dirty ||
     editorBusy ||
@@ -1034,7 +1058,9 @@ function syncEditorControls() {
     ? "保存中…"
     : editorBusy
       ? "確認中…"
-      : `保存 ${saveKeys}`;
+      : retryCompletion
+        ? "完了処理を再試行"
+        : `保存 ${saveKeys}`;
   if ($("#save-issue").innerHTML !== saveContent)
     $("#save-issue").innerHTML = saveContent;
   $("#save-issue").setAttribute(
@@ -2402,13 +2428,13 @@ $("#detail-form").onsubmit = async (e) => {
   if (
     !$("#details").open ||
     $("#details").classList.contains("closing") ||
-    !editMode ||
+    (!editMode && !activeSave()?.retryReady) ||
     composing ||
     editorBusy ||
     editorOutcome ||
     detailUnavailable ||
     Object.keys(editorConflicts).length ||
-    issueSaves.has(editing.id)
+    (issueSaves.has(editing.id) && !activeSave()?.retryReady)
   )
     return;
   const target = { ...editing },
@@ -2419,6 +2445,8 @@ $("#detail-form").onsubmit = async (e) => {
   for (const key of editorFields)
     if (!equalField(draft[key], fieldValue(baseline, key)))
       patch[key] = draft[key];
+  if (activeSave()?.retryReady && draft.status === "完了")
+    patch.status = "完了";
   if (!Object.keys(patch).length) return;
   if (Object.hasOwn(patch, "storyPoints") && !pointsAvailable()) {
     $("#detail-error").textContent =
@@ -2437,6 +2465,7 @@ $("#detail-form").onsubmit = async (e) => {
     draft,
     patch,
     phase: "posting",
+    closeIntent: patch.status === "完了",
     requestId: crypto.randomUUID(),
   };
   issueSaves.set(target.id, job);
@@ -2487,7 +2516,7 @@ $("#detail-form").onsubmit = async (e) => {
     job.phase = "failed";
     job.outcome = {
       durable: error.serverError === "mutation_outcome_unresolved",
-      uncertain: !!(error.ambiguous || error.partial),
+      uncertain: !!error.ambiguous,
       code: error.serverError || error.code,
     };
     job.error =
@@ -2599,6 +2628,30 @@ $("#recover-edit").onclick = async () => {
   const ok = await refreshBoard(undefined, { silent: true });
   if (session !== editorSession) return;
   if (ok && editorOutcome && !detailUnavailable) {
+    const job = activeSave();
+    if (job?.closeIntent && editorOutcome.uncertain) {
+      $("#detail-error").textContent =
+        "完了処理の結果が不明です。再送せず、管理者による保存結果の確認が必要です。";
+      $("#detail-error").hidden = false;
+      editorBusy = false;
+      syncEditorControls();
+      return;
+    }
+    if (job?.closeIntent && editorLatest.state !== "CLOSED") {
+      job.baseline = clone(editorLatest);
+      job.draft = clone(editorDraft());
+      job.retryReady = true;
+      job.outcome = null;
+      job.error =
+        "Statusの変更後、Issueを閉じる処理が完了していません。確認後に「完了処理を再試行」を押してください。";
+      editorOutcome = null;
+      $("#detail-error").textContent = job.error;
+      $("#detail-error").hidden = false;
+      editorBusy = false;
+      showSaveProblems();
+      syncEditorControls();
+      return;
+    }
     const same = editorFields.every((key) =>
       equalField(editorDraft()[key], fieldValue(editorLatest, key)),
     );

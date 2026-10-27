@@ -831,7 +831,7 @@ test("Done success plus failed or uncertain close is partial and never a success
       assert.equal(result.partial, true);
       assert.ok(result.completed.includes("status"));
     }
-    if (options.closeUncertain) assert.equal(result.ambiguous, true);
+    assert.equal(result.ambiguous, !!options.closeUncertain);
     const count = f.calls.filter(
       (c) => c.method === "PATCH" && c.parsed.state,
     ).length;
@@ -885,5 +885,46 @@ test("an explicit Done request can close an open existing Done Issue, but a body
     f.calls.filter((c) => c.method === "PATCH" && c.parsed.state === "closed")
       .length,
     1,
+  );
+});
+
+test("external reopen after a previously closed Done request is reported as unmet without reclosing", async () => {
+  const f = fixture();
+  f.issue.state = "CLOSED";
+  f.issue.stateReason = "NOT_PLANNED";
+  let reads = 0;
+  const handler = createHandler({
+    crypto: webcrypto,
+    fetch: async (url, opt) => {
+      if (
+        opt.body &&
+        JSON.parse(opt.body).query?.includes("MutationContext") &&
+        ++reads === 2
+      ) {
+        f.issue.state = "OPEN";
+        f.issue.stateReason = "REOPENED";
+      }
+      return f.fetch(url, opt);
+    },
+  });
+  const response = await handler(
+    req(
+      "/api/issues/2",
+      patch({
+        title: "Issue 2",
+        status: "完了",
+        expectedState: "CLOSED",
+        expectedStateReason: "NOT_PLANNED",
+      }),
+    ),
+    env,
+  );
+  assert.equal(response.status, 502);
+  const result = await response.json();
+  assert.equal(result.ok, false);
+  assert.equal(result.issue.state, "OPEN");
+  assert.equal(
+    f.calls.filter((c) => c.method === "PATCH" && c.parsed.state).length,
+    0,
   );
 });

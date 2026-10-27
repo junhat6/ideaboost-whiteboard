@@ -1172,6 +1172,7 @@ export function createHandler({
           : val === actual[k],
       ) &&
       (!changeStatus || actual.status === v.status) &&
+      (v.status !== "完了" || actual.state === "CLOSED") &&
       (!closeOnDone ||
         (actual.state === "CLOSED" && actual.stateReason === "COMPLETED")) &&
       (!changePoints || actual.storyPoints === v.storyPoints);
@@ -1182,7 +1183,7 @@ export function createHandler({
           ok: false,
           error: failure?.code ?? "readback_mismatch",
           partial: completed.length > 0,
-          ambiguous: !!failure?.extra?.uncertain || !confirmed,
+          ambiguous: failure ? !!failure.extra?.uncertain : !confirmed,
           completed,
           issue: actual,
           board: null,
