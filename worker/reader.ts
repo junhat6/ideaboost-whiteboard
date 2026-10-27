@@ -75,6 +75,9 @@ export class BoardReader {
             data.scope?.viewFilter ?? null,
             data.scope?.statusOptions ?? [],
             data.scope?.statusColors ?? [],
+            ...(Object.hasOwn(data.scope || {}, "storyPointsField")
+              ? [data.scope.storyPointsField]
+              : []),
           ])
         ) {
           this.snapshot = null;

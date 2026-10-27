@@ -1328,6 +1328,33 @@ function loadStoryPoints(lanes) {
   }
   pointsSnapshot = state;
   pointsKey = key;
+  if (state.storyPoints && Object.hasOwn(state.storyPoints, "values")) {
+    // Board projection has already passed live field/type/scope checks. No N+1 late read.
+    if (changed || selectionChanged) {
+      pointsFlight = null;
+      const values = state.storyPoints.values;
+      const valid =
+        values && typeof values === "object" && !Array.isArray(values);
+      pointsValues = {};
+      if (!valid || !Object.keys(values).length) {
+        pointsEpoch++;
+        pointsVerifiedAt.clear();
+      } else
+        for (const { number } of pbis) {
+          const value = values[number];
+          if (
+            Object.hasOwn(values, number) &&
+            (value === null ||
+              (typeof value === "number" && Number.isFinite(value)))
+          ) {
+            pointsValues[number] = value;
+            pointsVerifiedAt.set(number, Date.now());
+          }
+        }
+    }
+    paintStoryPoints();
+    return;
+  }
   if (typeof source?.loadStoryPoints !== "function") {
     pointsValues = {};
     paintStoryPoints();
@@ -1349,7 +1376,8 @@ function loadStoryPoints(lanes) {
     const generations = new Map(
       pbis.map((p) => [p.number, pointsGenerations.get(p.number) || 0]),
     );
-    const current = () => epoch === pointsEpoch && adapter === source;
+    const current = () =>
+      epoch === pointsEpoch && adapter === source && pointsFlight === flight;
     const unchanged = (number) =>
       generations.get(number) === (pointsGenerations.get(number) || 0);
     const flight = {};
@@ -2694,6 +2722,8 @@ async function startIssueSave(
       pointReadEpoch === pointsEpoch
     ) {
       pointsValues[result.number] = result.storyPoints;
+      if (state.storyPoints?.values)
+        state.storyPoints.values[result.number] = result.storyPoints;
       pointsVerifiedAt.set(result.number, Date.now());
     }
     issueSaves.delete(target.id);

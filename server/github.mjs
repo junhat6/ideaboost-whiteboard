@@ -1,4 +1,10 @@
 import {
+  POINT_META,
+  POINT_VALUE,
+  publicProjectPoints,
+  projectPoint,
+} from "./project-points.mjs";
+import {
   readPublicPbiStoryPoints,
   storyPointsNextPage,
 } from "./story-points.mjs";
@@ -339,14 +345,35 @@ export function createHandler({
       });
     return r.data;
   }
-  async function assertPublic(env) {
-    if (env.AUTH_MODE !== "public-temporary") return;
-    const data = await gql(env, VISIBILITY);
+  async function optionalPointsQuery(env, base, enhanced, variables = {}) {
+    if (env.STORY_POINTS_READ_ENABLED !== "true")
+      return gql(env, base, variables);
+    try {
+      return await gql(env, enhanced, variables);
+    } catch (error) {
+      if (error.code !== "github_graphql_error") throw error;
+      // Optional field/schema permission failure must not prevent the board read.
+      // The base query cannot return a point value; absent evidence fails closed.
+      return gql(env, base, variables);
+    }
+  }
+  async function assertPublic(env, points = false) {
+    const includePoints = points && env.STORY_POINTS_READ_ENABLED === "true";
+    if (env.AUTH_MODE !== "public-temporary" && !includePoints) return;
+    const data = await (includePoints
+      ? optionalPointsQuery(
+          env,
+          VISIBILITY,
+          VISIBILITY.replace("{ public }", `{ public ${POINT_META} }`),
+        )
+      : gql(env, VISIBILITY));
     if (
-      data?.repository?.isPrivate !== false ||
-      data?.organization?.projectV2?.public !== true
+      env.AUTH_MODE === "public-temporary" &&
+      (data?.repository?.isPrivate !== false ||
+        data?.organization?.projectV2?.public !== true)
     )
       throw new ApiError(403, "scope_not_public");
+    return data?.organization?.projectV2;
   }
   async function assignees(env) {
     let result = [];
@@ -408,7 +435,13 @@ export function createHandler({
         timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`);
       }
     };
-    const bootstrap = await read("bootstrap", () => gql(env, BOOTSTRAP));
+    const bootstrap = await read("bootstrap", () =>
+      optionalPointsQuery(
+        env,
+        BOOTSTRAP,
+        BOOTSTRAP.replace(META_FIELDS, `${META_FIELDS} ${POINT_META}`),
+      ),
+    );
     const meta = bootstrap?.organization?.projectV2;
     if (
       env.AUTH_MODE === "public-temporary" &&
@@ -717,6 +750,9 @@ export function createHandler({
       tasks,
       assigneeOptions: options,
       scope: {
+        ...(env.STORY_POINTS_READ_ENABLED === "true"
+          ? { storyPointsField: publicProjectPoints(meta.pointsField) }
+          : {}),
         owner: OWNER,
         repo: REPO,
         projectNumber: PROJECT,
@@ -747,17 +783,25 @@ export function createHandler({
   async function focusedBoard(env, milestone, meta, read, timings) {
     const own = (i) =>
       i?.id && i.repository?.nameWithOwner === `${OWNER}/${REPO}`;
+    const pointValues = {};
     const fullFields = `nodes { id isArchived content { ... on Issue { ${CORE} parent { id repository { nameWithOwner } } subIssuesSummary { total } } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } pageInfo { hasNextPage endCursor }`;
     async function pages(name, filter) {
       const items = [];
       let after = null;
       for (let page = 0; page < 100; page++) {
+        const base = `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter) { ${fullFields} } } } }`;
         const data = await read(name, () =>
-          gql(
-            env,
-            `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter) { ${fullFields} } } } }`,
-            { after, filter },
-          ),
+          name === "BoardRowsFull" && publicProjectPoints(meta.pointsField)
+            ? optionalPointsQuery(
+                env,
+                base,
+                base.replace(
+                  "nodes { id isArchived",
+                  `nodes { ${POINT_VALUE} id isArchived`,
+                ),
+                { after, filter },
+              )
+            : gql(env, base, { after, filter }),
         );
         const c = data?.organization?.projectV2?.items;
         if (!c) throw new ApiError(502, "project_items_unavailable");
@@ -773,6 +817,10 @@ export function createHandler({
             i.number < 1
           )
             throw new ApiError(502, "issue_details_unavailable");
+          if (name === "BoardRowsFull" && i.issueType?.name === "PBI") {
+            const point = projectPoint(item.pointsValue);
+            if (point !== undefined) pointValues[i.number] = point;
+          }
           items.push({
             issue: normalize(i, item),
             children: i.subIssuesSummary.total,
@@ -891,16 +939,39 @@ export function createHandler({
           .map((i) => [i.milestone.number, i.milestone]),
       ).values(),
     ];
-    await read("visibilityEnd", () => assertPublic(env));
+    const endMeta = await read("visibilityEnd", () => assertPublic(env, true));
+    const pointsPublic =
+      publicProjectPoints(meta.pointsField) &&
+      publicProjectPoints(endMeta?.pointsField);
     return {
       meta,
       all,
       timings,
       output: {
+        ...(env.STORY_POINTS_READ_ENABLED === "true"
+          ? {
+              storyPoints: {
+                values: pointsPublic
+                  ? Object.fromEntries(
+                      lanes
+                        .filter(
+                          (i) =>
+                            i.type === "PBI" &&
+                            Object.hasOwn(pointValues, i.number),
+                        )
+                        .map((i) => [i.number, pointValues[i.number]]),
+                    )
+                  : {},
+              },
+            }
+          : {}),
         lanes,
         tasks: visibleTasks,
         assigneeOptions: options,
         scope: {
+          ...(env.STORY_POINTS_READ_ENABLED === "true"
+            ? { storyPointsField: pointsPublic }
+            : {}),
           owner: OWNER,
           repo: REPO,
           projectNumber: PROJECT,
@@ -1346,9 +1417,11 @@ export function createHandler({
         url.pathname === "/api/scope" &&
         !url.search
       ) {
-        const data = await gql(
+        const base = `query ReadScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} } } }`;
+        const data = await optionalPointsQuery(
           env,
-          `query ReadScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} } } }`,
+          base,
+          base.replace(META_FIELDS, `${META_FIELDS} ${POINT_META}`),
         );
         const meta = data?.organization?.projectV2;
         if (
@@ -1366,6 +1439,9 @@ export function createHandler({
               name: o.name,
               color: o.color ?? null,
             })) ?? [],
+            ...(env.STORY_POINTS_READ_ENABLED === "true"
+              ? [publicProjectPoints(meta.pointsField)]
+              : []),
           ]),
         });
       }

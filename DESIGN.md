@@ -247,3 +247,5 @@ Story points後読込の整合性: 同じ公開scope・同じPBI集合の再取�
 ヘルプは「選ぶ変更と、書く変更」「列とステータス」「Demo goalを直したいとき」の3項目に限定する。見出し、太字、短い対応表と余白で強弱を付け、最大PBI数・全画面F・Escape等の既存UIから分かる説明は繰り返さない。機能やshortcutは削除しない。内部構造・宣伝・正常同期状態を常設説明しない。
 
 公開field失効の空応答は読取世代も進める。失効前に送信した保存の遅いackは値を再投入できず、値が未確認の後続Story points保存はPOST前に停止する。正常な保存結果自体と、現在その値を公開表示できることを分離する。
+
+初回Story pointsは、type:PBIの通常ビューではProjectのPBI queryへ同梱する。Project独自のnumberではなく、linked `ProjectV2ItemIssueFieldValue.issueFieldValue`を参照し、正本Issue field/PVTF ID・NUMBER・ALLを開始/終了に確認する。本文/担当/Statusと同じboard応答から数字を表示し、追加の全PBI後読込を要求しない。共有snapshotにもfieldの公開性をguard keyへ含め、失効時に古い数字を再利用しない。型不正・欠落は未設定と区別して省略、正規field確認下のnullだけ未設定とする。通常経路以外の既存fallbackは後読込契約を保持。任意fieldのGraphQL schema/権限エラーは、その値を含まないbase queryへ戻してboard自体を維持する。

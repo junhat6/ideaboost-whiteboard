@@ -296,3 +296,26 @@ for (const changed of ["view", "status", "color"] as const) {
     }
   });
 }
+
+test("public Issue field removal invalidates a shared board point projection", async () => {
+  let publicField = true,
+    calls = 0;
+  const reader = new BoardReader(
+    async () => {
+      calls++;
+      return Response.json({
+        scope: { storyPointsField: publicField },
+        storyPoints: { values: publicField ? { 1: 5 } : {} },
+        fetchedAt: new Date().toISOString(),
+      });
+    },
+    async () =>
+      Response.json({ scopeKey: JSON.stringify([null, [], [], publicField]) }),
+  );
+  await reader.fetch(request());
+  publicField = false;
+  const result = (await (await reader.fetch(request(true))).json()) as any;
+  assert.deepEqual(result.storyPoints.values, {});
+  assert.equal(calls, 2);
+  assert.equal(result.readState, undefined);
+});

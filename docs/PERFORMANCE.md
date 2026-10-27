@@ -169,3 +169,9 @@ Floating UI DOM 1.8.0をnamed importでローカルbundle化（ui-tools.js約18K
 本番変更前の読み取りのみ2回（新規ブラウザー、1920/2560）: board可視3.086/1.942秒、SP応答はnavigationから5.519/4.049秒（board後2.433/2.107秒）。共有readerやGitHubの状態による差を含み、真のserver cold比較ではない。本番書込みを行わず、保存後の要求数・表示継続は制御fixtureで検証した。初回後読込APIの速度は今回変更しない。
 
 配信後の同じ読み取り手順2回: board可視4.907/1.460秒、SP応答はnavigationから7.989/4.989秒（board後3.082/3.529秒）。配信直後の共有reader coldとwarmが混在し、API時間短縮は確認していない。再取得中100ms間隔で63/66回サンプリングし、確認済みの数字が消えないことを両解像度で確認。別の詳細開閉QAではboard1.518/1.518秒、詳細37–136ms。全POSTを遮断し0件、ページエラー0、実ポイントのQA変更なし。初回の後読込時間は残る限界であり、今回の定量改善は制御fixtureの保存後追加SP要求1→0と重複要求の共有である。
+
+## 正規Project Issue fieldの同梱（2026-10-27、計測中）
+
+以前の担当者・Statusはboard応答内にあり、Story pointsだけはboard描画後に専用GET→公開scope/定義確認→3並列の対象Issue所属確認＋REST値取得（6件で2波）→公開scope/定義再確認という別経路だった。独立routeのtoken取得もcold時に加わり得る。新経路では既存PBI GraphQLにlinked wrapperを加え、開始bootstrap/終了公開確認にfield参照と公開性を同梱する。追加round tripや独立保存を作らない。
+
+[公式Project API](https://docs.github.com/en/graphql/reference/projects)の `ProjectV2ItemIssueFieldValue.issueFieldValue` → [IssueFieldNumberValue](https://docs.github.com/en/graphql/reference/issues)を使用。実read-only queryでProject field `PVTF_lADOEYcVLM4Bb8yFzhnWjbg` → org field `IFN_kgDOAuy0Fw`/49067031/NUMBER/ALLを確認し、Issue直接値と同値だった。通常のProjectV2ItemFieldNumberValueへ置き換えず、正本は従来のIssue fieldのまま。内部API・追加権限・キャッシュ期限延長なし。

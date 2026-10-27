@@ -156,3 +156,5 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 - 先行SP GETの対象Aだけ保存ack後の古値を拒否し、同batchのBの更新は採用。空projectionはfield公開失効として全消去。null/キー欠落/失敗は完了時点で空欄へ戻す。
 - 待機中は値を維持し、重なるpollは同一flightを利用。通常のfocus/pollで再検証。失敗保存、解除、未設定、未知値、公開scope失効と既存autosave queueを回帰試験。
 - ヘルプは3見出しと短い対応表。最大6件/F/Escapeの説明を省略し、既存shortcutは維持。1920/2560の画素・高さ・Escape/focus復帰を確認する。
+
+Project同梱SP: PVTF→canonical IFN ID/type/ALL、通常Project独自numberの拒否、nullと欠落、開始/終了private、GraphQL任意field error時base query、shared reader公開失効を検証。browserではboard応答と同時の数字表示、追加SP endpoint 0、refreshでnull/空へ置換、SP autosaveに未保存本文を便乗させないことを確認。実値QA書込みなし。
