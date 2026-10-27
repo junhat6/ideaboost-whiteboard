@@ -584,6 +584,42 @@ test("Sprint9の6学校日と青ideal/赤actual、過去未観測と未来を補
   expect(await page.locator(".burn-actual").getAttribute("d")).not.toBe(actual); // same values, rescaled Y axis
 });
 
+test("赤い実線は中間の未観測学校日を補間せず、観測済みの隣接日だけ結ぶ", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  const current = structuredClone(data);
+  current.schedule.schoolDays = ["2026-10-21", "2026-10-22", "2026-10-23"];
+  current.observations = data.observations.map((point, i) => ({
+    ...point,
+    day: i ? "2026-10-23" : "2026-10-21",
+    at: i ? "2026-10-23T08:00:00Z" : "2026-10-21T08:00:00Z",
+  }));
+  await page.route("**/api/burndown**", (r) => r.fulfill({ json: current }));
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-point")).toHaveCount(2);
+  await expect(page.locator(".burn-actual")).toHaveAttribute(
+    "d",
+    " M 60 50 M 680 147.5",
+  );
+  await page.keyboard.press("Escape");
+  current.observations.splice(1, 0, {
+    ...current.observations[0],
+    day: "2026-10-22",
+    at: "2026-10-22T08:00:00Z",
+    remainingHours: 6,
+  });
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-point")).toHaveCount(3);
+  await expect(page.locator(".burn-actual")).toHaveAttribute(
+    "d",
+    " M 60 50 L 370 115 L 680 147.5",
+  );
+  expect(f.posts()).toBe(0);
+});
+
 test("再openは前回観測を即表示、背景更新/失敗保持と公開失効の消去", async ({
   page,
 }) => {
@@ -688,6 +724,144 @@ test("日程の提案と明示保存はIssueを変更せず、再訪で保持、
   );
   expect(posts[0].expectedRevision).toBe("0");
   expect(posts[1].expectedRevision).toBe("saved");
+  expect(f.posts()).toBe(0);
+});
+
+test("日程の保存中に追記した下書きはackと再取得で失わず、次の明示保存まで送らない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  const current = structuredClone(data),
+    posts: any[] = [];
+  let release!: () => void,
+    reads = 0;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/burndown**", async (r) => {
+    if (r.request().method() === "POST") {
+      const patch = r.request().postDataJSON();
+      posts.push(patch);
+      if (posts.length === 1) await gate;
+      current.schedule = {
+        schoolDays: patch.schoolDays,
+        revision: `saved-${posts.length}`,
+      };
+      current.observedAt = `2026-10-27T08:0${posts.length}:00Z`;
+      return r.fulfill({ json: { ok: true, schedule: current.schedule } });
+    }
+    reads++;
+    return r.fulfill({ json: current });
+  });
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary")).toBeVisible();
+  await page.locator(".burn-settings summary").click();
+  const dates = page.locator("#burn-school-days"),
+    save = page.getByRole("button", { name: "日程を保存", exact: true }),
+    sent = "2026-10-27\n2026-10-28",
+    draft = "2026-10-26\n2026-10-27\n2026-10-28";
+  await dates.fill(sent);
+  await save.click();
+  await expect.poll(() => posts.length).toBe(1);
+  await dates.fill(draft);
+  release();
+  await expect.poll(() => reads).toBe(2);
+  await expect(page.locator(".burn-observed")).toContainText("17:01");
+  await expect(save).toBeEnabled();
+  await expect(page.locator(".burn-settings form")).toHaveAttribute(
+    "data-revision",
+    "saved-1",
+  );
+  await expect(dates).toHaveValue(draft);
+  expect(posts).toHaveLength(1);
+  expect(posts[0].schoolDays).toEqual(sent.split("\n"));
+  await save.click();
+  await expect.poll(() => posts.length).toBe(2);
+  expect(posts[1].expectedRevision).toBe("saved-1");
+  expect(posts[1].schoolDays).toEqual(draft.split("\n"));
+  await expect.poll(() => reads).toBe(3);
+  await expect(page.locator(".burn-observed")).toContainText("17:02");
+  await expect(dates).toHaveValue(draft);
+  expect(f.posts()).toBe(0);
+});
+
+test("別スプリントの日程保存中と遅いack後の取得失敗でも表示中の日程と保存先を混ぜない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  const milestones = [
+      ...data.milestones,
+      { number: 10, title: "Sprint 10", dueOn: "2026-11-04T00:00:00Z" },
+    ],
+    nine = { ...structuredClone(data), milestones },
+    ten = {
+      ...structuredClone(data),
+      milestones,
+      milestone: 10,
+      schedule: { schoolDays: ["2026-11-02", "2026-11-04"], revision: "0" },
+    },
+    posts: any[] = [];
+  let release!: () => void,
+    failTen = false,
+    failedTenReads = 0;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/burndown**", async (r) => {
+    const milestone = Number(
+        new URL(r.request().url()).searchParams.get("milestone") || 9,
+      ),
+      current = milestone === 9 ? nine : ten;
+    if (r.request().method() === "POST") {
+      const patch = r.request().postDataJSON();
+      posts.push({ milestone, ...patch });
+      if (milestone === 9) await gate;
+      current.schedule = {
+        schoolDays: patch.schoolDays,
+        revision: `saved-${milestone}`,
+      };
+      return r.fulfill({ json: { ok: true, schedule: current.schedule } });
+    }
+    if (milestone === 10 && failTen) {
+      failedTenReads++;
+      return r.fulfill({ status: 503, json: { error: "unavailable" } });
+    }
+    return r.fulfill({ json: current });
+  });
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator(".burn-summary")).toBeVisible();
+  const select = page.getByLabel("バーンダウンのスプリント"),
+    dates = page.locator("#burn-school-days"),
+    save = page.getByRole("button", { name: "日程を保存", exact: true });
+  await select.selectOption("10");
+  await expect(dates).toHaveValue(ten.schedule.schoolDays.join("\n"));
+  await select.selectOption("9");
+  await page.locator(".burn-settings summary").click();
+  await dates.fill("2026-10-27\n2026-10-28");
+  await save.click();
+  await expect.poll(() => posts.length).toBe(1);
+  failTen = true;
+  await select.selectOption("10");
+  await page.locator(".burn-settings summary").click();
+  await expect(dates).toHaveValue(ten.schedule.schoolDays.join("\n"));
+  await expect(save).toBeEnabled();
+  await expect(page.locator(".burn-settings form")).toHaveAttribute(
+    "data-revision",
+    "0",
+  );
+  await expect.poll(() => failedTenReads).toBe(1);
+  release();
+  await expect.poll(() => failedTenReads).toBe(2);
+  await expect(page.locator(".burn-notice")).toBeVisible();
+  await expect(dates).toHaveValue(ten.schedule.schoolDays.join("\n"));
+  await save.click();
+  expect(posts).toHaveLength(1);
+  await dates.fill("2026-11-03\n2026-11-04");
+  await save.click();
+  await expect.poll(() => posts.length).toBe(2);
+  expect(posts[1].milestone).toBe(10);
+  expect(posts[1].expectedRevision).toBe("0");
+  expect(posts[1].schoolDays).toEqual(["2026-11-03", "2026-11-04"]);
   expect(f.posts()).toBe(0);
 });
 

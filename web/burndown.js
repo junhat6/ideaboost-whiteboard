@@ -90,7 +90,9 @@ export function chart(data) {
     }
     const px = x(point.day),
       py = y(point.remainingHours);
-    path += previous ? ` L ${px} ${py}` : ` M ${px} ${py}`;
+    const adjacent =
+      previous && days.indexOf(point.day) === days.indexOf(previous.day) + 1;
+    path += adjacent ? ` L ${px} ${py}` : ` M ${px} ${py}`;
     previous = point;
     const circle = svgNode("circle", {
       cx: px,
@@ -219,7 +221,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   settings.append(settingsLabel, form);
   dialog.append(top, select, content, notice, settings);
   document.body.append(dialog);
-  const cache = new Map();
+  const cache = new Map(),
+    scheduleDrafts = new Map();
   let defaultMilestone = null,
     scope = null,
     currentData = null,
@@ -228,9 +231,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     origin,
     selected = null,
     loading = false,
-    refreshQueued = false,
-    settingsDirty = false,
-    saving = false;
+    refreshQueued = false;
   const key = () => (selected === null ? defaultMilestone : selected);
   const hide = () => {
     if (!dialog.open) return;
@@ -244,6 +245,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   };
   const invalidate = () => {
     cache.clear();
+    scheduleDrafts.clear();
     defaultMilestone = null;
     selected = null;
     select.replaceChildren();
@@ -252,7 +254,6 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     currentData = null;
     scope = null;
     generation++;
-    settingsDirty = false;
     dates.value = "";
     settings.hidden = true;
     hide();
@@ -274,6 +275,52 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         hide();
     }
   };
+  function draftFor(data) {
+    let draft = scheduleDrafts.get(data.milestone);
+    if (!draft) {
+      draft = {
+        value: "",
+        revision: "0",
+        dirty: false,
+        saving: false,
+        error: null,
+      };
+      scheduleDrafts.set(data.milestone, draft);
+    }
+    if (!draft.dirty && !draft.saving) {
+      draft.value = (data.schedule?.schoolDays || []).join("\n");
+      draft.revision = data.schedule?.revision || "0";
+    }
+    return draft;
+  }
+  const activeDraft = () =>
+    currentData && form.dataset.milestone === String(currentData.milestone)
+      ? scheduleDrafts.get(currentData.milestone)
+      : null;
+  function renderSettings(data) {
+    const draft = draftFor(data);
+    settings.hidden = !data.milestone;
+    propose.disabled = !data.milestones.find((m) => m.number === data.milestone)
+      ?.dueOn;
+    if (dates.value !== draft.value) dates.value = draft.value;
+    form.dataset.milestone = String(data.milestone);
+    form.dataset.revision = draft.revision;
+    save.disabled = draft.saving;
+    error.hidden = !draft.error;
+    if (draft.error) {
+      error.replaceChildren(node("span", draft.error));
+      const reset = node("button", "最新の日程に戻す");
+      reset.type = "button";
+      reset.onclick = () => {
+        if (activeDraft() !== draft) return;
+        draft.dirty = false;
+        draft.error = null;
+        renderSettings(currentData);
+        void load();
+      };
+      error.append(reset);
+    }
+  }
   function render(data) {
     currentData = data;
     const optionsKey = JSON.stringify(data.milestones);
@@ -349,13 +396,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       content.querySelector(".burn-observed").textContent =
         `観測: ${new Date(data.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`;
     }
-    settings.hidden = !data.milestone;
-    propose.disabled = !data.milestones.find((m) => m.number === data.milestone)
-      ?.dueOn;
-    if (!settingsDirty && !saving) {
-      dates.value = (data.schedule?.schoolDays || []).join("\n");
-      form.dataset.revision = data.schedule?.revision || "0";
-    }
+    renderSettings(data);
   }
   function showPrevious() {
     const old = cache.get(key());
@@ -371,18 +412,24 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   function remember(data) {
     if (scope !== null && scope !== data.scope) {
       cache.clear();
+      scheduleDrafts.clear();
     }
     scope = data.scope;
     cache.delete(data.milestone);
     cache.set(data.milestone, data);
-    while (cache.size > 12) cache.delete(cache.keys().next().value);
+    while (cache.size > 12) {
+      const oldest = cache.keys().next().value;
+      cache.delete(oldest);
+      if (!scheduleDrafts.get(oldest)?.saving) scheduleDrafts.delete(oldest);
+    }
   }
   async function load() {
-    if (loading) {
+    if (loading || scheduleDrafts.get(key())?.saving) {
       refreshQueued = true;
       generation++;
       return;
     }
+    refreshQueued = false;
     loading = true;
     controller?.abort();
     controller = new AbortController();
@@ -448,7 +495,11 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     }
   }
   dates.oninput = () => {
-    settingsDirty = true;
+    const draft = activeDraft();
+    if (!draft) return;
+    draft.value = dates.value;
+    draft.dirty = true;
+    draft.error = null;
     error.hidden = true;
   };
   propose.onclick = () => {
@@ -477,16 +528,17 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         values.push(d.toISOString().slice(0, 10));
     }
     dates.value = values.join("\n");
-    settingsDirty = true;
-    error.hidden = true;
+    dates.oninput();
   };
   form.onsubmit = async (event) => {
     event.preventDefault();
-    if (saving || !currentData) return;
-    const days = dates.value
-      .split(/[\s,]+/)
-      .filter(Boolean)
-      .sort();
+    const draft = activeDraft();
+    if (!draft || draft.saving) return;
+    const submittedDraft = draft.value,
+      days = submittedDraft
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .sort();
     if (
       days.length > 60 ||
       new Set(days).size !== days.length ||
@@ -508,15 +560,18 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       JSON.stringify(days) ===
       JSON.stringify(currentData.schedule?.schoolDays || [])
     ) {
-      settingsDirty = false;
+      draft.dirty = false;
+      draft.error = null;
       error.hidden = true;
       return;
     }
     const target = currentData.milestone,
-      session = ++generation;
-    saving = true;
-    save.disabled = true;
-    error.hidden = true;
+      targetScope = scope,
+      submittedData = currentData;
+    generation++;
+    draft.saving = true;
+    draft.error = null;
+    renderSettings(currentData);
     try {
       const response = await fetch(
           `api/burndown/schedule?milestone=${target}`,
@@ -525,7 +580,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               schoolDays: days,
-              expectedRevision: form.dataset.revision,
+              expectedRevision: draft.revision,
               requestId: crypto.randomUUID(),
             }),
           },
@@ -538,7 +593,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         else onFieldPrivate();
         return;
       }
-      if (session !== generation || !dialog.open) return;
+      if (scheduleDrafts.get(target) !== draft || scope !== targetScope) return;
       if (!response.ok)
         throw new Error(
           response.status === 409
@@ -552,29 +607,25 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         throw new Error(
           "保存結果を確認できません。再取得して確認してください。",
         );
-      const existing = cache.get(target);
-      if (existing) {
-        const next = { ...existing, schedule: data.schedule };
-        remember(next);
-        settingsDirty = false;
-        render(next);
-      } else settingsDirty = false;
-    } catch (e) {
-      if (session !== generation || !dialog.open) return;
-      error.replaceChildren(node("span", e.message));
-      const reset = node("button", "最新の日程に戻す");
-      reset.type = "button";
-      reset.onclick = () => {
-        settingsDirty = false;
-        error.hidden = true;
-        if (currentData) render(currentData);
-        void load();
+      draft.dirty = draft.value !== submittedDraft;
+      draft.revision = data.schedule.revision;
+      const next = {
+        ...(cache.get(target) || submittedData),
+        schedule: data.schedule,
       };
-      error.append(reset);
-      error.hidden = false;
+      remember(next);
+      if (dialog.open && key() === target) render(next);
+    } catch (e) {
+      if (scheduleDrafts.get(target) !== draft || scope !== targetScope) return;
+      draft.error = e.message;
     } finally {
-      saving = false;
-      save.disabled = false;
+      draft.saving = false;
+      if (
+        dialog.open &&
+        currentData?.milestone === target &&
+        scheduleDrafts.get(target) === draft
+      )
+        renderSettings(currentData);
       if (dialog.open) {
         refreshQueued = true;
         if (!loading) {
@@ -586,7 +637,6 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   };
   select.onchange = () => {
     selected = Number(select.value);
-    settingsDirty = false;
     settings.open = false;
     error.hidden = true;
     generation++;
@@ -597,7 +647,6 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     open(milestone) {
       origin = document.activeElement;
       selected = milestone ? Number(milestone) : selected;
-      settingsDirty = false;
       settings.open = false;
       error.hidden = true;
       dialog.showModal();

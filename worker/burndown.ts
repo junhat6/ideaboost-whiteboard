@@ -7,7 +7,7 @@ export type BurnTask = {
   status: string | null;
   complete: boolean;
   state?: "OPEN" | "CLOSED";
-  stateReason?: "COMPLETED" | "NOT_PLANNED" | "REOPENED" | null;
+  stateReason?: "COMPLETED" | "NOT_PLANNED" | "REOPENED" | "DUPLICATE" | null;
   milestone: number;
 };
 export type BurnSource = {
@@ -123,7 +123,9 @@ export function validateBurnSource(value: unknown): value is BurnSource {
         (t.state === undefined || ["OPEN", "CLOSED"].includes(t.state)) &&
         (t.stateReason === undefined ||
           t.stateReason === null ||
-          ["COMPLETED", "NOT_PLANNED", "REOPENED"].includes(t.stateReason)) &&
+          ["COMPLETED", "NOT_PLANNED", "REOPENED", "DUPLICATE"].includes(
+            t.stateReason,
+          )) &&
         t.complete === completedBurnTask(t) &&
         Number.isSafeInteger(t.milestone) &&
         v.milestones.some((m) => m.number === t.milestone),
