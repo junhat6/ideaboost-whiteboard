@@ -292,8 +292,13 @@ test("時間書込後の公開失効は明示コードとunknown fenceを保持"
   assert.equal(data.ambiguous, true);
   assert.deepEqual(data.completed, ["estimateHours"]);
 });
-for (const inProject of [false, true])
-  test(`正式な子の欠落をProject外と読取不足に分ける ${inProject}`, async () => {
+for (const [inProject, descendants] of [
+  [false, 0],
+  [true, 0],
+  [false, 1],
+  [false, undefined],
+])
+  test(`正式な子の欠落をProject外と読取不足に分ける ${inProject}/${descendants}`, async () => {
     const f = fixture({ viewFilter: "type:PBI", parentInProject: true });
     const h = createHandler({
       crypto: webcrypto,
@@ -309,6 +314,7 @@ for (const inProject of [false, true])
                     nodes: [
                       {
                         id: "outside",
+                        subIssuesSummary: { total: descendants },
                         issueType: { name: "Bug" },
                         repository: {
                           nameWithOwner: "engineer-first/idea-boost",
@@ -341,8 +347,8 @@ for (const inProject of [false, true])
     });
     const response = await h(req("/api/burndown"), config),
       data = await response.json();
-    assert.equal(response.status, inProject ? 503 : 200);
-    if (!inProject) {
+    assert.equal(response.status, inProject || descendants !== 0 ? 503 : 200);
+    if (!inProject && descendants === 0) {
       assert.deepEqual(data.tasks, []);
       assert.deepEqual(data.excludedChildren, [{ milestone: 1, count: 1 }]);
     } else assert.equal(data.error, "observation_incomplete");

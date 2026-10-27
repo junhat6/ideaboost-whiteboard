@@ -1730,7 +1730,7 @@ export function createHandler({
               throw new ApiError(503, "observation_incomplete");
             const data = await gql(
               env,
-              `query ObservationChildren($number:Int!,$after:String) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id subIssues(first:100,after:$after) { nodes { id issueType { name } repository { nameWithOwner } projectItems(first:100,includeArchived:false) { nodes { isArchived project { id } } pageInfo { hasNextPage } } } pageInfo { hasNextPage endCursor } } } } }`,
+              `query ObservationChildren($number:Int!,$after:String) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id subIssues(first:100,after:$after) { nodes { id issueType { name } subIssuesSummary { total } repository { nameWithOwner } projectItems(first:100,includeArchived:false) { nodes { isArchived project { id } } pageInfo { hasNextPage } } } pageInfo { hasNextPage endCursor } } } } }`,
               { number: parent.number, after },
             );
             const issue = data?.repository?.issue,
@@ -1752,6 +1752,10 @@ export function createHandler({
               count++;
               if (seen.has(child.id)) continue;
               if (child.issueType?.name === "PBI") continue;
+              // An omitted intermediate node may hide an in-Project leaf.
+              // Only a positively verified leaf can be excluded safely.
+              if (child.subIssuesSummary?.total !== 0)
+                throw new ApiError(503, "observation_incomplete");
               if (child.repository.nameWithOwner !== `${OWNER}/${REPO}`) {
                 excluded++;
                 continue;
