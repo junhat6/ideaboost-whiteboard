@@ -1,3 +1,7 @@
+import {
+  readPublicPbiStoryPoints,
+  storyPointsNextPage,
+} from "./story-points.mjs";
 import { normalizeLinkedPrs } from "./linked-prs.mjs";
 import { createComments, validateComment } from "./comments.mjs";
 const OWNER = "engineer-first",
@@ -257,7 +261,11 @@ export function createHandler({
       "user-agent": "idea-boost-private-board",
     };
   }
-  async function api(env, path, { method = "GET", body } = {}) {
+  async function api(
+    env,
+    path,
+    { method = "GET", body, withHeaders = false } = {},
+  ) {
     const t = await token(env);
     let r;
     try {
@@ -285,7 +293,7 @@ export function createHandler({
         upstreamStatus: r.status,
         uncertain: method !== "GET" && r.status >= 500,
       });
-    return data;
+    return withHeaders ? { data, link: r.headers.get("link") } : data;
   }
   async function gql(env, query, variables = {}) {
     const r = await api(env, "/graphql", {
@@ -1065,7 +1073,7 @@ export function createHandler({
           (i) => i?.isArchived === false && i.project?.id === project.id,
         )
       )
-        return;
+        return { type: isPbi ? "PBI" : "Task" };
       if (!c.pageInfo.hasNextPage) break;
       if (
         !c.pageInfo.endCursor ||
@@ -1107,7 +1115,7 @@ export function createHandler({
             i.content.parent?.id === issueId,
         )
       )
-        return;
+        return { type: isPbi ? "PBI" : "Task" };
       if (!c.pageInfo.hasNextPage) break;
       if (
         !c.pageInfo.endCursor ||
@@ -1156,6 +1164,9 @@ export function createHandler({
         return reply({
           configured,
           mode: configured ? "github" : "unconfigured",
+          ...(env.STORY_POINTS_READ_ENABLED === "true"
+            ? { storyPoints: true }
+            : {}),
           accessMode:
             env.AUTH_MODE === "public-temporary" ? "public-temporary" : "team",
         });
@@ -1187,6 +1198,45 @@ export function createHandler({
             })) ?? [],
           ]),
         });
+      }
+      if (request.method === "GET" && url.pathname === "/api/story-points") {
+        if (env.STORY_POINTS_READ_ENABLED !== "true")
+          return reply({ values: {} });
+        const raw = url.searchParams.get("issues");
+        if (
+          [...url.searchParams.keys()].some((k) => k !== "issues") ||
+          url.searchParams.getAll("issues").length !== 1 ||
+          !/^[1-9]\d{0,8}(,[1-9]\d{0,8}){0,5}$/.test(raw || "")
+        )
+          throw new ApiError(400, "invalid_query");
+        const numbers = raw.split(",").map(Number);
+        if (new Set(numbers).size !== numbers.length)
+          throw new ApiError(400, "invalid_query");
+        const result = await readPublicPbiStoryPoints({
+          approved: true,
+          fieldId: 49067031,
+          // This list is only an input bound. Each Issue is verified before any value read.
+          pbis: numbers.map((number) => ({ number, type: "PBI" })),
+          assertScope: async () => {
+            await assertPublic(env);
+            return true;
+          },
+          getDefinitions: () => api(env, `/orgs/${OWNER}/issue-fields`),
+          getValues: async (number, { page, per_page }) => {
+            if (page === 1) {
+              const scope = await commentScope(env, number);
+              if (scope.type !== "PBI")
+                throw new ApiError(403, "issue_out_of_scope");
+            }
+            const path = `/repos/${OWNER}/${REPO}/issues/${number}/issue-field-values?per_page=${per_page}&page=${page}`;
+            const result = await api(env, path, { withHeaders: true });
+            return {
+              data: result.data,
+              hasNextPage: storyPointsNextPage(result.link, BASE + path, page),
+            };
+          },
+        });
+        return reply(result);
       }
       if (request.method === "GET" && url.pathname === "/api/board") {
         if (

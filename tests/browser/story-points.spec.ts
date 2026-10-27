@@ -153,3 +153,40 @@ test("remote estimate refresh does not reset the PBI draft and private scope cle
   await expect(page.locator("#detail-story-points")).toHaveText("");
   expect(await page.evaluate(() => (window as any).pointsWrites)).toBe(0);
 });
+
+test("enabled API capability connects the separate late-read endpoint without delaying the board", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested = "";
+  await page.route("**/api/health", (route) =>
+    route.fulfill({
+      json: {
+        configured: true,
+        accessMode: "public-temporary",
+        storyPoints: true,
+      },
+    }),
+  );
+  await page.route("**/api/story-points?*", async (route) => {
+    requested = new URL(route.request().url()).searchParams.get("issues") || "";
+    await gate;
+    await route.fulfill({ json: { values: { 1: 0.1, 2: 13 } } });
+  });
+  await page.reload();
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await expect.poll(() => requested).toBe("1,2,3,4,5,6");
+  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  await page.locator('[data-pbi="p0"]').first().click();
+  await expect(page.locator("#details")).toBeVisible();
+  release!();
+  await expect(page.locator("#detail-story-points")).toHaveText("SP 0.1");
+  await expect(page.locator('#board [data-story-points="p1"]')).toHaveText(
+    "SP 13",
+  );
+  expect(f.posts()).toBe(0);
+});

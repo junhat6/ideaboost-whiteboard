@@ -6,6 +6,7 @@ export interface Env extends AuthConfig {
   PUBLIC_PATH?: string;
   PUBLIC_LIMITER?: RateLimit;
   MUTATIONS?: DurableObjectNamespace;
+  STORY_POINTS_READ_ENABLED?: string;
   GITHUB_APP_ID?: string;
   GITHUB_INSTALLATION_ID?: string;
   GITHUB_APP_PRIVATE_KEY?: string;

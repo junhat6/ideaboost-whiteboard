@@ -59,3 +59,18 @@ PBI担当者行右側と詳細サイド欄へ同じbadgeを配置。更新はbad
 追加browser試験は両サイズ計8件: 0.1/1/2/3/5/8/13、未設定・非公開の空結果・403・不正値、6PBI/長タイトル/担当者/ゲージ矩形包含、未解決のSP取得中にboard/detail表示、Taskでは非表示、poll後の更新・旧応答破棄、dirty title保持、scope非公開化の即時消去、production adapter追加要求ゼロ。画素は `.wrangler/story-points-1920.png` と `story-points-2560.png`（ローカルignored）で確認。これは実GitHub接続や通信時間改善の実測ではない。
 
 UI準備後の検証: `npm run check`成功（単体/統合85件）、`npm run test:e2e`成功（両解像度196件、53.6秒）。実Issue/PR/コメントへのQA書込みゼロ。本番App接続・本番SP表示・実ネットワーク性能は未検証で、配信していない。先の「UI未実装/E2E未実施」はreader単体準備時の記録であり、この節が最新状態。
+
+## 確定契約のローカル接続（未配信）
+
+親からPublic見積値の承認とfield作成の読戻し結果を受領:
+- org field ID `49067031` / node `IFN_kgDOAuy0Fw` / Story points / number / visibility=all。
+- Project参照 `PVTF_lADOEYcVLM4Bb8yFzhnWjbg` はisIssueField=trueで上記org fieldを参照。ただしProject側を別の正本やprivate判定の代用にしない。
+- 実Issue値は未入力。Number実値の本番応答はまだ未観察。
+
+`GET /api/story-points?issues=1,2,...` をローカル実装。`STORY_POINTS_READ_ENABLED=true` の明示設定時だけhealthがcapabilityを返し、UIが専用後読込を開始する。現行production設定には追加していない。最大6件・重複なし・固定正数番号のみ。定義GET前後のnumber/all/ID一致と公開repo/Project確認、値GET前の正式Project所属/直接PBI親とPBI型確認を行う。Task/無関係Issueの値は読まない。表示board全取得・本文取得・全担当者取得は追加しない。RESTのLinkは同じ固定endpoint・per_page=100・次のpageだけ許可し、任意URLへfollowしない。scope_not_publicは通常のSP失敗へ潰さず全体停止へ伝える。定義拒否は空のSPとしてボードを継続し、別APIで回避しない。
+
+Appの実読取は未検証。現在の通常クライアントは秘密鍵をCloudflare runtimeから受け取り、token生成の要求権限をissues:write/organization_projects:writeに限定している。配信済みAPIはfield定義/任意GraphQLを実行する入口を公開していない。ローカルに本番秘密鍵を取り出さず、push/deploy禁止を守った状態では、この新GETを本番Appとして実行できない。userのgh tokenや公開匿名GETをApp確認と偽らない。公式の定義GETに必要なのは組織Issue Fields:read、値GETはrepository Issues:read。権限追加もtoken要求権限の拡張も実施していない。Project経由で現在visibilityまで検証できるという実応答証拠もないため、その代替は実装していない。
+
+次の正規接続確認は、配信承認を得た後に限定endpointを通常runtimeで実行して可否を確認するか、既存の安全なApp検証経路が親側で提供された場合だけ行う。403なら別経路へ迂回せず必要な組織read承認を求める。現在は本番配信・App検証のための秘密移動をせず、ローカルmockで閉じる。
+
+確定契約接続後のローカル検証: `npm run check`成功（52 server＋38 integration＝90件）、全E2E198件成功（57.1秒、1920/2560）。追加API試験は未有効時の要求ゼロ、確定field、PBI正式所属、定義403/Taskで値要求ゼロ、型・公開性変更、Linkの外部URL拒否、repo非公開化の403、最大6件/重複/不正query、token要求権限不変を検証。ブラウザーではhealth capability→専用GET→board/detailの後読込接続をmockで検証。実値・実App権限の検証ではない。push/deployは親の禁止を維持し、ローカルコミットのみ。

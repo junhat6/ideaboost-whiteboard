@@ -176,3 +176,24 @@ test("at most three PBI reads run concurrently and the original board is untouch
   assert.equal(Object.keys(result.values).length, 6);
   assert.equal(pbis[0].storyPoints, undefined);
 });
+
+import { storyPointsNextPage } from "./story-points.mjs";
+test("pagination accepts only exact same endpoint and next page, never follows an arbitrary URL", () => {
+  const base =
+    "https://api.github.com/repos/engineer-first/idea-boost/issues/1/issue-field-values?per_page=100&page=1";
+  assert.equal(storyPointsNextPage(null, base, 1), false);
+  assert.equal(
+    storyPointsNextPage(
+      `<${base.replace("&page=1", "&page=2")}>; rel="next"`,
+      base,
+      1,
+    ),
+    true,
+  );
+  for (const link of [
+    "bad",
+    '<https://evil.example/>; rel="next"',
+    `<${base}>; rel="next"`,
+  ])
+    assert.throws(() => storyPointsNextPage(link, base, 1));
+});

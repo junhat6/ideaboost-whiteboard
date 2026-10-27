@@ -122,6 +122,17 @@
           latest = loaded;
           return latest;
         },
+        ...(health.storyPoints === true
+          ? {
+              async loadStoryPoints(pbis) {
+                if (!pbis.length) return { values: {} };
+                return request(
+                  "/api/story-points?issues=" +
+                    pbis.map((p) => p.number).join(","),
+                );
+              },
+            }
+          : {}),
         async loadPullRequests(number, after = null) {
           return request(
             `/api/issues/${number}/pull-requests` +
