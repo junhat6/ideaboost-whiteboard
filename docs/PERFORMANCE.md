@@ -170,8 +170,26 @@ Floating UI DOM 1.8.0をnamed importでローカルbundle化（ui-tools.js約18K
 
 配信後の同じ読み取り手順2回: board可視4.907/1.460秒、SP応答はnavigationから7.989/4.989秒（board後3.082/3.529秒）。配信直後の共有reader coldとwarmが混在し、API時間短縮は確認していない。再取得中100ms間隔で63/66回サンプリングし、確認済みの数字が消えないことを両解像度で確認。別の詳細開閉QAではboard1.518/1.518秒、詳細37–136ms。全POSTを遮断し0件、ページエラー0、実ポイントのQA変更なし。初回の後読込時間は残る限界であり、今回の定量改善は制御fixtureの保存後追加SP要求1→0と重複要求の共有である。
 
-## 正規Project Issue fieldの同梱（2026-10-27、計測中）
+## 正規Project Issue fieldの同梱（2026-10-27）
 
 以前の担当者・Statusはboard応答内にあり、Story pointsだけはboard描画後に専用GET→公開scope/定義確認→3並列の対象Issue所属確認＋REST値取得（6件で2波）→公開scope/定義再確認という別経路だった。独立routeのtoken取得もcold時に加わり得る。新経路では既存PBI GraphQLにlinked wrapperを加え、開始bootstrap/終了公開確認にfield参照と公開性を同梱する。追加round tripや独立保存を作らない。
 
 [公式Project API](https://docs.github.com/en/graphql/reference/projects)の `ProjectV2ItemIssueFieldValue.issueFieldValue` → [IssueFieldNumberValue](https://docs.github.com/en/graphql/reference/issues)を使用。実read-only queryでProject field `PVTF_lADOEYcVLM4Bb8yFzhnWjbg` → org field `IFN_kgDOAuy0Fw`/49067031/NUMBER/ALLを確認し、Issue直接値と同値だった。通常のProjectV2ItemFieldNumberValueへ置き換えず、正本は従来のIssue fieldのまま。内部API・追加権限・キャッシュ期限延長なし。
+
+本番同一URL・1920×1080、3組の新規browser context＋同context再訪。初回表示とfresh API完了は区別する。既存AppでGraphQL wrapperの値/公開field確認が成功し、表示対象6PBIの値は正式REST値と一致（5/5/5/3/8/null）。実値変更なし。
+
+| 指標 | 変更前 | 同梱後 |
+| --- | --- | --- |
+| 新規clientのSP表示3回 | 9.467 / 5.559 / 5.548秒 | 5.219 / 1.512 / 1.518秒 |
+| 新規client中央値 | 5.559秒 | 1.518秒 |
+| 再訪SP表示3回 | 4.906 / 5.390 / 5.938秒 | 1.452 / 1.482 / 1.411秒 |
+| 再訪中央値 | 5.390秒 | 1.452秒 |
+| 新規client board中央値 | 1.756秒 | 1.514秒 |
+| 再訪board中央値 | 1.601秒 | 1.447秒 |
+| fresh API完了6回中央値/範囲 | 4.493秒 / 4.132–4.905秒 | 4.441秒 / 4.182–4.833秒 |
+| 同梱後のboard→SP表示差 | 別GET待ち | 1–5ms（locator観測差を含む） |
+| 同梱後の追加SP endpoint | — | 全6回0 |
+
+最初の各1回は非snapshotのfresh応答、残りの初期表示は共有snapshot。新規clientでもwarm共有readerならcached結果であり、約1.5秒を全fresh達成と主張しない。snapshotのポイントはboardと同じ元fetchedAt、最大60秒の既存上限内で、直後のfresh boardから同時更新する。初回非snapshotではboard4.635→5.215秒、SP9.467→5.219秒。前者はindex2ページ目の約0.95秒の上振れ等を含む少数実測で、真のserver cold平均を改善したとは言えない。fresh完了6回では大きな悪化は観測していないが、数十ms差を有意な高速化とも扱わない。
+
+変更前の最初の計測試行はboard表示待機30秒で失敗し、API200確認後に上表の3組を採取。配信後の計測の一部に別のread-only画面QAが重なったため、厳密な負荷隔離ベンチマークではない。今回の確実な改善は追加API待ちの除去と同一応答/描画での表示であり、純粋なGitHub latency改善率を主張しない。別QAでは1920/2560の詳細表示37–138ms、POST0/ページエラー0、配信コード一致を確認。

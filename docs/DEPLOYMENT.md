@@ -313,3 +313,15 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - ヘルプは3見出し、短いStatus対応表、重要箇所の強調へ整理。最大PBI数/F/Escape/内部実装等の常設説明を削減。機能やshortcutは維持。
 - 本番1920/2560でSP再取得中の表示保持（100ms間隔63/66回）、ヘルプ画素、詳細の開閉、本文操作、配信app.jsとlocalの一致を確認。POST0、ページエラー0。実Issue/points/field設定・権限・秘密・料金を変更していない。
 - この記録は配信後の文書commitであり、上記配信sourceとは区別する。
+
+## Project linked Issue field の同梱読取（2026-10-27）
+
+- 配信source: `a67817efacfe2ac65c95f50b54ceaf79b4323775`
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40471480569 （success）
+- Worker version: `6c92ba8d-f3b8-4496-a310-63fad214a281`
+- check成功（71 backend＋39 unit、lint/typecheck/build）、全ブラウザー268件成功。
+- PBI通常ビューの既存GraphQLにProjectV2ItemIssueFieldValue→IssueFieldNumberValueを同梱。PVTF/IFN/49067031/NUMBER/ALLを開始・終了に確認。shared readerのguard keyへfield公開性を追加し、失効後の再利用を防ぐ。任意fieldのGraphQLエラーは値を持たないbase queryへfallbackし、boardを維持。
+- 本番の既存Appで同梱値取得成功。6PBIの正規REST値との一致をread-onlyで確認。新規権限・credential・Project独自field・実Issue変更なし。
+- 3組の新規client/再訪でSP初期表示中央値5.559→1.518秒、5.390→1.452秒。後者の速い表示は既存shared snapshotで、fresh API完了は中央値4.441秒。初回非snapshotは5.219秒。追加SP endpointは全6回0、boardとの表示差1–5ms。条件・全値・限界はPERFORMANCE.md。
+- 本番1920/2560で詳細開閉・原文補助・入力可能、配信app.js一致、POST0/ページエラー0を確認。本文/タイトルの明示保存、離散autosave、DoneClose、公開失効、unknown fenceを維持。
+- 本段落は配信後の文書追補。アプリsourceと記録commitは別。
