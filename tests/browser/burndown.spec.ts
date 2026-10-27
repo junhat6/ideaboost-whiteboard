@@ -206,3 +206,23 @@ test("時間field公開失効後の遅いackは編集や値を復活させない
     ),
   ).toBeUndefined();
 });
+test("履歴取得でfield公開失効を知った時も既存時間を即消去", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 4;
+  await page.route("**/api/burndown*", (r) =>
+    r.fulfill({ status: 403, json: { error: "estimate_hours_not_public" } }),
+  );
+  await page.reload();
+  await page.locator("#burndown-open").click();
+  await expect(page.locator("#burndown-open")).toBeHidden();
+  expect(
+    await page.evaluate(
+      () => (window as any).Whiteboard.getSnapshot().tasks[0].estimateHours,
+    ),
+  ).toBeUndefined();
+  await page.locator(".task-title").first().click();
+  await expect(page.locator("#estimate-hours-editor")).toBeHidden();
+});

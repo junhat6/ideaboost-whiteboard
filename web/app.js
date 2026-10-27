@@ -3153,6 +3153,7 @@ async function openBurndown() {
       const module = await import("./burndown.js");
       burnPanel = module.createBurndown({
         onPrivate: () => stopPrivateScope("公開範囲を確認できません。"),
+        onFieldPrivate: invalidateHours,
         onClose: () => {
           clearTimeout(burnTimer);
           burnTimer = null;

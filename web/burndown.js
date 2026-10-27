@@ -147,7 +147,7 @@ export function chart(data) {
   root.append(tableWrap);
   return root;
 }
-export function createBurndown({ onPrivate, onClose }) {
+export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   const dialog = node("dialog", undefined, "burn-panel");
   dialog.id = "burndown-panel";
   dialog.setAttribute("aria-labelledby", "burndown-heading");
@@ -210,6 +210,7 @@ export function createBurndown({ onPrivate, onClose }) {
         if (response.status === 403) {
           hide();
           if (data.error === "scope_not_public") onPrivate();
+          else onFieldPrivate();
           return;
         }
         throw new Error("記録を取得できませんでした。");
