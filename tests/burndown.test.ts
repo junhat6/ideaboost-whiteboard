@@ -180,3 +180,11 @@ test("同時閲覧の公開確認と観測はsingleflight、日次上限は明�
   );
   assert.equal(result.current.remainingHours, 96);
 });
+test("存在しないスプリントを作業ゼロの正常結果にしない", async () => {
+  const f = fixture();
+  const r = await f.history.fetch(
+    new Request("https://test/api/burndown?milestone=999"),
+  );
+  assert.equal(r.status, 404);
+  assert.equal((await r.json()).error, "sprint_unavailable");
+});

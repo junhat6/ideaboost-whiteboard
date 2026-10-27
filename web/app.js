@@ -3161,7 +3161,11 @@ async function openBurndown() {
         },
       });
     }
-    if (!dragged && !document.querySelector("dialog[open]"))
+    if (
+      !dragged &&
+      !document.querySelector("dialog[open]") &&
+      !$("#burndown-open").hidden
+    )
       burnPanel.open(selectedMilestone);
   } catch {
     announce("バーンダウンを開けませんでした。もう一度お試しください。");

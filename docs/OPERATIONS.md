@@ -52,3 +52,11 @@ Cloudflare OAuthとGitHub sudo本人確認は完了。指定アカウントだ�
 `MUTATIONS` namespace内でも `engineer-first/idea-boost:board-reader` はIssue保存DOとは別インスタンス。保存ledgerのstorageへ本文を書かない。最大60秒・2MBのdefault board1個と進行中最大8要求のみをメモリー保持。全APIレスポンスはprivate,no-store。初回画面の「直近の取得結果」は完全な最新取得の完了を意味しない。
 
 保存中・結果不明・無効化終了通知に失敗した状態では共有結果の再利用を止め、通常のfresh読取へ戻る。確定した保存結果は終了通知だけの失敗で覆さない。再起動/eviction/deployではメモリーが消える。結果不明のIssue保存ledgerの保守は従来通り必要で、読み取りキャッシュの消失は保存再送の許可ではない。新しいDB・鍵・Webhook・alarm・有料プランは追加していない。
+
+## 作業見積と観測履歴（ADR012）
+
+従来の現在boardメモリーとは別に、承認済みのバーンダウン用途で`HISTORY` / `HistoryCoordinator`（SQLite DO、migration v2）を追加。`ESTIMATE_HOURS_READ_ENABLED=true`、field ID49079931 / node IFN_kgDOAuzmew / Project field PVTF_lADOEYcVLM4Bb8yFzhnZdjcを固定する。IDはクライアント入力から採用しない。新しいApp権限や秘密は不要。
+
+配信後、正規公開pathのGET `/api/burndown` を一度確認してJST日次alarmを起動する。実Issue値は入力しない。HTTP503は取得不能/階層不完全であり、0時間達成ではない。HTTP403は公開失効で履歴消去。read-only確認では時刻・未見積件数・field公開性・POST0を確認する。旧estラベルは正本に混ぜない。
+
+詳細はBURNDOWN.md。日次indexだけをチャートへ読み、保存済み原観測を後日の見積で書き換えない。保持180日・1日96観測を超える時は履歴制限を明示。永久保管や過去イベント再現を保証しない。

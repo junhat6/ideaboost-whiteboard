@@ -257,6 +257,11 @@ export class BurnHistory {
         raw === null
           ? ((future[0] ?? source.milestones.at(-1))?.number ?? null)
           : Number(raw);
+      if (
+        milestone !== null &&
+        !source.milestones.some((m) => m.number === milestone)
+      )
+        return Response.json({ error: "sprint_unavailable" }, { status: 404 });
       const filter = (tasks: BurnTask[]) =>
         milestone === null
           ? tasks
