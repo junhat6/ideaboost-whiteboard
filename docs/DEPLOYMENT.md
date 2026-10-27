@@ -269,3 +269,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - check成功（99 unit/integration）、全216 browser成功（55.5秒）。初回215成功/1失敗は既存resize/clock試験がGET開始だけ待って時計を進める競合で、GET完了状態を待つよう修正し再確認。
 - 本番両サイズread-only、POST0/JSエラー0、4assets hash一致。board3539/1576ms、Issue shell61/50msは各1回・cold/hit混在で性能改善率ではない。実IssueのClose QAは未実施。
 - CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40442291586 （同一SHAのcheck・全216 browser成功）。
+
+### Done部分失敗の復元と再試行
+
+- 配信source: `ecc1162a5ab0535d038e27ff18d37103f188b944`。Worker: `da53d77b-b076-4ba5-a713-6e2c4b5abbed`。test-only追補: `484c9a4f0de22d2cab09846ab2253ef288286f12`（アプリ差分なし）。
+- 詳細・dragの明示Done意図を失敗entryへ保持。Statusのみ成功してIssueがOPENなら、再取得で成功扱いにせず、確定失敗だけ「完了処理を再試行」を出す。同じStatusでも新しい明示requestとして送信できる。別のStatusへ選び直した場合は、その選択を尊重する。
+- 通信結果不明・永続fenceはGET成功で解除しない。既知失敗でもDone/CLOSEDを確認できた場合は重複Closeしない。開始時CLOSEDでも、明示DoneのreadbackがOPENなら成功扱いしない。既存Closed理由を変更せず、外部Reopenに対する自動再Closeはしない。
+- check成功（100 unit/integration）、全226 browser成功（両解像度、約1分）。CIの初回失敗は最後に追加した試験期待値がGraphQL Statusエラーを確定失敗と誤分類したため。期待値だけを修正し、checkを再実行して成功。安全側の結果不明判定は変更していない。
+- 本番1920/2560読み取り・再open/close確認、POST0/JSエラー0、4assets SHA256一致。各1回のboard4622/1519ms、Issue shell78/65ms、close329/481ms。cold/hit混在の観測で速度改善率ではない。実IssueのClose/partial失敗QAは未実施、合成fixtureのみ。
+- SPは権限確認待ちでfalseのまま。App/installation権限・認証・秘密・公開範囲は変更していない。
+- 最終CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40444132835 （`484c9a4`、check・全226 browser成功）。配信sourceとの差分はserver試験の期待値1行だけ。初回run40443987255は上記試験期待値で失敗した記録として区別する。
