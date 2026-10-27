@@ -1711,7 +1711,8 @@ export function createHandler({
         for (const t of output.tasks)
           children.set(t.parentId, (children.get(t.parentId) ?? 0) + 1);
         const excludedChildren = [];
-        let relationRead = false;
+        let relationRead = false,
+          relationRequests = 0;
         for (const parent of [...output.lanes, ...output.tasks]) {
           if (!Number.isSafeInteger(parent.subIssueCount))
             throw new ApiError(503, "observation_incomplete");
@@ -1725,6 +1726,8 @@ export function createHandler({
             complete = false;
           const childIds = new Set();
           for (let page = 0; page < 20; page++) {
+            if (++relationRequests > 20)
+              throw new ApiError(503, "observation_incomplete");
             const data = await gql(
               env,
               `query ObservationChildren($number:Int!,$after:String) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id subIssues(first:100,after:$after) { nodes { id issueType { name } repository { nameWithOwner } projectItems(first:100,includeArchived:false) { nodes { isArchived project { id } } pageInfo { hasNextPage } } } pageInfo { hasNextPage endCursor } } } } }`,

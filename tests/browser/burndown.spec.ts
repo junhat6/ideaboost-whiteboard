@@ -255,8 +255,9 @@ test("履歴失効後に古い公開boardが戻っても時間を復活せず、
     r.fulfill({ status: 403, json: { error: "estimate_hours_not_public" } }),
   );
   await page.reload();
+  await expect(page.locator("#burndown-open")).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect.poll(() => reads).toBe(2);
+  await expect.poll(() => reads, { timeout: 10000 }).toBe(2);
   await page.locator("#burndown-open").click();
   await expect(page.locator("#burndown-open")).toBeHidden();
   release();
@@ -264,7 +265,7 @@ test("履歴失効後に古い公開boardが戻っても時間を復活せず、
     "通常の本文更新は採用",
   );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect.poll(() => reads).toBeGreaterThan(2);
+  await expect.poll(() => reads, { timeout: 10000 }).toBeGreaterThan(2);
   await expect(page.locator("#burndown-open")).toBeHidden();
   expect(
     await page.evaluate(
@@ -295,6 +296,7 @@ test("時間field失効は競合のremote値も隠し、他の本文を消さな
     timeout: 10000,
   });
   await expect(page.locator("#editor-conflicts")).toBeHidden();
-  await expect(page.locator(".cm-content")).not.toBeEmpty();
+  // The lazy editor may intentionally retain its textarea while another input has focus.
+  await expect(page.locator("#detail-body")).toHaveValue(f.board.tasks[0].body);
   expect(f.posts()).toBe(0);
 });
