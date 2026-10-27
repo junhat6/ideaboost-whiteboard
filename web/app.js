@@ -2028,6 +2028,7 @@ let commentConfirmed = new Map();
 let commentItems = [],
   commentNext = null,
   commentsLoading = false,
+  commentRefreshQueued = null,
   commentComposing = false;
 function commentEntry() {
   const n = editorLatest?.number;
@@ -2052,6 +2053,7 @@ function setupComments() {
   commentConfirmed.clear();
   commentNext = null;
   commentsLoading = false;
+  commentRefreshQueued = null;
   commentComposing = false;
   $("#comment-body").value = commentEntry().body;
   $("#comments-list")
@@ -2208,6 +2210,7 @@ function stopPrivateScope(message) {
   commentItems = [];
   commentConfirmed.clear();
   commentDrafts.clear();
+  commentRefreshQueued = null;
   editorBody = "";
   editorBaseline = null;
   editorLatest = null;
@@ -2223,6 +2226,20 @@ function stopPrivateScope(message) {
   $("#details").close();
   $("#list-dialog").close();
   render();
+}
+function refreshCommentsAfterPost(session) {
+  if (
+    session !== editorSession ||
+    !$("#details").open ||
+    $("#details").classList.contains("closing") ||
+    !adapter?.loadComments
+  )
+    return;
+  if (commentsLoading) {
+    commentRefreshQueued = session;
+    return;
+  }
+  void loadComments();
 }
 async function loadComments(more = false) {
   if (commentsLoading || !adapter?.loadComments || !$("#details").open) return;
@@ -2267,6 +2284,10 @@ async function loadComments(more = false) {
       $("#comments-skeleton").hidden = true;
       $("#comments-list").setAttribute("aria-busy", "false");
       syncCommentControls();
+      if (commentRefreshQueued === session) {
+        commentRefreshQueued = null;
+        refreshCommentsAfterPost(session);
+      }
     }
   }
 }
@@ -2311,6 +2332,7 @@ $("#comment-form").onsubmit = async (e) => {
     return;
   const session = editorSession,
     number = editorLatest.number;
+  let refreshAfterPost = false;
   entry.posting = true;
   entry.requestId ||= crypto.randomUUID();
   syncCommentControls();
@@ -2335,7 +2357,7 @@ $("#comment-form").onsubmit = async (e) => {
         commentItems.push(result.comment);
         renderComments();
       }
-      await loadComments();
+      refreshAfterPost = true;
     }
   } catch (error) {
     const uncertain =
@@ -2362,6 +2384,8 @@ $("#comment-form").onsubmit = async (e) => {
     entry.posting = false;
     if (session === editorSession) syncCommentControls();
   }
+  // An old list read must never own or release a subsequent comment POST lock.
+  if (refreshAfterPost) refreshCommentsAfterPost(session);
 };
 let returnFocusSelector = null,
   returnCell = null;
@@ -2433,6 +2457,7 @@ function closeDetail() {
     .querySelectorAll(".comment-content")
     .forEach((n) => composerModule?.clearPreview(n));
   editorSession++; // Drawer cleanup never cancels an explicitly submitted Issue save.
+  commentRefreshQueued = null;
   clearLinkedPrs();
   $("#editor-tools").hidePopover();
   d.classList.add("closing");

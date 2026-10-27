@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import {
   setup,
   fillEditor,
@@ -23,6 +23,39 @@ const comment = {
 async function open(page) {
   await page.locator(".task-title").first().click();
   await expect(page.locator(".cm-content")).toBeVisible();
+}
+function deferred() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => (release = resolve));
+  return { promise, release };
+}
+function postedComment(id: number, body: string, issue = 100) {
+  return {
+    ...comment,
+    id,
+    body,
+    url: `https://github.com/engineer-first/idea-boost/issues/${issue}#issuecomment-${id}`,
+    author: { ...comment.author, login: "app[bot]", type: "Bot" },
+  };
+}
+async function selectCommentDraft(page: Page, body: string) {
+  const input = page.locator("#comment-body");
+  await input.fill(body);
+  await input.focus();
+  await input.evaluate((element: HTMLTextAreaElement) =>
+    element.setSelectionRange(2, 7),
+  );
+}
+async function expectCommentDraft(page: Page, body: string) {
+  const input = page.locator("#comment-body");
+  await expect(input).toHaveValue(body);
+  await expect(input).toBeFocused();
+  expect(
+    await input.evaluate((element: HTMLTextAreaElement) => [
+      element.selectionStart,
+      element.selectionEnd,
+    ]),
+  ).toEqual([2, 7]);
 }
 test("inline pencil rename accepts locally, cancels with Escape, and preview keeps 16px body", async ({
   page,
@@ -140,6 +173,373 @@ test("unknown comment result retains draft and blocks replay after GET and reope
   await open(page);
   await expect(page.locator("#comment-error")).toContainText("再投稿を停止");
   expect(posts).toBe(1);
+});
+test("comment POST acknowledgement unlocks input and close before background GET, preserving the next draft selection", async ({
+  page,
+}) => {
+  const s = await setup(page),
+    refreshGate = deferred(),
+    closeGate = deferred();
+  let reads = 0,
+    posts = 0,
+    entries = [comment];
+  await page.route("**/api/issues/*/comments*", async (route) => {
+    if (route.request().method() === "GET") {
+      const n = ++reads;
+      if (n === 2) await refreshGate.promise;
+      if (n === 3) await closeGate.promise;
+      return route.fulfill({ json: { comments: entries, nextPage: null } });
+    }
+    posts++;
+    const posted = postedComment(2, route.request().postDataJSON().body);
+    entries = [...entries, posted];
+    return route.fulfill({ status: 201, json: { ok: true, comment: posted } });
+  });
+  try {
+    await open(page);
+    await expect(page.locator(".issue-comment")).toHaveCount(1);
+    await page.locator("#comment-body").fill("投稿済みのコメント");
+    await page.locator("#post-comment").click();
+    await expect.poll(() => reads).toBe(2);
+    await expect(page.locator("#comments-list")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    await expect(page.locator("#comment-body")).toBeEnabled();
+    await expect(page.locator("#comment-body")).toHaveValue("");
+    await expect(page.locator("#post-comment")).toHaveText("コメントを投稿");
+    await expect(page.locator(".issue-comment")).toHaveCount(2);
+    const draft = "次のコメントを編集中です";
+    await selectCommentDraft(page, draft);
+    refreshGate.release();
+    await expect(page.locator("#comments-list")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+    await expectCommentDraft(page, draft);
+    await page.locator("#comments-refresh").click();
+    await expect.poll(() => reads).toBe(3);
+    await expect(page.locator("#comments-list")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#close-detail").click();
+    await expect(page.locator("#details")).not.toBeVisible();
+    const closedRefresh = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/issues/100/comments",
+    );
+    closeGate.release();
+    await (await closedRefresh).finished();
+    await expect(page.locator("#details")).not.toBeVisible();
+    expect(posts).toBe(1);
+    expect(s.posts()).toBe(0);
+  } finally {
+    refreshGate.release();
+    closeGate.release();
+  }
+});
+test("an older comment GET cannot unlock a newer POST or allow duplicate submission", async ({
+  page,
+}) => {
+  const s = await setup(page),
+    readGate = deferred(),
+    postGate = deferred();
+  let reads = 0,
+    posts = 0,
+    entries = [comment];
+  await page.route("**/api/issues/*/comments*", async (route) => {
+    if (route.request().method() === "GET") {
+      const snapshot = [...entries];
+      if (++reads === 2) await readGate.promise;
+      return route.fulfill({ json: { comments: snapshot, nextPage: null } });
+    }
+    const n = ++posts,
+      posted = postedComment(n + 1, route.request().postDataJSON().body);
+    if (n === 2) await postGate.promise;
+    entries = [...entries, posted];
+    return route.fulfill({ status: 201, json: { ok: true, comment: posted } });
+  });
+  try {
+    await open(page);
+    await expect(page.locator(".issue-comment")).toHaveCount(1);
+    await page.locator("#comment-body").fill("1件目");
+    await page.locator("#post-comment").click();
+    await expect.poll(() => reads).toBe(2);
+    await page.locator("#comment-body").fill("2件目はPOST待機中");
+    await page.evaluate(() => {
+      const form = document.querySelector("#comment-form") as HTMLFormElement;
+      form.requestSubmit();
+      form.requestSubmit();
+    });
+    await expect.poll(() => posts).toBe(2);
+    await expect(page.locator("#comment-body")).toBeDisabled();
+    readGate.release();
+    await expect(page.locator("#comments-list")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+    await expect(page.locator("#comment-body")).toBeDisabled();
+    await expect(page.locator("#comment-body")).toHaveValue(
+      "2件目はPOST待機中",
+    );
+    await expect(page.locator("#post-comment")).toBeDisabled();
+    await expect(page.locator("#post-comment")).toHaveText("投稿中…");
+    await page.evaluate(() =>
+      (
+        document.querySelector("#comment-form") as HTMLFormElement
+      ).requestSubmit(),
+    );
+    await page.locator("#close-detail").click();
+    await expect(page.locator("#details")).toBeVisible();
+    expect(posts).toBe(2);
+    postGate.release();
+    await expect(page.locator("#comment-body")).toBeEnabled();
+    await expect(page.locator(".issue-comment")).toHaveCount(3);
+    await expect.poll(() => reads).toBe(3);
+    expect(posts).toBe(2);
+    expect(s.posts()).toBe(0);
+  } finally {
+    readGate.release();
+    postGate.release();
+  }
+});
+for (const staleReadStatus of [200, 503])
+  test(`comment acknowledgements during GET ${staleReadStatus} coalesce into one fresh read and retain confirmed posts and the next draft`, async ({
+    page,
+  }) => {
+    const s = await setup(page),
+      readGate = deferred();
+    let reads = 0,
+      posts = 0,
+      entries = [comment];
+    await page.route("**/api/issues/*/comments*", async (route) => {
+      if (route.request().method() === "GET") {
+        const snapshot = [...entries];
+        if (++reads === 2) {
+          await readGate.promise;
+          if (staleReadStatus === 503)
+            return route.fulfill({
+              status: 503,
+              json: { error: "unavailable" },
+            });
+        }
+        return route.fulfill({ json: { comments: snapshot, nextPage: null } });
+      }
+      const posted = postedComment(
+        ++posts + 1,
+        route.request().postDataJSON().body,
+      );
+      entries = [...entries, posted];
+      return route.fulfill({
+        status: 201,
+        json: { ok: true, comment: posted },
+      });
+    });
+    try {
+      await open(page);
+      await expect(page.locator(".issue-comment")).toHaveCount(1);
+      await page.locator("#comment-body").fill("1件目の確定コメント");
+      await page.locator("#post-comment").click();
+      await expect.poll(() => reads).toBe(2);
+      await page.locator("#comment-body").fill("2件目の確定コメント");
+      await page.locator("#post-comment").click();
+      await expect(page.locator("#comment-body")).toBeEnabled();
+      await expect(page.locator("#comment-body")).toHaveValue("");
+      await expect(page.locator(".issue-comment")).toHaveCount(3);
+      await expect(page.locator("#comments-list")).toContainText(
+        "2件目の確定コメント",
+      );
+      expect(reads).toBe(2);
+      expect(posts).toBe(2);
+      const draft = "次の未送信コメントを選択中";
+      await selectCommentDraft(page, draft);
+      readGate.release();
+      await expect.poll(() => reads).toBe(3);
+      await expect(page.locator("#comments-list")).toHaveAttribute(
+        "aria-busy",
+        "false",
+      );
+      await expect(page.locator("#comments-status")).toHaveText(
+        "3件のコメント",
+      );
+      await expect(page.locator(".issue-comment")).toHaveCount(3);
+      await expect(page.locator('[data-comment-id="2"]')).toHaveCount(1);
+      await expect(page.locator('[data-comment-id="3"]')).toHaveCount(1);
+      await expectCommentDraft(page, draft);
+      expect(reads).toBe(3);
+      expect(posts).toBe(2);
+      expect(s.posts()).toBe(0);
+    } finally {
+      readGate.release();
+    }
+  });
+test("switching Issue discards the old comment refresh queue without changing the new draft or loading state", async ({
+  page,
+}) => {
+  const s = await setup(page),
+    oldGate = deferred(),
+    nextGate = deferred();
+  let oldReads = 0,
+    nextReads = 0,
+    posts = 0,
+    entries = [comment];
+  await page.route("**/api/issues/*/comments*", async (route) => {
+    const number = Number(
+      new URL(route.request().url()).pathname.split("/").at(-2),
+    );
+    if (route.request().method() === "GET") {
+      if (number === 101) {
+        nextReads++;
+        await nextGate.promise;
+        return route.fulfill({
+          json: {
+            comments: [postedComment(101, "別Issueのコメント", 101)],
+            nextPage: null,
+          },
+        });
+      }
+      const snapshot = [...entries];
+      if (++oldReads === 2) await oldGate.promise;
+      return route.fulfill({ json: { comments: snapshot, nextPage: null } });
+    }
+    const posted = postedComment(
+      ++posts + 1,
+      route.request().postDataJSON().body,
+    );
+    entries = [...entries, posted];
+    return route.fulfill({ status: 201, json: { ok: true, comment: posted } });
+  });
+  try {
+    await open(page);
+    await expect(page.locator(".issue-comment")).toHaveCount(1);
+    await page.locator("#comment-body").fill("旧Issueの1件目");
+    await page.locator("#post-comment").click();
+    await expect.poll(() => oldReads).toBe(2);
+    await page.locator("#comment-body").fill("旧Issueの2件目");
+    await page.locator("#post-comment").click();
+    await expect(page.locator("#comment-body")).toBeEnabled();
+    await expect(page.locator("#comment-body")).toHaveValue("");
+    await expect(page.locator(".issue-comment")).toHaveCount(3);
+    await page.locator("#close-detail").click();
+    await expect(page.locator("#details")).not.toBeVisible();
+    await page.locator(".task-title").nth(1).click();
+    await expect.poll(() => nextReads).toBe(1);
+    const draft = "別Issueで編集中のコメント";
+    await selectCommentDraft(page, draft);
+    const oldResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/issues/100/comments",
+    );
+    oldGate.release();
+    await (await oldResponse).finished();
+    // Let the stale response's promise and finally run before asserting no effects.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(page.locator(".issue-comment")).toHaveCount(0);
+    await expect(page.locator("#comments-list")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    await expect(page.locator("#comments-refresh")).toBeDisabled();
+    await expect(page.locator("#comments-status")).toContainText("読み込み中");
+    await expectCommentDraft(page, draft);
+    expect(oldReads).toBe(2);
+    expect(nextReads).toBe(1);
+    nextGate.release();
+    await expect(page.locator("#comments-list")).toContainText(
+      "別Issueのコメント",
+    );
+    await expect(page.locator(".issue-comment")).toHaveCount(1);
+    await expect(page.locator("#comments-list")).not.toContainText("旧Issue");
+    await expect(page.locator("#comments-list")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+    await expectCommentDraft(page, draft);
+    expect(oldReads).toBe(2);
+    expect(nextReads).toBe(1);
+    expect(posts).toBe(2);
+    expect(s.posts()).toBe(0);
+  } finally {
+    oldGate.release();
+    nextGate.release();
+  }
+});
+test("a stale comment GET 403 clears public content and pending refreshes even after switching Issue", async ({
+  page,
+}) => {
+  const s = await setup(page),
+    privateGate = deferred();
+  let oldReads = 0,
+    nextReads = 0,
+    posts = 0;
+  await page.route("**/api/issues/*/comments*", async (route) => {
+    const number = Number(
+      new URL(route.request().url()).pathname.split("/").at(-2),
+    );
+    if (route.request().method() === "GET") {
+      if (number === 101) {
+        nextReads++;
+        return route.fulfill({
+          json: {
+            comments: [postedComment(101, "別Issueの公開コメント", 101)],
+            nextPage: null,
+          },
+        });
+      }
+      if (++oldReads === 2) {
+        await privateGate.promise;
+        return route.fulfill({
+          status: 403,
+          json: { error: "scope_not_public" },
+        });
+      }
+      return route.fulfill({ json: { comments: [comment], nextPage: null } });
+    }
+    const posted = postedComment(
+      ++posts + 1,
+      route.request().postDataJSON().body,
+    );
+    return route.fulfill({ status: 201, json: { ok: true, comment: posted } });
+  });
+  try {
+    await open(page);
+    await expect(page.locator(".issue-comment")).toHaveCount(1);
+    await page.locator("#comment-body").fill("公開中の1件目");
+    await page.locator("#post-comment").click();
+    await expect.poll(() => oldReads).toBe(2);
+    await page.locator("#comment-body").fill("公開中の2件目");
+    await page.locator("#post-comment").click();
+    await expect(page.locator("#comment-body")).toBeEnabled();
+    await expect(page.locator("#comment-body")).toHaveValue("");
+    await expect(page.locator(".issue-comment")).toHaveCount(3);
+    await page.locator("#close-detail").click();
+    await expect(page.locator("#details")).not.toBeVisible();
+    await page.locator(".task-title").nth(1).click();
+    await expect(page.locator("#comments-list")).toContainText(
+      "別Issueの公開コメント",
+    );
+    await page.locator("#comment-body").fill("失効時に破棄する下書き");
+    privateGate.release();
+    await expect(page.locator("#details")).not.toBeVisible();
+    await expect(page.locator(".task")).toHaveCount(0);
+    await expect(page.locator("#comment-body")).toHaveValue("");
+    await expect(page.locator(".issue-comment")).toHaveCount(0);
+    expect(oldReads).toBe(2);
+    expect(nextReads).toBe(1);
+    expect(posts).toBe(2);
+    expect(s.posts()).toBe(0);
+  } finally {
+    privateGate.release();
+  }
 });
 test("safe lazy media never delays text; video previews without autoplay and stops on close", async ({
   page,
