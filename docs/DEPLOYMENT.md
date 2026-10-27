@@ -239,3 +239,13 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 本番両サイズの中間位置で開閉・高さ+80pxのresizeを行い、同じ付箋の相対Y誤差0.34px以内、POST0、JSエラー0を確認。変更app.js/styles.cssのHTTP200/SHA256一致。実IssueのQA変更なし。
 - 独立レビューはP0/P1なし、指摘されたanchor P2を対象にした限定追補。認証・秘密・権限・保存経路・料金は変更なし。
 - 最終同一SHA CI成功: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40351693950 （78 unit/integration・188 browser）。ブロッカーなし。後続の文書追補でアプリは再配信しない。
+
+### 保存の背景実行とStory points接続確認（2026-10-27）
+
+- 配信source: `df6a3e61d34da397b682a2b7025cb6032d135a10`。最終Worker version: `449aba4c-223c-44b0-88d2-ed403eb1574f`。
+- 保存中にdrawerを閉じ、別Issueを操作できる。Issue別intent/request IDで結果と下書きを分離し、同Issueは1flight、次の変更は明示Save。失敗はdrawer外にも復元導線を残す。前のGETによる確認済み値の巻き戻りを防ぐ。
+- ローカルcheck（93 unit/integration）と全208 browser（54.7秒）成功。CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40434794718 （同一SHAでcheckと全208 browser成功）。
+- 本番1920/2560でopen/close/reopen、画素、POST0/JSエラー0、4assetsのSHA256一致。最終設定各1回のboard表示4546/1456ms、Issue shell表示86/84ms。cold/hitを統制していないので改善率に使わない。closeのPlaywright操作完了307/451msは操作安定待機を含み、DOM close自体は同期実行。
+- 通常本文保存の合成比較は要求15→5回、中央値282→111ms（各upstream20ms、3回）。本番IssueのQA書込み禁止のため実保存レイテンシは未計測。SP保存は別のfresh field確認を要するためこの値を適用しない。
+- Story pointsは数字のみのPBI表示とsidebar7択/解除を実装・mock検証済み。既存Appの通常runtimeで定義GETを試し、HTTP403を確認。追加が必要なのは組織Issue Fields:readの承認とinstallation tokenへの当該権限指定。権限変更・秘密抽出は実行していない。実書込み権限は未検証。
+- 失敗GETを継続しないため`STORY_POINTS_READ_ENABLED=false`へ戻した。health200/storyPointsなしを確認し、SPは本番非表示。通常boardと保存UXは配信済み。承認後に正規readを再確認して有効化する。初回probe版Workerは`88907534-a47c-4681-86c0-1badf078fce2`で、最終版ではない。

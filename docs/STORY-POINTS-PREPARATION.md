@@ -84,3 +84,5 @@ Issue保存はdrawerから独立したIssue別jobとimmutable intentを持つ。
 保存前のclient全board GETを削除し、serverの全board構築2回を対象Issueのfresh context/preflight/readbackへ置換した。正式所属・公開状態・revision/fingerprint/rawStatus確認は維持。担当者一覧は担当変更時だけ取得する。SP値は別のfresh値preconditionで競合検出する。
 
 合成計測（各upstream要求20ms遅延、3回、実GitHub書込みなし）: 旧要求数15回、292/278/282ms（中央値282ms）。新要求数5回、113/109/111ms（中央値111ms）。通常本文保存の比較であり、SP保存や実GitHubのネットワーク時間ではない。実IssueへのQA書込みは行わないため本番保存時間は未計測。
+
+本番の既存App検証結果: 定義GETはHTTP403。追加権限を勝手に加えず、最終production flagをfalseに戻した。SPのUI/書込コードは配信済みだが機能は無効。組織Issue Fields:readの承認・installation token設定と正規read再確認が残る。実Issue値は書き換えていない。
