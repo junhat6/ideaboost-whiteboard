@@ -183,6 +183,12 @@
             body: JSON.stringify({
               ...patch,
               expectedRevision,
+              ...(patch.status === "完了"
+                ? {
+                    expectedState: old.state,
+                    expectedStateReason: old.stateReason ?? null,
+                  }
+                : {}),
               ...(Object.hasOwn(patch, "storyPoints")
                 ? { expectedStoryPoints: baseline?.storyPoints }
                 : {}),

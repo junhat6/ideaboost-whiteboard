@@ -751,3 +751,139 @@ test("external body edit during final points read is caught by the subsequent bo
     0,
   );
 });
+
+test("explicit Done closes only its Task or PBI as completed and repeats do not write again", async () => {
+  for (const number of [1, 2]) {
+    const f = fixture({ parentInProject: true });
+    const input = patch({
+      title: `Issue ${number}`,
+      expectedStatus: number === 1 ? "レビュー中" : null,
+      status: "完了",
+      expectedFingerprint:
+        number === 1 ? parentFingerprint : originalFingerprint,
+    });
+    const response = await f.handler(req(`/api/issues/${number}`, input), env);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.issue.state, "CLOSED");
+    assert.equal(result.issue.stateReason, "COMPLETED");
+    const closes = () =>
+      f.calls.filter((c) => c.method === "PATCH" && c.parsed?.state);
+    assert.equal(closes().length, 1);
+    assert.ok(closes()[0].url.endsWith(`/issues/${number}`));
+    assert.deepEqual(closes()[0].parsed, {
+      state: "closed",
+      state_reason: "completed",
+    });
+    await f.handler(req(`/api/issues/${number}`, input), env);
+    assert.equal(closes().length, 1);
+  }
+});
+test("closed Issue stays closed on Done and on returning to Doing; existing Done body save does not close", async () => {
+  for (const [status, closed] of [
+    ["完了", true],
+    ["作業中", true],
+    [undefined, false],
+  ]) {
+    const f = fixture({ initialStatus: status === undefined ? "完了" : null });
+    if (closed) {
+      f.issue.state = "CLOSED";
+      f.issue.stateReason = "NOT_PLANNED";
+    }
+    const response = await f.handler(
+      req(
+        "/api/issues/2",
+        patch({
+          ...(status ? { status } : {}),
+          expectedState: closed ? "CLOSED" : "OPEN",
+          expectedStateReason: closed ? "NOT_PLANNED" : null,
+          expectedStatus: status === undefined ? "完了" : null,
+        }),
+      ),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.equal(
+      f.calls.filter(
+        (c) => c.method === "PATCH" && Object.hasOwn(c.parsed, "state"),
+      ).length,
+      0,
+    );
+    assert.equal(
+      (await response.json()).issue.state,
+      closed ? "CLOSED" : "OPEN",
+    );
+  }
+});
+test("Done success plus failed or uncertain close is partial and never a successful save", async () => {
+  for (const options of [
+    { closeFailure: true },
+    { closeUncertain: true },
+    { statusFailure: true },
+  ]) {
+    const f = fixture(options);
+    const input = patch({ title: "Issue 2", status: "完了" });
+    const response = await f.handler(req("/api/issues/2", input), env);
+    assert.equal(response.status, 502);
+    const result = await response.json();
+    assert.equal(result.ok, false);
+    if (!options.statusFailure) {
+      assert.equal(result.partial, true);
+      assert.ok(result.completed.includes("status"));
+    }
+    if (options.closeUncertain) assert.equal(result.ambiguous, true);
+    const count = f.calls.filter(
+      (c) => c.method === "PATCH" && c.parsed.state,
+    ).length;
+    if (options.statusFailure) assert.equal(count, 0);
+    await f.handler(req("/api/issues/2", input), env);
+    assert.equal(
+      f.calls.filter((c) => c.method === "PATCH" && c.parsed.state).length,
+      count,
+    );
+  }
+});
+
+test("same-revision external state/reason changes reject explicit Done before writing", async () => {
+  for (const [state, reason] of [
+    ["CLOSED", "NOT_PLANNED"],
+    ["OPEN", "REOPENED"],
+  ]) {
+    const f = fixture();
+    f.issue.state = state;
+    f.issue.stateReason = reason;
+    const response = await f.handler(
+      req("/api/issues/2", patch({ status: "完了" })),
+      env,
+    );
+    assert.equal(response.status, 409);
+    assert.equal(
+      f.calls.filter(
+        (c) => c.method === "PATCH" || c.parsed?.query?.startsWith("mutation"),
+      ).length,
+      0,
+    );
+  }
+});
+
+test("an explicit Done request can close an open existing Done Issue, but a body-only request never does", async () => {
+  const f = fixture({ initialStatus: "完了" });
+  const response = await f.handler(
+    req(
+      "/api/issues/2",
+      patch({ title: "Issue 2", status: "完了", expectedStatus: "完了" }),
+    ),
+    env,
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).issue.state, "CLOSED");
+  assert.equal(
+    f.calls.filter((c) => c.parsed?.query?.startsWith("mutation")).length,
+    0,
+  );
+  assert.equal(
+    f.calls.filter((c) => c.method === "PATCH" && c.parsed.state === "closed")
+      .length,
+    1,
+  );
+});

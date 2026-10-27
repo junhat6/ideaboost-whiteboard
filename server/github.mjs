@@ -17,7 +17,7 @@ const STATUSES = [
   "見送り",
 ];
 const BASE = "https://api.github.com";
-const CORE = `id number url title body updatedAt state author { login avatarUrl url __typename ... on User { name } } repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:10) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
+const CORE = `id number url title body updatedAt state stateReason author { login avatarUrl url __typename ... on User { name } } repository { nameWithOwner } issueType { name } milestone { number title state } assignees(first:10) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
 const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
 const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state } } } } pageInfo { hasNextPage endCursor }`;
@@ -127,12 +127,22 @@ export function validateMutation(v) {
           "expectedStoryPoints",
           "expectedRevision",
           "expectedStatus",
+          "expectedState",
+          "expectedStateReason",
           "expectedFingerprint",
           "requestId",
         ].includes(k),
     )
   )
     throw new ApiError(400, "invalid_fields");
+  if (
+    v.status === "完了" &&
+    (!["OPEN", "CLOSED"].includes(v.expectedState) ||
+      ![null, "COMPLETED", "NOT_PLANNED", "REOPENED", "DUPLICATE"].includes(
+        v.expectedStateReason,
+      ))
+  )
+    throw new ApiError(400, "invalid_precondition");
   if (
     typeof v.expectedFingerprint !== "string" ||
     !/^[a-f0-9]{64}$/.test(v.expectedFingerprint)
@@ -377,6 +387,7 @@ export function createHandler({
       parentId: i.parent?.id ?? null,
       milestone: i.milestone ?? null,
       state: i.state,
+      stateReason: i.stateReason ?? null,
     };
   }
   async function board(env, milestone = null, applyView = true) {
@@ -1022,6 +1033,12 @@ export function createHandler({
       current.fingerprint !== v.expectedFingerprint
     )
       throw new ApiError(409, "conflict", { issue: current });
+    if (
+      v.status === "完了" &&
+      (v.expectedState !== current.state ||
+        v.expectedStateReason !== current.stateReason)
+    )
+      throw new ApiError(409, "conflict", { issue: current });
     const changePoints = Object.hasOwn(v, "storyPoints");
     let oldPoints;
     if (changePoints) {
@@ -1043,6 +1060,7 @@ export function createHandler({
       patch.assignees = v.assignees;
     }
     const changeStatus = "status" in v && v.status !== current.status;
+    const closeOnDone = v.status === "完了" && current.state === "OPEN";
     let option;
     if (changeStatus) {
       if (!current.projectItemId)
@@ -1058,7 +1076,7 @@ export function createHandler({
     if (changePoints && (await pointValue(env, number)) !== oldPoints)
       throw new ApiError(409, "conflict", { issue: current });
     // Narrow final preflight after all potentially slow reads. Still not atomic CAS.
-    const freshQuery = `query SavePreflight($number:Int!,$item:ID!) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id updatedAt title body assignees(first:10) { nodes { login } pageInfo { hasNextPage } } } } node(id:$item) { ... on ProjectV2Item { id fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } }`;
+    const freshQuery = `query SavePreflight($number:Int!,$item:ID!) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) { id updatedAt state stateReason title body assignees(first:10) { nodes { login } pageInfo { hasNextPage } } } } node(id:$item) { ... on ProjectV2Item { id fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } }`;
     const fresh = await gql(env, freshQuery, {
       number,
       item: current.projectItemId ?? current.id,
@@ -1066,6 +1084,8 @@ export function createHandler({
     if (
       fresh?.repository?.issue?.id !== current.id ||
       fresh.repository.issue.updatedAt !== v.expectedRevision ||
+      fresh.repository.issue.state !== current.state ||
+      (fresh.repository.issue.stateReason ?? null) !== current.stateReason ||
       fresh.repository.issue.assignees?.pageInfo?.hasNextPage ||
       (await fingerprint(fresh.repository.issue)) !== v.expectedFingerprint ||
       (current.projectItemId &&
@@ -1097,6 +1117,13 @@ export function createHandler({
           },
         });
         completed.push("status");
+      }
+      if (closeOnDone) {
+        await api(env, `/repos/${OWNER}/${REPO}/issues/${number}`, {
+          method: "PATCH",
+          body: { state: "closed", state_reason: "completed" },
+        });
+        completed.push("close");
       }
       if (changePoints && v.storyPoints !== oldPoints) {
         const path = `/repos/${OWNER}/${REPO}/issues/${number}/issue-field-values`;
@@ -1145,6 +1172,8 @@ export function createHandler({
           : val === actual[k],
       ) &&
       (!changeStatus || actual.status === v.status) &&
+      (!closeOnDone ||
+        (actual.state === "CLOSED" && actual.stateReason === "COMPLETED")) &&
       (!changePoints || actual.storyPoints === v.storyPoints);
     if (failure || !confirmed)
       return {

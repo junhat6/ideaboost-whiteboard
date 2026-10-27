@@ -43,10 +43,13 @@ export function fixture({
   comments = [],
   storyPoints = null,
   fieldsDenied = false,
+  closeFailure = false,
+  closeUncertain = false,
 } = {}) {
   const parent = makeIssue(1, "PBI");
   const issue = makeIssue(2, "Task", parent);
-  let status = initialStatus;
+  let status = initialStatus,
+    parentStatus = "レビュー中";
   const calls = [];
   const fetch = async (url, opt) => {
     const body = opt.body ? JSON.parse(opt.body) : null;
@@ -160,7 +163,14 @@ export function fixture({
     }
     if (opt.method === "PATCH") {
       const target = url.endsWith("/1") ? parent : issue;
+      if (body.state === "closed" && closeFailure)
+        return Response.json({ message: "Close denied" }, { status: 403 });
       Object.assign(target, body);
+      if (body.state) target.state = body.state.toUpperCase();
+      if (body.state_reason)
+        target.stateReason = body.state_reason.toUpperCase();
+      if (body.state === "closed" && closeUncertain)
+        throw Error("Close response lost");
       target.updatedAt = "2026-10-26T00:00:01Z";
       if (networkPatch) throw Error("connection lost");
       return Response.json(issue);
@@ -296,7 +306,7 @@ export function fixture({
                           project: { id: "P3" },
                           fieldValueByName:
                             i === parent
-                              ? { name: "レビュー中" }
+                              ? { name: parentStatus }
                               : status === null
                                 ? null
                                 : { name: status },
@@ -312,7 +322,10 @@ export function fixture({
               public: true,
               field: {
                 id: "STATUS",
-                options: [{ id: "WORK", name: "作業中", color: "YELLOW" }],
+                options: [
+                  { id: "WORK", name: "作業中", color: "YELLOW" },
+                  { id: "DONE", name: "完了", color: "GREEN" },
+                ],
               },
               view: { filter: viewFilter },
             },
@@ -325,15 +338,26 @@ export function fixture({
         data: {
           repository: { issue: body.variables.number === 1 ? parent : issue },
           node: {
-            id: "ITEM2",
-            fieldValueByName: status === null ? null : { name: status },
+            id: body.variables.number === 1 ? "ITEM1" : "ITEM2",
+            fieldValueByName:
+              body.variables.number === 1
+                ? { name: parentStatus }
+                : status === null
+                  ? null
+                  : { name: status },
           },
         },
       });
     if (body.query.startsWith("mutation")) {
       if (statusFailure)
         return Response.json({ errors: [{ message: "failed" }] });
-      status = body.query.includes("ClearStatus") ? null : "作業中";
+      const nextStatus = body.query.includes("ClearStatus")
+        ? null
+        : body.variables.input.value.singleSelectOptionId === "DONE"
+          ? "完了"
+          : "作業中";
+      if (body.variables.input.itemId === "ITEM1") parentStatus = nextStatus;
+      else status = nextStatus;
       return Response.json({ data: {} });
     }
     if (body.query.includes("BoardMeta"))
@@ -345,7 +369,10 @@ export function fixture({
               url: "https://github.com/orgs/engineer-first/projects/3",
               field: {
                 id: "STATUS",
-                options: [{ id: "WORK", name: "作業中", color: "YELLOW" }],
+                options: [
+                  { id: "WORK", name: "作業中", color: "YELLOW" },
+                  { id: "DONE", name: "完了", color: "GREEN" },
+                ],
               },
               view: { filter: viewFilter },
             },
@@ -368,7 +395,10 @@ export function fixture({
             url: "https://github.com/orgs/engineer-first/projects/3",
             field: {
               id: "STATUS",
-              options: [{ id: "WORK", name: "作業中", color: "YELLOW" }],
+              options: [
+                { id: "WORK", name: "作業中", color: "YELLOW" },
+                { id: "DONE", name: "完了", color: "GREEN" },
+              ],
             },
             view: { filter: viewFilter },
             items: {
@@ -438,6 +468,8 @@ export const patch = (extra = {}) => ({
   expectedFingerprint: originalFingerprint,
   expectedRevision: revision,
   expectedStatus: null,
+  expectedState: "OPEN",
+  expectedStateReason: null,
   requestId: "request_0123456789",
   ...extra,
 });

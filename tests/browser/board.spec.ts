@@ -758,6 +758,7 @@ test("resize during interrupted drag releases the auto refresh pause", async ({
   const viewport = page.viewportSize()!;
   await page.setViewportSize({ ...viewport, height: viewport.height - 10 });
   await expect.poll(s.reads).toBe(before + 1);
+  await expect(page.locator("#refresh")).toBeEnabled();
   await page.mouse.up();
   await page.clock.fastForward(46000);
   await expect.poll(s.reads).toBe(before + 2);
