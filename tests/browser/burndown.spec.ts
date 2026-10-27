@@ -226,3 +226,47 @@ test("履歴取得でfield公開失効を知った時も既存時間を即消去
   await page.locator(".task-title").first().click();
   await expect(page.locator("#estimate-hours-editor")).toBeHidden();
 });
+test("履歴失効後に古い公開boardが戻っても時間を復活せず、他の本文は更新", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 4;
+  let reads = 0,
+    release = () => {};
+  await page.route("**/api/board*", async (r) => {
+    reads++;
+    const data = structuredClone(f.board);
+    if (reads === 2) {
+      data.tasks[0].title = "通常の本文更新は採用";
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    }
+    if (reads > 2)
+      return r.fulfill({ status: 503, json: { error: "unavailable" } });
+    return r.fulfill({ json: data });
+  });
+  await page.route("**/api/burndown*", (r) =>
+    r.fulfill({ status: 403, json: { error: "estimate_hours_not_public" } }),
+  );
+  await page.reload();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => reads).toBe(2);
+  await page.locator("#burndown-open").click();
+  await expect(page.locator("#burndown-open")).toBeHidden();
+  release();
+  await expect(page.locator(".task-title").first()).toHaveText(
+    "通常の本文更新は採用",
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => reads).toBeGreaterThan(2);
+  await expect(page.locator("#burndown-open")).toBeHidden();
+  expect(
+    await page.evaluate(
+      () => (window as any).Whiteboard.getSnapshot().tasks[0].estimateHours,
+    ),
+  ).toBeUndefined();
+  await page.locator(".task-title").first().click();
+  await expect(page.locator("#estimate-hours-editor")).toBeHidden();
+});

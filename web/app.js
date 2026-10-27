@@ -2975,9 +2975,14 @@ async function performRefresh(
   render();
   try {
     const readEpoch = confirmedSaveEpoch;
+    const hoursReadEpoch = hoursEpoch;
     const next = await adapter.load(options);
     if (!valid(next)) throw new Error("無効なIssueデータです");
     if (next.scope?.estimateHoursField === false) invalidateHours();
+    if (hoursReadEpoch !== hoursEpoch) {
+      for (const task of next.tasks || []) delete task.estimateHours;
+      if (next.scope) next.scope.estimateHoursField = false;
+    }
     if (readEpoch !== confirmedSaveEpoch) {
       const points = next.storyPoints?.values;
       if (
@@ -3320,8 +3325,13 @@ window.Whiteboard = {
     pending = true;
     loading = true;
     let snapshot;
+    const hoursReadEpoch = hoursEpoch;
     try {
       snapshot = await next.load();
+      if (hoursReadEpoch !== hoursEpoch) {
+        for (const task of snapshot.tasks || []) delete task.estimateHours;
+        if (snapshot.scope) snapshot.scope.estimateHoursField = false;
+      }
     } finally {
       pending = false;
       loading = false;
