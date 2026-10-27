@@ -258,3 +258,14 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - SPの最終値読取を本文/Status preflight前へ移し、その読取中の外部本文変更を409/書込みゼロで検出する回帰を追加。GitHubの原子的CASではない。
 - check成功（94 unit/integration）、全214 browser成功（54.2秒）。最後の復元欄の選択値表示後に対象16 browserも成功（10.5秒）。本番両サイズPOST0/JSエラー0、4assets hash一致。各1回のboard4551/1019ms、Issue shell62/50msはcold/hit混在の観測で改善率にしない。
 - CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40436375729 （同一SHAでcheckと全214 browser成功）。SPは権限承認待ちでfalseを維持し、App/installation設定への読み取りはGitHub Confirm access待ち。権限・秘密の変更はない。
+
+### 白板の明示Done操作とIssue Close
+
+- 配信source: `4fe74e72307f1df7f4d1aea498bc002891bbc071`。Worker: `3e413e67-4956-4554-b17b-a246f8dd4d64`。
+- 今回の明示保存patchに`status:完了`が含まれる時だけ、対象OPEN IssueをREST `state:closed,state_reason:completed`で閉じる。Taskドラッグと詳細のTask/PBI双方が同じ保存経路を通る。既CLOSEDの理由は保持し、未完了へ戻しても自動Reopenしない。本文だけ保存・GET・背景同期・既存Done一括処理・親子連鎖は対象外。
+- Project Status更新後にCloseし、正本のStatus/state/stateReasonを読戻し確認する。Close失敗はpartial、応答断はambiguousとしてDOのrequest記録とfenceを維持。成功と偽らず、再送・Reopenによる自動rollbackをしない。
+- 完了requestにはclient baselineのexpectedState/expectedStateReasonを追加。単一Issue contextと最終preflightでも比較し、同秒の外部Close/Reopenや理由変更を検出。GitHub API間の原子的CASではなく、最終preflight以降の外部競合余地は残る。
+- 既存Issues:writeで可能。新しい権限・秘密・GitHub Actions/webhookは追加していない。SPフラグはfalseを維持。
+- check成功（99 unit/integration）、全216 browser成功（55.5秒）。初回215成功/1失敗は既存resize/clock試験がGET開始だけ待って時計を進める競合で、GET完了状態を待つよう修正し再確認。
+- 本番両サイズread-only、POST0/JSエラー0、4assets hash一致。board3539/1576ms、Issue shell61/50msは各1回・cold/hit混在で性能改善率ではない。実IssueのClose QAは未実施。
+- CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40442291586 （同一SHAのcheck・全216 browser成功）。
