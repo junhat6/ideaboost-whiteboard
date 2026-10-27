@@ -325,12 +325,39 @@ test("overflow移動・検索・再描画でも強調が保たれ、非表示付
   await shortcut(page);
   await expect(page.locator(".unestimated-highlight")).toHaveCount(5);
   const fifth = card(page, f.board.tasks[4].id);
+  // Wait for the initial observer delivery before testing a 0 → visible change.
+  await expect(card(page)).toHaveClass(/unestimated-visible/);
   await expect(fifth).not.toHaveClass(/unestimated-visible/);
   // Use the card's own viewport rather than depending on a visual scroll offset.
   const actualPort = fifth.locator(
     "xpath=ancestor::*[contains(@class,'cell-viewport')]",
   );
   await actualPort.focus();
+  await expect(actualPort).toBeFocused();
+  await page.keyboard.press("PageDown");
+  await expect(actualPort.locator("..").locator(".cell-range")).toHaveText(
+    "5–5 / 5",
+  );
+  // Verify the real scroll/clip geometry independently from the observer class.
+  await expect
+    .poll(() =>
+      fifth.evaluate((element) => {
+        const card = element.getBoundingClientRect();
+        const port = element.closest(".cell-viewport")!.getBoundingClientRect();
+        return (
+          Math.min(card.bottom, port.bottom) - Math.max(card.top, port.top)
+        );
+      }),
+    )
+    .toBeGreaterThan(1);
+  await expect(fifth).toHaveClass(/unestimated-visible/);
+  await expect(card(page)).not.toHaveClass(/unestimated-visible/);
+  await page.keyboard.press("PageUp");
+  await expect(actualPort.locator("..").locator(".cell-range")).toHaveText(
+    "1–4 / 5",
+  );
+  await expect(card(page)).toHaveClass(/unestimated-visible/);
+  await expect(fifth).not.toHaveClass(/unestimated-visible/);
   await page.keyboard.press("PageDown");
   await expect(fifth).toHaveClass(/unestimated-visible/);
   await expect(card(page)).not.toHaveClass(/unestimated-visible/);

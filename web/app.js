@@ -403,15 +403,20 @@ function paintUnestimatedHighlights() {
         card.querySelector(".task-top").append(cue);
       }
       if (typeof IntersectionObserver === "function") {
-        unestimatedObserver ||= new IntersectionObserver((entries) => {
-          for (const entry of entries)
-            entry.target.classList.toggle(
-              "unestimated-visible",
-              entry.target.classList.contains("unestimated-highlight") &&
-                entry.isIntersecting &&
-                entry.intersectionRatio > 0,
-            );
-        });
+        unestimatedObserver ||= new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries)
+              entry.target.classList.toggle(
+                "unestimated-visible",
+                entry.target.classList.contains("unestimated-highlight") &&
+                  entry.isIntersecting &&
+                  entry.intersectionRatio > 0,
+              );
+          },
+          // A clipped/edge-adjacent card can intersect with zero area. A
+          // positive threshold also notifies when it scrolls into real view.
+          { threshold: [0, 0.001] },
+        );
         unestimatedObserver.observe(card);
       } else card.classList.add("unestimated-visible");
     } else cue?.remove();
