@@ -25,7 +25,7 @@ private repoでproduction environmentとそのbranch policyを使える既存pla
 ## 配信経路
 
 1. 同じworkflowの `check` でlint/typecheck/unit/buildと全browser fixtureを実行。PRはこれだけで、配信jobはpush/main/固定repo以外では起動しない。`pull_request_target` / `workflow_run` は使用しない。
-2. `needs: check` により同じrunの成功だけを受ける。配信jobはそのrunの完全SHAをcheckoutし、実HEAD一致とGitHubの現在main一致を配信直前に検証する。古いrunの再実行はmainが進んでいれば停止する。
+2. `needs: [check, auth-check]` により同じrunの検証成功だけを受ける。auth-checkはmain限定・checkout/依存実行なしで、secretの形式確認と固定account/WorkerへのGETだけを行う。ログは真偽とHTTP statusのみ、値・長さ・hash・prefix実文字列は出さない。配信jobはそのrunの完全SHAをcheckoutし、実HEAD一致とGitHubの現在main一致を配信直前に検証する。古いrunの再実行はmainが進んでいれば停止する。
 3. 配信jobはGitHub-hosted runner。公式actionsを完全commit SHAに固定し、deploy用のPR artifactや共有npm cacheは使わない。GitHub tokenはcontents readのみ。依存導入とbundle生成にはCloudflare tokenを渡さない。
 4. `ideaboost-whiteboard-production` concurrency groupで配信を直列化。進行中の配信は新pushでcancelしない。main変更とCloudflare publishを跨ぐ原子的保証はないため、開始後に届く新commitは次のCI・配信で反映する。
 5. `wrangler deployments list --json` で直前Version IDをログに残し、lockfile内のWranglerで `deploy --keep-vars --tag <checked SHA>` を実行。既存vars/runtime secrets/DO bindingsを保持し、secret uploadはしない。未設定tokenは配信前に失敗する。[Wrangler deploy](https://developers.cloudflare.com/workers/wrangler/commands/workers/)
