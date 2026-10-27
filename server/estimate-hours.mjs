@@ -52,3 +52,16 @@ export function projectHours(value, env) {
     ? v.value
     : undefined;
 }
+
+export function hoursVisibility(field, env) {
+  if (publicHours(field, env)) return "public";
+  const c = hoursContract(env),
+    f = field?.issueField;
+  return c &&
+    field?.id === c.project &&
+    f?.id === c.node &&
+    String(f.fullDatabaseId) === String(c.id) &&
+    f.visibility === "ORG_ONLY"
+    ? "not_public"
+    : "unavailable";
+}

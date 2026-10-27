@@ -1255,6 +1255,8 @@ function renderHoursInput() {
 }
 function invalidateHours() {
   hoursEpoch++;
+  delete editorConflicts.estimateHours;
+  renderConflicts();
   for (const task of state.tasks || []) delete task.estimateHours;
   if (state.scope) state.scope.estimateHoursField = false;
   $("#burndown-open").hidden = true;

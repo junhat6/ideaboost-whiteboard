@@ -167,8 +167,13 @@ test("rapid point choices coalesce and clearing affects only its own PBI", async
   const f = await prepare(page);
   await page.locator('.pbi-title[data-pbi="p0"]').click();
   const choices = page.locator("#story-point-choices");
-  await choices.getByRole("button", { name: "13", exact: true }).click();
-  await choices.getByRole("button", { name: "8", exact: true }).click();
+  // Two choices within the same batching window, independent of CI pointer/action latency.
+  await choices.evaluate((root) => {
+    for (const label of ["13", "8"])
+      [...root.querySelectorAll("button")]
+        .find((b) => b.textContent === label)!
+        .click();
+  });
   await expect.poll(() => f.writes.length).toBe(1);
   expect(f.writes[0].storyPoints).toBe(8);
   await expect(page.locator('#board [data-story-points="p0"]')).toHaveText("8");

@@ -163,4 +163,6 @@ Project同梱SP: PVTF→canonical IFN ID/type/ALL、通常Project独自numberの
 
 ### 見積時間・バーンダウン
 
-`server/estimate-hours.test.mjs`は公開canonical field/未取得とnull/単一field保存/解除/種類なし・未知種類/末端集計/階層欠落を確認。`tests/burndown.test.ts`はJST日次、immutable観測、singleflight、失効purge、記録上限を確認。`tests/browser/burndown.spec.ts`は両解像度で遅延load、edge/ボタン/Escape、drawer非発火、本文を巻き込まないautosave、連続変更/再訪、公開失効後ackを確認。実Issue値のQA変更は禁止。
+`server/estimate-hours.test.mjs`は公開canonical field/未取得とnull/単一field保存/解除/種類なし・未知種類/末端集計/階層欠落を確認。`tests/burndown.test.ts`はJST日次、immutable観測、singleflight、失効時の公開遮断と保管、記録上限を確認。`tests/browser/burndown.spec.ts`は両解像度で遅延load、edge/ボタン/Escape、drawer非発火、本文を巻き込まないautosave、連続変更/再訪、公開失効後ackを確認。実Issue値のQA変更は禁止。
+
+公開性の確認不能（optional queryのfallback等）は503、一致した正規fieldのORG_ONLY確認は403。いずれも記録を返さず、既存履歴を消去しない。再公開を正規readで確認できた場合のみ保管済み履歴を再び閲覧可能にする。

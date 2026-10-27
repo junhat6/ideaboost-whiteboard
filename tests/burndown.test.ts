@@ -7,7 +7,7 @@ import {
   jstDay,
   nextJstDay,
 } from "../worker/burndown.ts";
-function fixture() {
+function fixture(sourceOverride?: () => Promise<Response>) {
   let now = Date.parse("2026-10-27T14:00:00Z"),
     status = 200;
   const data: any = {
@@ -60,7 +60,9 @@ function fixture() {
     storage,
     async () => {
       reads++;
-      return Response.json(data, { status });
+      return sourceOverride
+        ? sourceOverride()
+        : Response.json(data, { status });
     },
     () => now,
   );
@@ -146,7 +148,7 @@ test("JST日次alarm、同日同内容は冪等、日跨ぎは新観測", async 
     2,
   );
 });
-test("取得失敗・不完全応答は偽ゼロを記録せず、失効時は履歴を消去", async () => {
+test("取得失敗・不完全応答は偽ゼロを記録せず、失効時も履歴を保持して公開を遮断", async () => {
   const f = fixture();
   await f.read();
   f.status = 503;
@@ -160,7 +162,13 @@ test("取得失敗・不完全応答は偽ゼロを記録せず、失効時は�
   assert.equal((await f.read()).status, 503);
   f.status = 403;
   assert.equal((await f.read()).status, 403);
-  assert.equal(f.map.size, 0);
+  const stored = [...f.map].filter(([k]) => k.startsWith("observation:"));
+  assert.equal(stored.length, 1);
+  f.status = 200;
+  f.data.tasks[0].estimate = 2;
+  const recovered: any = await (await f.read()).json();
+  assert.equal(recovered.observations.length, 1);
+  assert.equal(recovered.observations[0].remainingHours, 2);
 });
 test("同時閲覧の公開確認と観測はsingleflight、日次上限は明示", async () => {
   const f = fixture();
@@ -187,4 +195,95 @@ test("存在しないスプリントを作業ゼロの正常結果にしない",
   );
   assert.equal(r.status, 404);
   assert.equal((await r.json()).error, "sprint_unavailable");
+});
+test("実handlerのoptional query失敗/不完全ページは既存履歴を消さず、復旧で再利用", async () => {
+  const {
+    fixture: githubFixture,
+    env,
+    req,
+  } = await import("./github-fixture.mjs");
+  const { createHandler } = await import("../server/github.mjs");
+  const { webcrypto } = await import("node:crypto");
+  const github = githubFixture({
+    viewFilter: "type:PBI",
+    parentInProject: true,
+  });
+  let mode = "ok";
+  const config = {
+    ...env,
+    AUTH_MODE: "public-temporary",
+    ESTIMATE_HOURS_READ_ENABLED: "true",
+    ESTIMATE_HOURS_FIELD_ID: "123",
+    ESTIMATE_HOURS_NODE_ID: "IFN_test",
+    ESTIMATE_HOURS_PROJECT_FIELD_ID: "PVTF_test",
+  };
+  const field = {
+    __typename: "ProjectV2Field",
+    id: "PVTF_test",
+    name: "Estimate Hours",
+    dataType: "NUMBER",
+    isIssueField: true,
+    issueField: {
+      __typename: "IssueFieldNumber",
+      id: "IFN_test",
+      fullDatabaseId: "123",
+      name: "Estimate Hours",
+      dataType: "NUMBER",
+      visibility: "ALL",
+    },
+  };
+  const handler = createHandler({
+    crypto: webcrypto,
+    fetch: async (url: any, opt: any) => {
+      const q = opt.body ? JSON.parse(opt.body).query : "";
+      if (mode === "optional-error" && q?.includes("hoursField:"))
+        return Response.json({
+          errors: [{ message: "temporarily unavailable" }],
+        });
+      const response = await github.fetch(url, opt),
+        data = await response.json(),
+        project = data.data?.organization?.projectV2;
+      if (project && q?.includes("hoursField:"))
+        project.hoursField = {
+          ...field,
+          issueField: {
+            ...field.issueField,
+            visibility: mode === "private" ? "ORG_ONLY" : "ALL",
+          },
+        };
+      if (project && q?.includes("hoursValue:"))
+        for (const item of project.items.nodes) item.hoursValue = null;
+      if (project && q?.includes("BoardRowsFull") && mode === "bad-page")
+        project.items = { nodes: [], pageInfo: {} };
+      return Response.json(data, { status: response.status });
+    },
+  });
+  const f = fixture(() => handler(req("/api/burndown"), config));
+  assert.equal((await f.read()).status, 404); // Fixture milestone is 1; the observation is still recorded.
+  const original = structuredClone([...f.map]);
+  for (const failure of ["optional-error", "bad-page", "private"]) {
+    mode = failure;
+    const response = await f.history.fetch(
+      new Request("https://test/api/burndown?milestone=1"),
+    );
+    assert.equal(response.status, failure === "private" ? 403 : 503);
+    assert.deepEqual([...f.map], original);
+  }
+  mode = "ok";
+  const recovered: any = await (
+    await f.history.fetch(new Request("https://test/api/burndown?milestone=1"))
+  ).json();
+  assert.equal(recovered.observations.length, 1);
+  assert.equal(recovered.current.unestimated, 1);
+});
+test("JST00:05の失敗した閲覧でも当日00:10のalarmを翌日に延期しない", async () => {
+  const f = fixture();
+  f.advance(65 * 60000);
+  f.status = 503;
+  assert.equal((await f.read()).status, 503);
+  assert.equal(f.alarm, Date.parse("2026-10-27T15:10:00Z"));
+  assert.equal(
+    nextJstDay(Date.parse("2026-10-27T15:10:00Z")),
+    Date.parse("2026-10-28T15:10:00Z"),
+  );
 });

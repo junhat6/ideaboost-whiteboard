@@ -57,6 +57,8 @@ Cloudflare OAuthとGitHub sudo本人確認は完了。指定アカウントだ�
 
 従来の現在boardメモリーとは別に、承認済みのバーンダウン用途で`HISTORY` / `HistoryCoordinator`（SQLite DO、migration v2）を追加。`ESTIMATE_HOURS_READ_ENABLED=true`、field ID49079931 / node IFN_kgDOAuzmew / Project field PVTF_lADOEYcVLM4Bb8yFzhnZdjcを固定する。IDはクライアント入力から採用しない。新しいApp権限や秘密は不要。
 
-配信後、正規公開pathのGET `/api/burndown` を一度確認してJST日次alarmを起動する。実Issue値は入力しない。HTTP503は取得不能/階層不完全であり、0時間達成ではない。HTTP403は公開失効で履歴消去。read-only確認では時刻・未見積件数・field公開性・POST0を確認する。旧estラベルは正本に混ぜない。
+配信後、正規公開pathのGET `/api/burndown` を一度確認してJST日次alarmを起動する。実Issue値は入力しない。HTTP503は取得不能/階層不完全であり、0時間達成ではない。HTTP403は確定した公開失効で閲覧を遮断するが履歴は保持。read-only確認では時刻・未見積件数・field公開性・POST0を確認する。旧estラベルは正本に混ぜない。
 
 詳細はBURNDOWN.md。日次indexだけをチャートへ読み、保存済み原観測を後日の見積で書き換えない。保持180日・1日96観測を超える時は履歴制限を明示。永久保管や過去イベント再現を保証しない。
+
+公開性の確認不能（optional queryのfallback等）は503、一致した正規fieldのORG_ONLY確認は403。いずれも記録を返さず、既存履歴を消去しない。再公開を正規readで確認できた場合のみ保管済み履歴を再び閲覧可能にする。

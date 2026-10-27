@@ -2,6 +2,7 @@ import {
   HOURS_META,
   HOURS_VALUE,
   hoursContract,
+  hoursVisibility,
   publicHours,
   projectHours,
   validHours,
@@ -845,7 +846,16 @@ export function createHandler({
             : gql(env, base, { after, filter }),
         );
         const c = data?.organization?.projectV2?.items;
-        if (!c) throw new ApiError(502, "project_items_unavailable");
+        if (
+          !c ||
+          !Array.isArray(c.nodes) ||
+          typeof c.pageInfo?.hasNextPage !== "boolean" ||
+          (c.pageInfo.hasNextPage &&
+            (typeof c.pageInfo.endCursor !== "string" ||
+              !c.pageInfo.endCursor ||
+              c.pageInfo.endCursor === after))
+        )
+          throw new ApiError(502, "project_items_unavailable");
         for (const item of c.nodes) {
           if (item?.isArchived || !own(item?.content)) continue;
           const i = item.content;
@@ -887,7 +897,16 @@ export function createHandler({
             ? meta.items
             : (await read("index", () => gql(env, ITEMS, { after })))
                 ?.organization?.projectV2?.items;
-        if (!c) throw new ApiError(502, "project_items_unavailable");
+        if (
+          !c ||
+          !Array.isArray(c.nodes) ||
+          typeof c.pageInfo?.hasNextPage !== "boolean" ||
+          (c.pageInfo.hasNextPage &&
+            (typeof c.pageInfo.endCursor !== "string" ||
+              !c.pageInfo.endCursor ||
+              c.pageInfo.endCursor === after))
+        )
+          throw new ApiError(502, "project_items_unavailable");
         for (const item of c.nodes)
           if (!item.isArchived && own(item.content))
             result.set(item.content.id, item.content);
@@ -985,9 +1004,16 @@ export function createHandler({
       ).values(),
     ];
     const endMeta = await read("visibilityEnd", () => assertPublic(env, true));
-    const hoursPublic =
-      publicHours(meta.hoursField, env) &&
-      publicHours(endMeta?.hoursField, env);
+    const hourChecks = [
+      hoursVisibility(meta.hoursField, env),
+      hoursVisibility(endMeta?.hoursField, env),
+    ];
+    const hoursPublic = hourChecks.every((v) => v === "public");
+    const hoursState = hoursPublic
+      ? "public"
+      : hourChecks.includes("not_public")
+        ? "not_public"
+        : "unavailable";
     for (const task of visibleTasks)
       if (
         task.type !== "PBI" &&
@@ -1027,7 +1053,12 @@ export function createHandler({
           ...(env.STORY_POINTS_READ_ENABLED === "true"
             ? { storyPointsField: pointsPublic }
             : {}),
-          ...(hoursContract(env) ? { estimateHoursField: hoursPublic } : {}),
+          ...(hoursContract(env)
+            ? {
+                estimateHoursField: hoursPublic,
+                estimateHoursVisibility: hoursState,
+              }
+            : {}),
           owner: OWNER,
           repo: REPO,
           projectNumber: PROJECT,
@@ -1660,9 +1691,15 @@ export function createHandler({
       if (request.method === "GET" && url.pathname === "/api/burndown") {
         if (!hoursContract(env))
           throw new ApiError(503, "estimate_hours_unavailable");
-        const result = await board(env);
+        let result;
+        try {
+          result = await board(env);
+        } catch (error) {
+          if (error.code === "scope_not_public") throw error;
+          throw new ApiError(503, "observation_incomplete");
+        }
         const output = result.output;
-        if (output.scope.estimateHoursField === false)
+        if (output.scope.estimateHoursVisibility === "not_public")
           throw new ApiError(403, "estimate_hours_not_public");
         if (output.scope.estimateHoursField !== true)
           throw new ApiError(503, "estimate_hours_unavailable");

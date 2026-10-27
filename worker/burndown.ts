@@ -32,8 +32,10 @@ type Storage = Pick<
 >;
 export const jstDay = (time: number) =>
   new Date(time + 9 * 3600000).toISOString().slice(0, 10);
-export const nextJstDay = (time: number) =>
-  Date.parse(jstDay(time) + "T00:10:00+09:00") + 86400000;
+export const nextJstDay = (time: number) => {
+  const today = Date.parse(jstDay(time) + "T00:10:00+09:00");
+  return today > time ? today : today + 86400000;
+};
 export function validateBurnSource(value: unknown): value is BurnSource {
   const v = value as BurnSource;
   return (
@@ -126,19 +128,7 @@ export class BurnHistory {
   private async collect() {
     const response = await this.source();
     if (!response.ok) {
-      if (response.status === 403) {
-        const days = await this.storage.list<Observation>({ prefix: "day:" });
-        for (const [dayKey, dayValue] of days) {
-          const records = await this.storage.list<Observation>({
-            prefix: `observation:${dayValue.day}:`,
-          });
-          await this.remove(
-            [...records].flatMap(([key, v]) => [key, v.snapshotKey]),
-          );
-          await this.storage.delete(dayKey);
-        }
-        await this.storage.delete(["latest-signature", "latest-tasks"]);
-      }
+      // Loss of visibility blocks disclosure; it does not authorize deleting history.
       const error = (await response.json().catch(() => ({}))) as {
         error?: string;
       };

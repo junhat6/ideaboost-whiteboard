@@ -270,3 +270,27 @@ test("履歴失効後に古い公開boardが戻っても時間を復活せず、
   await page.locator(".task-title").first().click();
   await expect(page.locator("#estimate-hours-editor")).toBeHidden();
 });
+test("時間field失効は競合のremote値も隠し、他の本文を消さない", async ({
+  page,
+}) => {
+  const f = await setup(page);
+  (f.board.scope as any).estimateHoursField = true;
+  (f.board.tasks[0] as any).estimateHours = 1;
+  await page.reload();
+  await page.locator(".task-title").first().click();
+  await page.locator("#estimate-hours").fill("2");
+  (f.board.tasks[0] as any).estimateHours = 3;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator("#editor-conflicts")).toContainText(
+    "見積時間がGitHubでも更新されました",
+  );
+  (f.board.scope as any).estimateHoursField = false;
+  delete (f.board.tasks[0] as any).estimateHours;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator("#estimate-hours-editor")).toBeHidden({
+    timeout: 10000,
+  });
+  await expect(page.locator("#editor-conflicts")).toBeHidden();
+  await expect(page.locator(".cm-content")).not.toBeEmpty();
+  expect(f.posts()).toBe(0);
+});
