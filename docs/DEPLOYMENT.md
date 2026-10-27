@@ -279,3 +279,9 @@ lint/typecheck、GitHub mock19件、JWT/route5件、共有coordinator8件、公�
 - 本番1920/2560読み取り・再open/close確認、POST0/JSエラー0、4assets SHA256一致。各1回のboard4622/1519ms、Issue shell78/65ms、close329/481ms。cold/hit混在の観測で速度改善率ではない。実IssueのClose/partial失敗QAは未実施、合成fixtureのみ。
 - SPは権限確認待ちでfalseのまま。App/installation権限・認証・秘密・公開範囲は変更していない。
 - 最終CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40444132835 （`484c9a4`、check・全226 browser成功）。配信sourceとの差分はserver試験の期待値1行だけ。初回run40443987255は上記試験期待値で失敗した記録として区別する。
+
+### Story pointsのIssue Fields読み取り接続
+
+- 2026-10-27、操作時点の明示確認後、既存App 5473658 / installation 175301060へIssue Fields read-onlyのみ追加。UI保存・installation承認の成功を確認し、正規のinstallation metadataでも`issue_fields:read`を照合。既存issues/organization_projectsのwriteとmetadata readは不変、repository selectionはidea-boost一件のみ。新しい鍵・write権限・webhookは追加しない。
+- SP機能フラグtrue時だけinstallation tokenに`issue_fields:read`を指定し、フラグによるtoken cache keyを分離。無効時には追加権限を要求しない。
+- 公開承認済みorg field 49067031（Story points / number / visibility=all）を毎回検証。PBIのみ後読み込みし、org-only項目・不明shape・取得不可を公開しない。値の未設定は正常な空欄。既存7択と解除の明示保存・競合検証を維持し、QAのために実値を入力しない。

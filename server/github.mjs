@@ -216,7 +216,9 @@ export function createHandler({
       ":" +
       env.GITHUB_INSTALLATION_ID +
       ":" +
-      env.GITHUB_APP_PRIVATE_KEY;
+      env.GITHUB_APP_PRIVATE_KEY +
+      ":" +
+      (env.STORY_POINTS_READ_ENABLED === "true" ? "issue-fields-read" : "base");
     const old = tokens.get(key);
     if (old && old.until > now() + 60000) return old.value;
     if (tokenFlights.has(key)) return tokenFlights.get(key);
@@ -264,7 +266,13 @@ export function createHandler({
         headers: headers(`${head}.${body}.${b64(new Uint8Array(sig))}`),
         body: JSON.stringify({
           repositories: [REPO],
-          permissions: { issues: "write", organization_projects: "write" },
+          permissions: {
+            issues: "write",
+            organization_projects: "write",
+            ...(env.STORY_POINTS_READ_ENABLED === "true"
+              ? { issue_fields: "read" }
+              : {}),
+          },
         }),
         signal: AbortSignal.timeout(15000),
       },

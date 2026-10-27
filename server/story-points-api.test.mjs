@@ -123,7 +123,7 @@ test("disabled feature makes no requests; enabled exact field is read only after
   );
   assert.deepEqual(
     f.calls.find((c) => c.url.endsWith("/access_tokens")).body.permissions,
-    { issues: "write", organization_projects: "write" },
+    { issues: "write", organization_projects: "write", issue_fields: "read" },
   );
 });
 test("definition denial does not read values or expand permissions; Task never reads PBI points", async () => {

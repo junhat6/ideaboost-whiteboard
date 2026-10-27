@@ -233,6 +233,17 @@ test("JWT expiry/skew and token least privilege payload", async () => {
     permissions: { issues: "write", organization_projects: "write" },
   });
 });
+test("SP capability requests only Issue Fields read and separates token cache permissions", async () => {
+  const f = fixture();
+  await f.handler(req(), env);
+  await f.handler(req(), { ...env, STORY_POINTS_READ_ENABLED: "true" });
+  const calls = f.calls.filter((c) => c.url.includes("/access_tokens"));
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].parsed, {
+    repositories: ["idea-boost"],
+    permissions: { issues: "write", organization_projects: "write", issue_fields: "read" },
+  });
+});
 test("dynamic status option mutation and null clearing", async () => {
   for (const [initialStatus, status] of [
     [null, "作業中"],
