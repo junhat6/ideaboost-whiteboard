@@ -2626,3 +2626,32 @@ input[type="checkbox"] {
 #board .pbi-cell .lane-progress {
   margin-top: 8px;
 }
+
+/* Optional PBI own estimate; no row height reserved while unavailable. */
+.pbi-context {
+  width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pbi-context .pbi-assignees {
+  flex: 1;
+}
+.story-points {
+  flex: none;
+  width: fit-content;
+  color: var(--ink);
+  background: var(--selected);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.story-points[hidden] {
+  display: none;
+}

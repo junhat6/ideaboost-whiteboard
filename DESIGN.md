@@ -235,3 +235,5 @@ GitHubの既知の視覚表現で認知負荷を下げ、操作はチーム向�
 限定HTMLの耐入力性: details深さ4/件数20に加え、全HTMLノード深さ64・2000個を上限に反復走査し、深いdivやsummaryでも再帰stackを消費せず原文fallbackにする。
 
 セル内付箋の位置はセッション内のみ保持。描画済みscope・検索/担当filter・PBI ID・列のkeyで記録し、詳細から戻る時、同期、resizeでも実際に可視範囲と交差する付箋IDと上端offsetをanchorとして復元する。4枚pageの先頭ではなく中間scroll位置も保持する。消えた場合は同時に見えていた同セルの生存ID、次いで旧位置を範囲内に収める。Status移動後は現在の列の同Issueへfocusを戻す。位置のためにfilterを解除しない。Page Up/Downとキーボードでの上下操作は、表示した先頭付箋へfocusを移しEnterで詳細を開ける。上下ボタン/Page Up/Downにより、長タイトルの内部scroll以外からも続きを操作できる。通常wheelはnative scroll/chaining、drag近傍auto-scrollは同PBIの有効な移動先だけ。4枚以下は従来の配置を保つ。
+
+PBI自身のStory pointsは任意の後読込情報。担当者行の右端と詳細サイド欄に小さな`SP 0.1`等を表示し、ink/selected/lineを共有する。11px・16px行高・4px角丸で、警告色や強調順位を値で変えない。8/13も正常値。未設定・非公開・未接続・取得失敗は空欄とし、placeholder、警告、必須チェックを追加しない。Taskからの合算や推測はしない。追加応答はバッジだけ更新し、タイトル・担当者・ゲージ・セルscroll・編集中の原文を再構築しない。初回表示や詳細を待たせず、保存patchに含めない。本番の確定field/公開承認/App読取契約が揃うまではadapterの後読込機能を有効にしない。

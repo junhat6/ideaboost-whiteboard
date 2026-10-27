@@ -49,3 +49,13 @@
 HTTP adapterは次回実装時にLink paginationを正確に`hasNextPage`へ変換すること。任意URLのfollowは禁止し、固定repo/Issueへの数値pageのみ使う。`assertScope`は既存の公開範囲を確認し、PBI一覧はクライアント申告をそのまま信頼しない。後読込応答はscope/世代一致時だけ適用し、切替・非公開化・エラーでは古いSPを消す。ポイントを60秒board snapshotに埋め込まず、board/本文表示の待機条件にしない。
 
 未完の依存は **field作成とID、公開承認、Appの定義read可否**。権限設定は変更していない。現在のApp token発行はissues/organization_projectsへ限定され、定義readを正規に確認する経路も未接続。秘密を取り出して検証せず、必要な権限追加は親の別承認を待つ。この準備コードは本番配信しない。UI・両解像度・本番読取/性能測定は接続後に行い、mock成功を実接続成功とは報告しない。
+
+## mock UIの準備
+
+`adapter.loadStoryPoints(pbis)` を任意capabilityとして追加。既存production adapterには実装せず、未接続時は追加要求ゼロ。表示中最大6 PBIのID/番号を渡し、`{values: {[issueNumber]: number|null}}`を独立で受ける。UIは有限数値だけ表示し、null/省略/不正値は非表示。state参照・adapter・表示PBI集合・世代番号が一致する応答だけを受け、旧scope/旧pollの遅延応答を無視する。個別取得失敗はSPを隠す。scope_not_publicは既存全体停止処理を即時実行し、SPも消去する。
+
+PBI担当者行右側と詳細サイド欄へ同じbadgeを配置。更新はbadgeのtext/hiddenのみで、ボード全再描画・editor baseline変更・dirty化を行わない。次回HTTP接続では通常request timeout/取消を適用し、任意capabilityへの入力をサーバーで再検証する。現在はmock adapterのみである。
+
+追加browser試験は両サイズ計8件: 0.1/1/2/3/5/8/13、未設定・非公開の空結果・403・不正値、6PBI/長タイトル/担当者/ゲージ矩形包含、未解決のSP取得中にboard/detail表示、Taskでは非表示、poll後の更新・旧応答破棄、dirty title保持、scope非公開化の即時消去、production adapter追加要求ゼロ。画素は `.wrangler/story-points-1920.png` と `story-points-2560.png`（ローカルignored）で確認。これは実GitHub接続や通信時間改善の実測ではない。
+
+UI準備後の検証: `npm run check`成功（単体/統合85件）、`npm run test:e2e`成功（両解像度196件、53.6秒）。実Issue/PR/コメントへのQA書込みゼロ。本番App接続・本番SP表示・実ネットワーク性能は未検証で、配信していない。先の「UI未実装/E2E未実施」はreader単体準備時の記録であり、この節が最新状態。

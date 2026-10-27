@@ -210,6 +210,12 @@
             <p class="editor-hint" hidden></p>
           </div>
           <div class="form-row">
+            <span
+              id="detail-story-points"
+              class="story-points"
+              data-story-points=""
+              hidden
+            ></span>
             <label
               >担当者<select
                 id="detail-assignee"
@@ -325,7 +331,8 @@
         ドラッグ先のStatusはそれぞれ「未整理・作業中・レビュー中・完了」です。同じ列内でのドラッグは元のStatusを維持します。「見送り」はDoneに含めず、操作メニューから別一覧で確認します。
       </p>
       <p>
-        初回は現在の順序の上位6件を表示します。「表示するPBI」でスプリントごとに最大6件を選び、このブラウザーだけに保存します。Issueや優先順位は変更しません。読みやすさ優先を選んだ場合だけ、件数付きのページ切り替えを使います。5枚目以降は同じセル内をスクロール、または上下ボタン・Page Up/Downで確認できます。Issueを閉じても見ていた位置に戻ります。
+        初回は現在の順序の上位6件を表示します。「表示するPBI」でスプリントごとに最大6件を選び、このブラウザーだけに保存します。Issueや優先順位は変更しません。読みやすさ優先を選んだ場合だけ、件数付きのページ切り替えを使います。5枚目以降は同じセル内をスクロール、または上下ボタン・Page
+        Up/Downで確認できます。Issueを閉じても見ていた位置に戻ります。
       </p>
       <a
         href="https://github.com/orgs/engineer-first/projects/3/views/16"

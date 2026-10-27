@@ -1,0 +1,155 @@
+import { test, expect } from "@playwright/test";
+import { setup } from "./fixtures";
+
+async function prepare(page: any) {
+  const fixture = await setup(page, { longPbi: true });
+  await page.evaluate(async (board: any) => {
+    const w = window as any;
+    w.pointsReads = [];
+    w.pointsBoard = board;
+    w.pointsWrites = 0;
+    await w.Whiteboard.setAdapter({
+      load: async () => structuredClone(w.pointsBoard),
+      saveIssue: async () => {
+        w.pointsWrites++;
+        throw new Error("QA write forbidden");
+      },
+      loadStoryPoints: (pbis: any) =>
+        new Promise((resolve, reject) =>
+          w.pointsReads.push({ pbis, resolve, reject }),
+        ),
+    });
+  }, fixture.board);
+}
+
+test("late points never block board or editor; every scale value uses a compact neutral badge", async ({
+  page,
+}) => {
+  await prepare(page);
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await expect(page.locator(".task").first()).toBeVisible();
+  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  await page.locator('[data-pbi="p0"]').first().click();
+  await expect(page.locator("#details")).toBeVisible();
+  await expect(page.locator("#save-issue")).toBeVisible();
+  await page.evaluate(() =>
+    (window as any).pointsReads[0].resolve({
+      values: { 1: 0.1, 2: 1, 3: 2, 4: 3, 5: 5, 6: 8, 101: 13 },
+    }),
+  );
+  await expect(page.locator("#detail-story-points")).toHaveText("SP 0.1");
+  await expect(page.locator("#save-issue")).toBeDisabled();
+  await page.locator("#close-detail").click();
+  await expect(page.locator("#details")).not.toBeVisible();
+  await expect(page.locator(".pbi-context .story-points:visible")).toHaveText([
+    "SP 0.1",
+    "SP 1",
+    "SP 2",
+    "SP 3",
+    "SP 5",
+    "SP 8",
+  ]);
+  expect(
+    await page.locator(".pbi-cell").evaluateAll((cells) =>
+      cells.every((cell) => {
+        const b = cell.getBoundingClientRect();
+        return [
+          ...cell.querySelectorAll(
+            ".pbi-title,.pbi-context,.lane-progress,.story-points",
+          ),
+        ].every((el) => {
+          const r = el.getBoundingClientRect();
+          return (
+            r.left >= b.left &&
+            r.right <= b.right &&
+            r.top >= b.top &&
+            r.bottom <= b.bottom
+          );
+        });
+      }),
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: `.wrangler/story-points-${page.viewportSize()!.width}.png`,
+  });
+  await page.locator('[data-open="t0-0-0"]').click();
+  await expect(page.locator("#detail-story-points")).toBeHidden();
+  expect(await page.evaluate(() => (window as any).pointsWrites)).toBe(0);
+});
+
+test("poll replaces points, unset/private/failed reads hide badges and stale responses cannot restore them", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await prepare(page);
+  await page.evaluate(() =>
+    (window as any).pointsReads[0].resolve({ values: { 1: 13 } }),
+  );
+  await expect(page.locator('[data-story-points="p0"]')).toHaveText("SP 13");
+  await page.clock.fastForward(46000);
+  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  await page.clock.fastForward(46000);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.pointsReads[1].resolve({ values: { 1: 8 } });
+    w.pointsReads[2].resolve({
+      values: { 1: null, 2: "13", 3: {}, 4: Infinity },
+    });
+  });
+  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  await page.clock.fastForward(46000);
+  await page.evaluate(() =>
+    (window as any).pointsReads[3].reject(new Error("403")),
+  );
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  await page.clock.fastForward(46000);
+  await page.evaluate(() =>
+    (window as any).pointsReads[4].resolve({ values: {} }),
+  );
+  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).pointsWrites)).toBe(0);
+});
+
+test("current production adapter never requests an unconfigured points endpoint", async ({
+  page,
+}) => {
+  const s = await setup(page);
+  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  expect(s.posts()).toBe(0);
+});
+
+test("remote estimate refresh does not reset the PBI draft and private scope clears immediately", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await prepare(page);
+  await page.evaluate(() =>
+    (window as any).pointsReads[0].resolve({ values: { 1: 8 } }),
+  );
+  await page.locator('[data-pbi="p0"]').first().click();
+  await expect(page.locator("#detail-story-points")).toHaveText("SP 8");
+  // Title draft is independent of the optional read-only estimate.
+  await page.locator("#rename-issue").click();
+  await page.locator("#detail-title").fill("下書きを保持");
+  await page.keyboard.press("Enter");
+  await page.clock.fastForward(46000);
+  await page.evaluate(() =>
+    (window as any).pointsReads[1].resolve({ values: { 1: 13 } }),
+  );
+  await expect(page.locator("#detail-story-points")).toHaveText("SP 13");
+  await expect(page.locator("#detail-title")).toHaveValue("下書きを保持");
+  await expect(page.locator("#save-issue")).toBeEnabled();
+  await page.clock.fastForward(46000);
+  await page.evaluate(() =>
+    (window as any).pointsReads[2].reject(
+      Object.assign(new Error("公開範囲を確認できません"), {
+        code: "scope_not_public",
+      }),
+    ),
+  );
+  await expect(page.locator("#details")).not.toBeVisible();
+  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  await expect(page.locator("#detail-story-points")).toHaveText("");
+  expect(await page.evaluate(() => (window as any).pointsWrites)).toBe(0);
+});

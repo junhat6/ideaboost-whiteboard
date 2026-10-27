@@ -726,7 +726,7 @@ function render() {
             (t) => t.lane === l.id && t.status !== "見送り",
           ),
           done = all.filter((t) => t.status === "完了").length;
-        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="pbi-assignees person" aria-label="PBI担当者: ${esc(person(l))}" title="${esc(person(l))}">${assigneeAvatars(l)}<span class="person-name">${esc(person(l))}</span></div>${progressMarkup(done, all.length)}</div>${columns
+        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="pbi-context"><div class="pbi-assignees person" aria-label="PBI担当者: ${esc(person(l))}" title="${esc(person(l))}">${assigneeAvatars(l)}<span class="person-name">${esc(person(l))}</span></div><span class="story-points" data-story-points="${esc(l.id)}" hidden></span></div>${progressMarkup(done, all.length)}</div>${columns
           .map((s) => {
             const list = own.filter((t) => statusColumn(t.status) === s);
             const overflow = list.length > capacity;
@@ -744,6 +744,7 @@ function render() {
       })
       .join("");
   restoreCells();
+  loadStoryPoints(lanes);
   fitCardTitles();
   if (focused) document.querySelector(focused)?.focus({ preventScroll: true });
   $("#empty").hidden = !connectionError && tasks.length !== 0;
@@ -1053,6 +1054,82 @@ function avatarNode(person) {
   } catch {}
   return fallback;
 }
+// Optional late-read capability. Production adapter does not enable it until
+// the canonical field ID, public approval and server reader are configured.
+let pointsSnapshot = null,
+  pointsAdapter = null,
+  pointsKey = "",
+  pointsEpoch = 0;
+let pointsValues = {};
+function paintStoryPoints() {
+  for (const badge of document.querySelectorAll("[data-story-points]")) {
+    const lane = state.lanes.find((l) => l.id === badge.dataset.storyPoints);
+    const value =
+      pointsSnapshot === state && lane?.type === "PBI"
+        ? pointsValues[lane.number]
+        : undefined;
+    const available = typeof value === "number" && Number.isFinite(value);
+    badge.hidden = !available;
+    badge.textContent = available ? `SP ${value}` : "";
+    if (available) badge.setAttribute("aria-label", `Story points ${value}`);
+    else badge.removeAttribute("aria-label");
+  }
+}
+function loadStoryPoints(lanes) {
+  const key = lanes.map((l) => l.id).join("|");
+  if (
+    pointsSnapshot !== state ||
+    pointsAdapter !== adapter ||
+    pointsKey !== key
+  ) {
+    pointsSnapshot = state;
+    pointsAdapter = adapter;
+    pointsKey = key;
+    pointsValues = {};
+    const epoch = ++pointsEpoch,
+      snapshot = state,
+      source = adapter;
+    if (typeof source?.loadStoryPoints === "function") {
+      const pbis = lanes
+        .filter((l) => l.type === "PBI")
+        .map((l) => ({ id: l.id, number: l.number }));
+      // Never await this optional read in board/detail rendering.
+      Promise.resolve()
+        .then(() => source.loadStoryPoints(pbis))
+        .then((result) => {
+          if (epoch !== pointsEpoch || state !== snapshot || adapter !== source)
+            return;
+          const values = result?.values;
+          pointsValues = {};
+          if (values && typeof values === "object" && !Array.isArray(values)) {
+            for (const { number } of pbis) {
+              if (
+                Object.hasOwn(values, number) &&
+                typeof values[number] === "number" &&
+                Number.isFinite(values[number])
+              )
+                pointsValues[number] = values[number];
+            }
+          }
+          paintStoryPoints();
+        })
+        .catch((error) => {
+          if (epoch !== pointsEpoch || state !== snapshot || adapter !== source)
+            return;
+          pointsValues = {};
+          paintStoryPoints();
+          if (error.code === "scope_not_public")
+            stopPrivateScope(error.message);
+        });
+    }
+  }
+  paintStoryPoints();
+}
+function detailStoryPoints(t) {
+  const badge = $("#detail-story-points");
+  badge.dataset.storyPoints = editing?.kind === "PBI" ? t.id : "";
+  paintStoryPoints();
+}
 const authorRenderKeys = new WeakMap();
 function renderAuthor(t) {
   const root = $("#issue-author"),
@@ -1194,6 +1271,7 @@ function fillDetail() {
   const t = issue(editing.kind, editing.id);
   if (!t) return;
   renderAuthor(t);
+  detailStoryPoints(t);
   editorBaseline = clone(t);
   editorLatest = clone(t);
   editorConflicts = {};
@@ -1604,6 +1682,9 @@ function renderComments() {
 function stopPrivateScope(message) {
   cellPositions.clear();
   state = clone(initial);
+  pointsEpoch++;
+  pointsValues = {};
+  paintStoryPoints();
   adapter = null;
   connectionError = message;
   initialLoading = false;
