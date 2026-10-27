@@ -1382,12 +1382,15 @@ export function createHandler({
       if (changePoints)
         latest.current.storyPoints = await pointValue(env, number);
     } catch (error) {
+      const revoked = [
+        "scope_not_public",
+        "estimate_hours_not_public",
+      ].includes(error.code);
       return {
-        status: error.code === "scope_not_public" ? 403 : 502,
+        status: revoked ? 403 : 502,
         data: {
           ok: false,
-          error:
-            error.code === "scope_not_public" ? error.code : "readback_failed",
+          error: revoked ? error.code : "readback_failed",
           partial: completed.length > 0,
           ambiguous: true,
           completed,

@@ -257,3 +257,36 @@ test("Project外に子が欠けた観測は0件や親見積へ置き換えない
   assert.equal(response.status, 503);
   assert.equal((await response.json()).error, "observation_incomplete");
 });
+test("時間書込後の公開失効は明示コードとunknown fenceを保持", async () => {
+  const { patch } = await import("../tests/github-fixture.mjs");
+  const f = fixture();
+  let wrote = false;
+  const h = createHandler({
+    crypto: webcrypto,
+    fetch: async (url, opt) => {
+      if (url.endsWith("/orgs/engineer-first/issue-fields"))
+        return Response.json([
+          {
+            id: 123,
+            name: "Estimate Hours",
+            data_type: "number",
+            visibility: wrote ? "organization_members_only" : "all",
+          },
+        ]);
+      if (url.includes("/issue-field-values")) {
+        if (opt.method === "POST") wrote = true;
+        return Response.json([]);
+      }
+      return f.fetch(url, opt);
+    },
+  });
+  const p = patch({ estimateHours: 2, expectedEstimateHours: null });
+  delete p.title;
+  const response = await h(req("/api/issues/2", p), config),
+    data = await response.json();
+  assert.equal(wrote, true);
+  assert.equal(response.status, 403);
+  assert.equal(data.error, "estimate_hours_not_public");
+  assert.equal(data.ambiguous, true);
+  assert.deepEqual(data.completed, ["estimateHours"]);
+});
