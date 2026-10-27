@@ -316,39 +316,44 @@
     </dialog>
     <dialog id="about-dialog" aria-labelledby="about-heading">
       <div class="dialog-top">
-        <span class="section-kicker">GITHUB / SOURCE OF TRUTH</span
-        ><button class="icon-button close-dialog" aria-label="説明を閉じる">
+        <h2 id="about-heading">ボードの使い方</h2>
+        <button class="icon-button close-dialog" aria-label="説明を閉じる">
           ×
         </button>
       </div>
-      <p id="scope-note" class="help"></p>
-      <p>
-        付箋をドラッグして移動、クリックで詳細。PBIは最大6件。Fで全画面、Escapeで戻ります。
-      </p>
-      <h2 id="about-heading">Issueをそのまま、ボードへ。</h2>
-      <p id="about-mode">GitHub に接続して最新の Issue を表示します。</p>
-      <p>
-        PBIもIssue（type: PBI）。Demo
-        goalはPBI本文の体験・受け入れ条件セクションから表示します。ゴールを別データとして二重管理しません。
-      </p>
-      <dl>
-        <dt>ToDo</dt>
-        <dd>未整理</dd>
-        <dt>Doing</dt>
-        <dd>壁打ち中 / 着手可能 / 作業中</dd>
-        <dt>Wait</dt>
-        <dd>レビュー中</dd>
-        <dt>Done</dt>
-        <dd>完了</dd>
-      </dl>
-      <p>
-        ドラッグ先のStatusはそれぞれ「未整理・作業中・レビュー中・完了」です。同じ列内でのドラッグは元のStatusを維持します。「見送り」はDoneに含めず、操作メニューから別一覧で確認します。
-      </p>
-      <p>
-        初回は現在の順序の上位6件を表示します。「表示するPBI」でスプリントごとに最大6件を選び、このブラウザーだけに保存します。Issueや優先順位は変更しません。読みやすさ優先を選んだ場合だけ、件数付きのページ切り替えを使います。5枚目以降は同じセル内をスクロール、または上下ボタン・Page
-        Up/Downで確認できます。Issueを閉じても見ていた位置に戻ります。
-      </p>
+      <p id="scope-note" class="help" hidden></p>
+      <p id="about-mode" hidden></p>
+      <section class="help-section">
+        <h3>選ぶ変更と、書く変更</h3>
+        <p>
+          <strong>担当者・ステータス・ポイントは選ぶだけ。</strong
+          ><br />本文・タイトルは、書き終えてから「保存」します。
+        </p>
+      </section>
+      <section class="help-section">
+        <h3>列とステータス</h3>
+        <dl class="help-status-map">
+          <dt>ToDo</dt>
+          <dd>未整理</dd>
+          <dt>Doing</dt>
+          <dd>壁打ち中・着手可能・作業中</dd>
+          <dt>Wait</dt>
+          <dd>レビュー中</dd>
+          <dt>Done</dt>
+          <dd>完了</dd>
+        </dl>
+        <p>Doingへ移すと「作業中」に。同じ列内の移動では変更しません。</p>
+        <p>
+          <strong>Doneへの移動・「完了」の選択でIssueもClose。</strong
+          ><br />別の列へ戻しても、自動ではReopenしません。
+        </p>
+      </section>
+      <section class="help-section">
+        <h3>Demo goalを直したいとき</h3>
+        <p>PBI本文の「体験」や「受け入れ条件」を編集してください。</p>
+      </section>
       <a
+        class="help-project-link"
         href="https://github.com/orgs/engineer-first/projects/3/views/16"
         target="_blank"
         rel="noopener noreferrer"

@@ -77,7 +77,7 @@ test("late points never block board or editor; every scale value uses a compact 
   expect(await page.evaluate(() => (window as any).pointsWrites)).toBe(0);
 });
 
-test("poll replaces points, unset/private/failed reads hide badges and stale responses cannot restore them", async ({
+test("poll retains known values while singleflight pending, then replaces unset/missing/failed values", async ({
   page,
 }) => {
   await page.clock.install();
@@ -87,28 +87,26 @@ test("poll replaces points, unset/private/failed reads hide badges and stale res
   );
   await expect(page.locator('[data-story-points="p0"]')).toHaveText("13");
   await page.clock.fastForward(46000);
-  await expect(page.locator(".story-points:visible")).toHaveCount(0);
+  await expect(page.locator('[data-story-points="p0"]')).toHaveText("13");
   await page.clock.fastForward(46000);
-  await page.evaluate(() => {
-    const w = window as any;
-    w.pointsReads[1].resolve({ values: { 1: 8 } });
-    w.pointsReads[2].resolve({
+  expect(await page.evaluate(() => (window as any).pointsReads.length)).toBe(2);
+  await page.evaluate(() =>
+    (window as any).pointsReads[1].resolve({
       values: { 1: null, 2: "13", 3: {}, 4: Infinity },
-    });
-  });
+    }),
+  );
   await expect(page.locator(".story-points:visible")).toHaveCount(0);
   await page.clock.fastForward(46000);
   await page.evaluate(() =>
-    (window as any).pointsReads[3].reject(new Error("403")),
+    (window as any).pointsReads[2].reject(new Error("403")),
   );
   await expect(page.locator(".pbi-title")).toHaveCount(6);
   await expect(page.locator(".story-points:visible")).toHaveCount(0);
   await page.clock.fastForward(46000);
   await page.evaluate(() =>
-    (window as any).pointsReads[4].resolve({ values: {} }),
+    (window as any).pointsReads[3].resolve({ values: {} }),
   );
   await expect(page.locator(".story-points:visible")).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).pointsWrites)).toBe(0);
 });
 
 test("current production adapter never requests an unconfigured points endpoint", async ({

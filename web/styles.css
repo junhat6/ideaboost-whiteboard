@@ -2712,3 +2712,60 @@ input[type="checkbox"] {
 .saved-draft-recovery textarea:last-child {
   min-height: 160px;
 }
+
+/* Help explains only non-obvious consequences, in a compact reading hierarchy. */
+#about-dialog {
+  width: min(620px, calc(100vw - 48px));
+  padding: 28px 32px;
+}
+#about-dialog .dialog-top {
+  align-items: center;
+  margin-bottom: 12px;
+}
+#about-dialog h2 {
+  margin: 0;
+  font-size: 24px;
+}
+#about-dialog .help-section {
+  margin: 0;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+#about-dialog h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: var(--ink);
+}
+#about-dialog p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+#about-dialog strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+#about-dialog .help-status-map {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+}
+#about-dialog dt,
+#about-dialog dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+#about-dialog dt {
+  color: var(--ink);
+}
+#about-dialog dd {
+  color: var(--muted);
+}
+#about-dialog .help-project-link {
+  display: inline-block;
+  margin-top: 20px;
+  font-size: 14px;
+}

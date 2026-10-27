@@ -696,11 +696,17 @@ function render() {
         state.scope?.filterApplied === false || state.filterApplied === false
           ? "注意：GitHubビューの絞り込みは未適用"
           : "",
-        ...(state.warnings || []),
+        ...(state.warnings || []).filter(
+          (message) =>
+            !message.startsWith(
+              "view 16 のフィルターはPBI行に適用しています。",
+            ),
+        ),
       ]
         .filter(Boolean)
         .join(" · ")
     : "GitHubからの読み込みを待っています。";
+  $("#scope-note").hidden = !$("#scope-note").textContent;
   const connectionMessage = !navigator.onLine
     ? "オフライン · 表示は最新未確認"
     : lastReadError
@@ -873,7 +879,8 @@ async function updateIssue(kind, id, patch, baseline = null) {
   } finally {
     pending = false;
     render();
-    if (savedRemotely) void refreshBoard(undefined, { silent: true });
+    if (savedRemotely)
+      void refreshBoard(undefined, { silent: true, pointsConfirmed: true });
     resumeAutoRefresh();
   }
 }
@@ -1188,7 +1195,13 @@ let pointsSnapshot = null,
   pointsAdapter = null,
   pointsKey = "",
   pointsEpoch = 0;
-let pointsValues = {};
+let pointsValues = {},
+  pointsScope = "",
+  pointsFlight = null,
+  pointsSkipSnapshot = null;
+const pointsGenerations = new Map(),
+  pointsVerifiedAt = new Map();
+let pointsIdentities = new Map();
 function paintStoryPoints() {
   for (const badge of document.querySelectorAll("[data-story-points]")) {
     const lane = state.lanes.find((l) => l.id === badge.dataset.storyPoints);
@@ -1269,53 +1282,116 @@ function reconcilePointValue() {
   updateDirty();
 }
 function loadStoryPoints(lanes) {
-  const key = lanes.map((l) => l.id).join("|");
-  if (
-    pointsSnapshot !== state ||
-    pointsAdapter !== adapter ||
-    pointsKey !== key
-  ) {
-    pointsSnapshot = state;
-    pointsAdapter = adapter;
-    pointsKey = key;
+  const source = adapter;
+  const pbis = lanes
+    .filter((l) => l.type === "PBI")
+    .map((l) => ({ id: l.id, number: l.number }));
+  const key = pbis
+    .map((l) => `${l.id}:${l.number}`)
+    .sort()
+    .join("|");
+  const scope = JSON.stringify([
+    displayScope(),
+    state.scope?.viewFilter ?? null,
+    state.scope?.filterApplied ?? null,
+  ]);
+  if (pointsAdapter !== source || pointsScope !== scope) {
+    pointsEpoch++;
     pointsValues = {};
-    const epoch = ++pointsEpoch,
-      snapshot = state,
-      source = adapter;
-    if (typeof source?.loadStoryPoints === "function") {
-      const pbis = lanes
-        .filter((l) => l.type === "PBI")
-        .map((l) => ({ id: l.id, number: l.number }));
-      // Never await this optional read in board/detail rendering.
-      Promise.resolve()
-        .then(() => source.loadStoryPoints(pbis))
-        .then((result) => {
-          if (epoch !== pointsEpoch || state !== snapshot || adapter !== source)
-            return;
-          const values = result?.values;
-          pointsValues = {};
-          if (values && typeof values === "object" && !Array.isArray(values)) {
-            for (const { number } of pbis) {
-              if (
-                Object.hasOwn(values, number) &&
-                (values[number] === null ||
-                  (typeof values[number] === "number" &&
-                    Number.isFinite(values[number])))
-              )
-                pointsValues[number] = values[number];
-            }
+    pointsGenerations.clear();
+    pointsVerifiedAt.clear();
+    pointsIdentities.clear();
+    pointsFlight = null;
+    pointsKey = "";
+    pointsSnapshot = null;
+    pointsAdapter = source;
+    pointsScope = scope;
+  }
+  const changed = pointsSnapshot !== state,
+    selectionChanged = pointsKey !== key;
+  if (selectionChanged) {
+    pointsEpoch++;
+    pointsFlight = null;
+    const identities = new Map(pbis.map((p) => [p.number, p.id]));
+    for (const number of Object.keys(pointsValues))
+      if (
+        pointsIdentities.get(Number(number)) !==
+          identities.get(Number(number)) ||
+        !identities.has(Number(number))
+      )
+        delete pointsValues[number];
+    for (const number of pointsGenerations.keys())
+      if (!identities.has(number)) pointsGenerations.delete(number);
+    for (const number of pointsVerifiedAt.keys())
+      if (!identities.has(number)) pointsVerifiedAt.delete(number);
+    pointsIdentities = identities;
+  }
+  pointsSnapshot = state;
+  pointsKey = key;
+  if (typeof source?.loadStoryPoints !== "function") {
+    pointsValues = {};
+    paintStoryPoints();
+    return;
+  }
+  if (
+    (selectionChanged ||
+      (changed &&
+        (pointsSkipSnapshot !== state ||
+          pbis.some(
+            (p) =>
+              !Object.hasOwn(pointsValues, p.number) ||
+              Date.now() - (pointsVerifiedAt.get(p.number) || 0) >= 45000,
+          )))) &&
+    !pointsFlight &&
+    pbis.length
+  ) {
+    const epoch = pointsEpoch;
+    const generations = new Map(
+      pbis.map((p) => [p.number, pointsGenerations.get(p.number) || 0]),
+    );
+    const current = () => epoch === pointsEpoch && adapter === source;
+    const unchanged = (number) =>
+      generations.get(number) === (pointsGenerations.get(number) || 0);
+    const flight = {};
+    pointsFlight = flight;
+    // Keep verified values during an in-flight refresh, not after a failed result.
+    Promise.resolve()
+      .then(() => source.loadStoryPoints(pbis))
+      .then((result) => {
+        if (!current()) return;
+        const values = result?.values;
+        const validObject =
+          values && typeof values === "object" && !Array.isArray(values);
+        // Empty projection can mean the public field definition has been revoked.
+        if (!validObject || !Object.keys(values).length) pointsValues = {};
+        else
+          for (const { number } of pbis) {
+            if (!unchanged(number)) continue;
+            const value = values[number];
+            if (
+              Object.hasOwn(values, number) &&
+              (value === null ||
+                (typeof value === "number" && Number.isFinite(value)))
+            ) {
+              pointsValues[number] = value;
+              pointsVerifiedAt.set(number, Date.now());
+            } else delete pointsValues[number];
           }
-          paintStoryPoints();
-        })
-        .catch((error) => {
-          if (epoch !== pointsEpoch || state !== snapshot || adapter !== source)
-            return;
-          pointsValues = {};
-          paintStoryPoints();
-          if (error.code === "scope_not_public")
-            stopPrivateScope(error.message);
-        });
-    }
+        paintStoryPoints();
+      })
+      .catch((error) => {
+        if (!current()) return;
+        if (error.code === "scope_not_public") {
+          stopPrivateScope(error.message);
+          return;
+        }
+        for (const { number } of pbis)
+          if (unchanged(number)) delete pointsValues[number];
+        paintStoryPoints();
+      })
+      .finally(() => {
+        if (pointsFlight === flight) pointsFlight = null;
+      });
   }
   paintStoryPoints();
 }
@@ -2595,11 +2671,17 @@ async function startIssueSave(
         ambiguous: true,
       });
     confirmedSaveEpoch++;
-    pointsEpoch++; // Fence a point read started before this acknowledged mutation.
+    if (Object.hasOwn(result, "storyPoints"))
+      pointsGenerations.set(
+        result.number,
+        (pointsGenerations.get(result.number) || 0) + 1,
+      );
     const current = issue(target.kind, target.id);
     if (current) Object.assign(current, result);
-    if (Object.hasOwn(result, "storyPoints"))
+    if (Object.hasOwn(result, "storyPoints")) {
       pointsValues[result.number] = result.storyPoints;
+      pointsVerifiedAt.set(result.number, Date.now());
+    }
     issueSaves.delete(target.id);
     if (isCurrent()) {
       for (const key of Object.keys(patch)) setBaseField(key, draft[key]);
@@ -2660,8 +2742,8 @@ async function startIssueSave(
         true,
       );
     } else {
-      // One refresh at the end of a burst, never one whole-board GET per choice.
-      void refreshBoard(undefined, { silent: true });
+      // Canonical mutation readback confirms the edited point; don't refetch every PBI.
+      void refreshBoard(undefined, { silent: true, pointsConfirmed: true });
     }
   } catch (error) {
     if (issueSaves.get(target.id) !== job || adapter !== source) return;
@@ -2727,7 +2809,10 @@ function refreshBoard(options, flags = {}) {
   });
   return refreshFlight;
 }
-async function performRefresh(options, { silent = false } = {}) {
+async function performRefresh(
+  options,
+  { silent = false, pointsConfirmed = false } = {},
+) {
   if (!adapter || pending || pickerDraft) return false;
   autoRefreshRequested = false;
   pending = true;
@@ -2746,6 +2831,7 @@ async function performRefresh(options, { silent = false } = {}) {
     }
     if (!valid(next)) throw new Error("無効なIssueデータです");
     state = clone(next);
+    if (pointsConfirmed) pointsSkipSnapshot = state;
     if (options && Object.hasOwn(options, "milestone"))
       selectedMilestone = String(options.milestone ?? "");
     markFresh();
@@ -2965,9 +3051,8 @@ document.addEventListener("fullscreenchange", () => {
   render();
 });
 $("#about").onclick = () => {
-  $("#about-mode").textContent = adapter
-    ? "GitHub Appで接続しています。表示するIssueと担当者はGitHubのデータです。保存はGitHubに反映され、続けて最新のボードを再取得します。"
-    : "GitHub未接続です。最新を取得してください。";
+  $("#about-mode").hidden = !!adapter;
+  $("#about-mode").textContent = "サンプル表示です。GitHubには反映されません。";
   $("#about-dialog").showModal();
 };
 document

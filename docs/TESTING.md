@@ -150,3 +150,9 @@ Peleのflowchart/sequence、近傍でのみworker取得、原文CRLF保持、zoo
 配信前レビューの再訪回帰: `未整理→レビュー中(送信保留)→作業中(後続選択)→閉じる→再訪` で、fillDetailのupdateDirtyが保持中viewDraftをcanonical値へ上書きすることをfixtureで再現。初期化中はjob draftへ書き込まない境界を設け、3値が異なるケースの再訪前後と最終POSTを両画面で確認する。初期値へ戻す従来ケースだけではこの不具合を検出できないため、両ケースを残す。
 
 配信前レビューの破棄回帰: 本文/titleを明示送信後に追記し、離散選択も追加して閉じる際に破棄を承認、送信が失敗すると追記まで復元されることを再現。close時の復元内容は各fieldで「queued値→送信snapshot→元baseline」の優先順に確定する。送信済み原文と未送信の離散選択は保持し、承認して破棄した追加本文/titleは復活させない。unknown fenceと後続停止も同fixtureで確認。
+
+### Story points の投影とヘルプ（2026-10-27）
+- 異なる値の6PBIで1件保存後のboard応答を受けても他5件を保持する。確認済み45秒以内の同集合では保存後の追加SP一括GETは0（従来1）。
+- 先行SP GETの対象Aだけ保存ack後の古値を拒否し、同batchのBの更新は採用。空projectionはfield公開失効として全消去。null/キー欠落/失敗は完了時点で空欄へ戻す。
+- 待機中は値を維持し、重なるpollは同一flightを利用。通常のfocus/pollで再検証。失敗保存、解除、未設定、未知値、公開scope失効と既存autosave queueを回帰試験。
+- ヘルプは3見出しと短い対応表。最大6件/F/Escapeの説明を省略し、既存shortcutは維持。1920/2560の画素・高さ・Escape/focus復帰を確認する。

@@ -159,3 +159,11 @@ Demo goalの長文可視高は実本番1920で133→151px、2560で152→216px�
 Floating UI DOM 1.8.0をnamed importでローカルbundle化（ui-tools.js約18KB minified）。全アイコンmapは配信せずOcticons12個のbuild時subset。本文用CodeMirror/parse5は従来同様Issueを開いた時のlazy bundleで、board初期取得へPR/comments/renderを直列追加しない。関連PR実読取は#823 1813ms、#737 1348ms（各1回、改善率の比較ではない）。この追補は操作の単純化と耐入力性が目的で、初回board速度改善を主張しない。
 
 最終本番確認（b2aac89）: 取得済みIssueの本文DOM準備は#737で194/190ms、続く#823で13/12ms（1920/2560、各1回）。実board表示5077/1515msはcold/hit混在の観測で、性能改善の比較値とはしない。PR/commentsは独立後読込。tooltipは白/#252C36で14.07:1、即時表示、遅延close120msだけを使う。原文メニューは両画面134×48px、文字切れなし。全POST遮断でQAし、原文は変更していない。
+
+## Story points 表示の安定化（2026-10-27）
+
+実装前の6PBI異値fixtureで、Aの保存成功後board応答がstateを置換するとBの数字が消えることを再現した。state参照ごとの全消去と、全Issue共通epochによる別PBI読取の無効化が原因。修正後は再検証待機中の値を保持し、対象Issue別世代でAの古値だけを拒否、同batchのBを採用する。
+
+同じfixtureで、全値確認から45秒以内の1件保存後に発生する追加SP一括GETは1→0。初回の1回は維持。通常focus/poll、45秒以上経過、未取得、集合/scope変更では再検証し、同scopeの進行中要求を共有する。完了レスポンスのnull/欠落/空は正しく消去し、権限失効を古値で隠さない。ネットワークAPIやサーバーの保存時間そのものを短縮したとは主張しない。
+
+本番変更前の読み取りのみ2回（新規ブラウザー、1920/2560）: board可視3.086/1.942秒、SP応答はnavigationから5.519/4.049秒（board後2.433/2.107秒）。共有readerやGitHubの状態による差を含み、真のserver cold比較ではない。本番書込みを行わず、保存後の要求数・表示継続は制御fixtureで検証した。初回後読込APIの速度は今回変更しない。
