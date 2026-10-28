@@ -15,8 +15,6 @@ const assets = [
   "school-calendar.js",
   "toolbar-select.js",
   "page-navigation.js",
-  "highlight-demo.js",
-  "highlight-demo.css",
   "styles.css",
   "editor-bundle.js",
   "diagram-worker.js",

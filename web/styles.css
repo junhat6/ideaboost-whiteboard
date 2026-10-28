@@ -3189,7 +3189,10 @@ input[type="checkbox"] {
   border-radius: inherit;
   border: 1px solid var(--accent);
   background: transparent;
-  box-shadow: 0 0 14px 3px color-mix(in srgb, var(--accent) 40%, transparent);
+  /* Strengthen outward only: the 1px border plus 2px ring never eats paper. */
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 14px 9px var(--accent);
   animation: unestimated-halo 1.5s ease-in-out infinite;
   animation-play-state: paused;
 }

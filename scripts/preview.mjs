@@ -8,8 +8,6 @@ const allowed = new Map([
   ["/school-calendar.js", "school-calendar.js"],
   ["/toolbar-select.js", "toolbar-select.js"],
   ["/page-navigation.js", "page-navigation.js"],
-  ["/highlight-demo.js", "highlight-demo.js"],
-  ["/highlight-demo.css", "highlight-demo.css"],
   ["/icons.js", "icons.js"],
   ["/ui-tools.js", "ui-tools.js"],
   ["/editor-bundle.js", "editor-bundle.js"],

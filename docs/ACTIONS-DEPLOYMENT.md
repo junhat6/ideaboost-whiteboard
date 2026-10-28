@@ -29,7 +29,7 @@ private repoでproduction environmentとそのbranch policyを使える既存pla
 3. 配信jobはGitHub-hosted runner。公式actionsを完全commit SHAに固定し、deploy用のPR artifactや共有npm cacheは使わない。GitHub tokenはcontents readのみ。依存導入とbundle生成にはCloudflare tokenを渡さない。
 4. `ideaboost-whiteboard-production` concurrency groupで配信を直列化。進行中の配信は新pushでcancelしない。main変更とCloudflare publishを跨ぐ原子的保証はないため、開始後に届く新commitは次のCI・配信で反映する。
 5. `wrangler deployments list --json` で直前Version IDをログに残し、lockfile内のWranglerで `deploy --keep-vars --tag <checked SHA>` を実行。既存vars/runtime secrets/DO bindingsを保持し、secret uploadはしない。未設定tokenは配信前に失敗する。[Wrangler deploy](https://developers.cloudflare.com/workers/wrangler/commands/workers/)
-6. 既存公開pathへGETだけを送り、healthの設定と9assetのSHA-256一致を確認。配信伝播を最大3分待つ。実Issue・日程・履歴のQA mutationは行わない。healthはGitHub正本の全動作やDO alarmを検証したことにはならない。
+6. 既存公開pathへGETだけを送り、healthの設定と配信manifestに列挙した全assetのSHA-256一致を確認。配信伝播を最大3分待つ。実Issue・日程・履歴のQA mutationは行わない。healthはGitHub正本の全動作やDO alarmを検証したことにはならない。
 
 ## 失敗と戻し方
 

@@ -282,18 +282,18 @@ PBI配下の非PBI Issueに任意の見積時間（h）を持つ。種類名を�
 
 学校日程は月表示カレンダーから1日ずつ独立して選択・解除する。範囲ドラッグや日付書式の入力は用意しない。月送り、選択数、選択チェック、明瞭なfocusとキーボード移動を備え、選択は明示保存まで下書き。未設定（空・revision 0）のスプリントで日程を初めて開いた時だけ、JSTの今日から期日までの平日を未保存候補にする。開始日が判明したと主張せず、過去/期日不明/180日超/候補60日超は空から選ぶ。祝日・休講は自動推測しない。保存済み空日程、既存のSprint9学校6日、操作済み下書きは候補で上書きしない。月と下書きはスプリント別に保ち、再open/refresh/保存中の追記を維持する。新しいcalendar moduleもバーンダウン初回表示まで読み込まない。
 
-バーンダウンの主値は「残り：61h」の形式。「観測の内訳」の展開表は表示しないが、履歴の保管・整合性と観測時刻は維持する。操作バーの未見積強調は初期OFFの閲覧補助。公開確認済みの末端作業で見積がnullの付箋だけ、独立した1pxの静的輪郭と、利用者が比較デモで選択したA「ふわっとハロー」で示す。1.5秒 ease-in-out で全辺の光を同時に opacity 0.2→0.8→0.2 と呼吸させ、周回する小さな光は使わない。デモAの色・周期・振幅・14px shadowを基準とし、狭い2×2では隣の紙面へ光が流入しないよう外側余白内へ制限する。overflow viewport端では外側shadowもclipされるが、細い内側の輪郭は維持し、光のために文字面積を削らない。タイトル・avatar・h・紙面は動かさず、透明な中心と外側の光だけを描く。太い内枠・白いinset・面を覆うbadgeは使わず、種類の背景色を保つ。追加library・JSの毎frame処理・全付箋へのwill-changeは不要。表示中の付箋だけ動かし、overflow外・drag中・document.hiddenではpauseし、静的cueは消さない。reduced-motionでは静止した輪郭を残す。footerの未設定欄は塗り背景のない簡潔な「未見積」textへ切り替え、UのON/OFFで文字・avatar・hのboxやpadding・layout占有を変えない。未設定というデータ状態は変えない。通常の再取得中も直前に公開確認できたnullの輪郭を保ち、取得結果・失効時に更新する。0・未取得・非公開・PBI・親作業は未見積扱いにしない。Uキーは入力/IME/dialog/修飾キー中に発火させず、reduced-motionでは静止した輪郭にする。明示的に強調をONにした時だけ、表示PBI行の付箋（隠れたoverflowページも含む）の見積対象を全て確認でき、未見積が0件なら「未見積もりのタスクは0件です」と一時表示する。読取中・古い表示・未取得・対象不明では0件を断定しない。保存・値の推定・追加API読取は行わない。
+バーンダウンの主値は「残り：61h」の形式。「観測の内訳」の展開表は表示しないが、履歴の保管・整合性と観測時刻は維持する。操作バーの未見積強調は初期OFFの閲覧補助。公開確認済みの末端作業で見積がnullの付箋だけ、独立した1pxの静的輪郭と、利用者が比較デモで選択したA「ふわっとハロー」で示す。1.5秒 ease-in-out で全辺の光を同時に opacity 0.2→0.8→0.2 と呼吸させ、周回する小さな光は使わない。選択済みAの雰囲気を維持しつつ、より明確に目立つよう装飾を外側へ強める。静的1px cueは維持し、外側2px ringとblur14px/spread9px/accent100%のshadowを用いる。速さや文字面積は変えず、知覚的な強度が厳密に3倍になるとの保証はしない。狭い2×2では隣の紙面へ光が流入しないよう外側余白内へ制限する。overflow viewport端では外側shadowもclipされるが、細い内側の輪郭は維持し、光のために文字面積を削らない。タイトル・avatar・h・紙面は動かさず、透明な中心と外側の光だけを描く。太い内枠・白いinset・面を覆うbadgeは使わず、種類の背景色を保つ。追加library・JSの毎frame処理・全付箋へのwill-changeは不要。表示中の付箋だけ動かし、overflow外・drag中・document.hiddenではpauseし、静的cueは消さない。reduced-motionでは静止した輪郭を残す。footerの未設定欄は塗り背景のない簡潔な「未見積」textへ切り替え、UのON/OFFで文字・avatar・hのboxやpadding・layout占有を変えない。未設定というデータ状態は変えない。通常の再取得中も直前に公開確認できたnullの輪郭を保ち、取得結果・失効時に更新する。0・未取得・非公開・PBI・親作業は未見積扱いにしない。Uキーは入力/IME/dialog/修飾キー中に発火させず、reduced-motionでは静止した輪郭にする。明示的に強調をONにした時だけ、表示PBI行の付箋（隠れたoverflowページも含む）の見積対象を全て確認でき、未見積が0件なら「未見積もりのタスクは0件です」と一時表示する。読取中・古い表示・未取得・対象不明では0件を断定しない。保存・値の推定・追加API読取は行わない。
 
 未見積motionの性能検証は同じfixture/DOMのOFFとONを6・24・94枚で比較し、実timelineの振幅、紙面pixel不変、resize、drag/画面外/非表示pauseとともにCIへ記録する。94枚はstress条件であり実利用件数の測定ではない。旧周回方式のoffset-distance/transform数値はdocs/UI-MOTION-REGRESSION.mdに履歴として残し、A方式の性能と混同しない。全端末60fps・一律高速化・実GPU合成を主張せず、確認できた環境と絶対負荷を分けて報告する。恣意的な対象間引きで強調を途切れさせない。
 
 
-## 操作選択・比較デモ・Issue state（2026-10-28）
+## 操作選択・Issue state（2026-10-28）
 
 操作バーの担当者・Sprint・表示密度は、同じ36pxのtriggerとsurface/line/accent/softを使うselect-only comboboxへ段階的に強化する。既存selectを値とchangeの正本として残し、初回boardを追加APIやmodule完了で待たせない。候補はavatar・名前/login・checkで識別し、全担当者の選択と未割当を含む既存filter意味を変えない。閉じた候補のavatarは初回openまで読み込まない。Arrow/Home/End/typeaheadは候補だけ移動し、Enter/Spaceで確定、Escapeは取消、Tabは閉じて次へ進む。disabled候補を飛ばし、open中に候補集合が変われば閉じて誤選択を避ける。公開失効では非表示だけでなく旧候補DOMを消す。[WAI-ARIA APG select-only combobox](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/examples/combobox-select-only/)を参照しつつ、assistive technologyの実機全組合せを検証済みとはしない。
 
 ページ表示は1ページ3 PBI、全体表示・PBI選択上限は6のまま。下部の前/次ボタンに加え、boardへfocusした時の左右キーと横優位のwheelで移動する。1つの慣性gestureは1ページだけ、端で循環しない。縦scroll、修飾key/zoom、入力/IME、native選択、dialog/popover、ドラッグ、内側の横scrollは横取りしない。synthetic wheel/keyの回帰と実Mac trackpadの検証は別であり、後者は未実施。
 
-「強調デモ」は遅延読込の独立dialog。架空の同じタイトル/avatar/未見積を3種の付箋色で表示し、Aふわっとハロー・Bぽんっとポップ・Cすっとフォーカスの全体装飾を比較する。実カード本文・クリック領域は動かさず装飾面だけtransform/opacityで動かし、U/ON-OFF・再生・一時停止・reduced-motion静止に対応する。案の選択はデモ内の表示だけで、本番の未見積強調や保存値へ適用しない。ユーザーの明示選択に基づき本番はAを採用するが、デモ内で他案を選んでも本番設定は変えない。初回board追加通信・Issue API・外部画像・localStorage保存はない。遅いmodule/CSS応答は取消や別dialog起動後に割り込まない。
+利用者がA「ふわっとハロー」を選択済みのため、比較デモの入口・遅延module/CSS・専用dialogは撤去する。本番の強調ON/OFFとUキーは維持し、選択用の恒久UIや保存データは増やさない。
 
 詳細上端のIssue番号は16pxの文字だけのnative buttonとし、追加アイコン・説明tooltipは置かない。表示番号と一致する固定repoのcanonical Issue URLだけをクリック/Enter/Spaceでコピーする。URL未確認は無効化してariaで伝え、clipboard成功後だけ番号の横に一時的なチェックと「コピーしました」をdialog内live statusで2秒表示し、拒否時も同じ場所で失敗を伝える。常設コピーアイコンは追加せず、番号・×・見出しの位置は変えない。再クリックで表示timerを更新し、Issue切替/close/公開失効/接続変更で通知と旧完了の所有権を即消去する。古い接続元・drawer sessionの完了通知は新しいIssueへ出さず、追加APIは呼ばない。
 

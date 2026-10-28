@@ -4296,7 +4296,6 @@ $("#theme").onclick = () => {
 };
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !document.querySelector("dialog[open]")) {
-    if (demoPending) cancelDemoOpening();
     dismissControls();
   }
 });
@@ -4311,58 +4310,6 @@ void import("./toolbar-select.js")
     ]);
   })
   .catch(() => {}); // Native selectors remain fully usable if the module fails.
-
-let highlightDemo = null,
-  demoModule = null,
-  demoIntent = 0,
-  demoPending = false;
-function cancelDemoOpening() {
-  demoIntent++;
-  demoPending = false;
-  highlightDemo?.close();
-  $("#highlight-demo-open").removeAttribute("aria-busy");
-}
-$("#highlight-demo-open").onclick = async () => {
-  const ticket = ++demoIntent;
-  demoPending = true;
-  $("#highlight-demo-open").setAttribute("aria-busy", "true");
-  toolbarSelects?.close();
-  try {
-    demoModule ||= import("./highlight-demo.js");
-    const { mountHighlightDemo } = await demoModule;
-    if (ticket !== demoIntent || document.querySelector("dialog[open]")) return;
-    highlightDemo ||= mountHighlightDemo({
-      onClose: () => {
-        controlsPinned = true;
-        syncControls();
-      },
-    });
-    await highlightDemo.open($("#highlight-demo-open"));
-  } catch {
-    demoModule = null;
-    if (ticket === demoIntent)
-      announce("デモを開けませんでした。もう一度お試しください。");
-  } finally {
-    if (ticket === demoIntent) {
-      demoPending = false;
-      $("#highlight-demo-open").removeAttribute("aria-busy");
-    }
-  }
-};
-document.addEventListener(
-  "pointerdown",
-  (e) => {
-    if (
-      demoPending &&
-      !e.target.closest("#highlight-demo-open, #highlight-demo")
-    )
-      cancelDemoOpening();
-  },
-  true,
-);
-$("#highlight-demo-open").addEventListener("blur", () => {
-  if (demoPending && !highlightDemo?.isOpen()) cancelDemoOpening();
-});
 
 // Conventional icons retain explicit names and keyboard focus, without permanent prose.
 for (const [id, label, icon] of [

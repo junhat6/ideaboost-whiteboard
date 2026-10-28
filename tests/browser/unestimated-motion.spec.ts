@@ -105,6 +105,62 @@ async function twoFrames(page: Page) {
       ),
   );
 }
+async function setSyntheticVisibility(page: Page, hidden: boolean) {
+  await page.evaluate((value) => {
+    if (value) {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        value: true,
+      });
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "hidden",
+      });
+    } else {
+      Reflect.deleteProperty(document, "hidden");
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+}
+async function pauseAtNaturalMidpoint(target: Locator) {
+  // Pause via the existing visibility guard, without seeking/changing the clock.
+  // The paired stills below compare style strength, not animation performance.
+  await target.evaluate(
+    (element) =>
+      new Promise<void>((resolve, reject) => {
+        const begin = performance.now();
+        const tick = () => {
+          const opacity = Number(
+            getComputedStyle(
+              element.querySelector(".unestimated-motion")!,
+              "::after",
+            ).opacity,
+          );
+          if (opacity >= 0.4 && opacity <= 0.5) {
+            Object.defineProperty(document, "hidden", {
+              configurable: true,
+              value: true,
+            });
+            Object.defineProperty(document, "visibilityState", {
+              configurable: true,
+              value: "hidden",
+            });
+            document.dispatchEvent(new Event("visibilitychange"));
+            resolve();
+          } else if (performance.now() - begin > 5000) {
+            reject(
+              new Error(
+                `No natural middle-opacity frame within 5s: ${opacity}`,
+              ),
+            );
+          } else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+  await twoFrames(target.page());
+}
 async function motion(target: Locator) {
   return target.evaluate((element) => {
     const span = element.querySelector(".unestimated-motion")!,
@@ -273,6 +329,29 @@ function diffPng(first: Buffer, second: Buffer) {
     image: PNG.sync.write(output) as Buffer,
   };
 }
+function exteriorStrength(off: Buffer, highlighted: Buffer) {
+  const a = PNG.sync.read(off),
+    b = PNG.sync.read(highlighted);
+  expect([b.width, b.height]).toEqual([a.width, a.height]);
+  let changed = 0,
+    absoluteRgbDelta = 0;
+  for (let y = 0; y < a.height; y++)
+    for (let x = 0; x < a.width; x++) {
+      // Keep a 1px safety band outside the paper to exclude its static cue.
+      const edge = frameMargin - 1;
+      if (x >= edge && y >= edge && x < a.width - edge && y < a.height - edge)
+        continue;
+      const offset = (y * a.width + x) * 4,
+        delta = [0, 1, 2].reduce(
+          (sum, channel) =>
+            sum + Math.abs(a.data[offset + channel] - b.data[offset + channel]),
+          0,
+        );
+      if (delta) changed++;
+      absoluteRgbDelta += delta;
+    }
+  return { changed, absoluteRgbDelta };
+}
 function paperPixels(
   first: Buffer,
   second: Buffer,
@@ -430,6 +509,90 @@ async function captureCycle(target: Locator, stem: string) {
 }
 
 for (const appearance of ["light", "dark"])
+  test(`${appearance}の旧Aと強めたAを同じ自然停止位相で比較し外側だけ強くする`, async ({
+    page,
+  }) => {
+    const f = await ready(page, false, 1);
+    await theme(page, appearance);
+    const target = card(page),
+      neighbour = card(page, "t0-0-1"),
+      stem = `test-results/unestimated-motion-${page.viewportSize()!.width}-${appearance}-strength`,
+      geometryBefore = await geometry(page),
+      requests = f.requests.length,
+      off = await frame(target, `${stem}-off.png`),
+      neighbourBefore = await neighbour.screenshot({ animations: "allow" });
+    let baselineStyle: Awaited<ReturnType<Page["addStyleTag"]>> | undefined;
+    try {
+      await enable(page);
+      await pauseAtNaturalMidpoint(target);
+      const paused = await motion(target);
+      expect(paused.playState).toBe("paused");
+      expect(Number(paused.opacity)).toBeGreaterThanOrEqual(0.3);
+      expect(Number(paused.opacity)).toBeLessThanOrEqual(0.7);
+      // Previous shipped A shadow; only this fixture's one card changes style.
+      // The existing animation object/currentTime/duration are left untouched.
+      baselineStyle = await page.addStyleTag({
+        content: `[data-task="t0-0-0"] .unestimated-motion::after {
+          box-shadow: 0 0 14px 3px color-mix(in srgb, var(--accent) 40%, transparent);
+        }`,
+      });
+      await twoFrames(page);
+      const baseline = await frame(target, `${stem}-before.png`),
+        beforeState = await motion(target);
+      await baselineStyle.evaluate((element) => element.remove());
+      baselineStyle = undefined;
+      await twoFrames(page);
+      const stronger = await frame(target, `${stem}-after.png`),
+        afterState = await motion(target),
+        beforeStrength = exteriorStrength(off, baseline),
+        afterStrength = exteriorStrength(off, stronger),
+        difference = diffPng(baseline, stronger),
+        metrics = {
+          metric: "unestimated-halo-style-strength",
+          comparison:
+            "same natural midpoint paused via synthetic visibility notification; not perceived-strength or motion-performance measurement",
+          viewport: page.viewportSize(),
+          appearance,
+          beforeState,
+          afterState,
+          beforeStrength,
+          afterStrength,
+          exteriorRgbRatio:
+            afterStrength.absoluteRgbDelta / beforeStrength.absoluteRgbDelta,
+          pixelDiff: {
+            boundary: difference.boundary,
+            center: difference.center,
+          },
+        };
+      await writeFile(`${stem}-metrics.json`, JSON.stringify(metrics, null, 2));
+      await writeFile(`${stem}-diff.png`, difference.image);
+      console.log(JSON.stringify(metrics));
+      expect(beforeState).toEqual(paused);
+      expect(afterState).toEqual(paused);
+      expect(beforeStrength.absoluteRgbDelta).toBeGreaterThan(0);
+      // A meaningful exterior change, not a claim of exactly 3x visual perception.
+      expect(afterStrength.absoluteRgbDelta).toBeGreaterThan(
+        beforeStrength.absoluteRgbDelta * 1.5,
+      );
+      expect(difference.boundary).toBeGreaterThan(0);
+      expect(difference.center).toBe(0);
+      expect(
+        diffPng(
+          neighbourBefore,
+          await neighbour.screenshot({ animations: "allow" }),
+        ).total,
+      ).toBe(0);
+      expect(await geometry(page)).toEqual(geometryBefore);
+      expect(f.requests).toHaveLength(requests);
+      expect(f.posts()).toBe(0);
+    } finally {
+      if (baselineStyle)
+        await baselineStyle.evaluate((element) => element.remove());
+      await setSyntheticVisibility(page, false);
+    }
+  });
+
+for (const appearance of ["light", "dark"])
   test(`${appearance}の6PBI・2×2で全辺ハローがふわっと変化し紙面と隣付箋を覆わない`, async ({
     page,
   }) => {
@@ -516,7 +679,7 @@ test("ハローはresize後も全辺同時に変化し、紙面geometryと背景
       const box = await card(page).boundingBox();
       return Boolean(
         box &&
-          (box.width !== initialBox.width || box.height !== initialBox.height),
+        (box.width !== initialBox.width || box.height !== initialBox.height),
       );
     })
     .toBe(true);
@@ -677,17 +840,7 @@ test("document非表示通知ではhaloをpauseし、再表示でcueを残して
   await enable(page);
   try {
     // Synthetic visibility notification exercises the app guard, not an OS/tab emulation claim.
-    await page.evaluate(() => {
-      Object.defineProperty(document, "hidden", {
-        configurable: true,
-        value: true,
-      });
-      Object.defineProperty(document, "visibilityState", {
-        configurable: true,
-        value: "hidden",
-      });
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
+    await setSyntheticVisibility(page, true);
     await expect(page.locator("#board")).toHaveClass(/unestimated-suspended/);
     await expect
       .poll(async () => (await motion(card(page))).playState)
@@ -698,11 +851,7 @@ test("document非表示通知ではhaloをpauseし、再表示でcueを残して
     expect(await motion(card(page))).toEqual(paused);
     await expect(card(page)).toHaveCSS("outline-width", "1px");
   } finally {
-    await page.evaluate(() => {
-      Reflect.deleteProperty(document, "hidden");
-      Reflect.deleteProperty(document, "visibilityState");
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
+    await setSyntheticVisibility(page, false);
   }
   await expect(page.locator("#board")).not.toHaveClass(/unestimated-suspended/);
   await expect

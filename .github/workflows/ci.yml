@@ -45,8 +45,8 @@ jobs:
         run: npx playwright test tests/browser/comment-continuity.spec.ts tests/browser/enhancements.spec.ts --workers=1 --max-failures=0
       - name: Diagnose immediate close delivery repeatedly
         run: npx playwright test tests/browser/issue-state.spec.ts --grep=closeの遅いACK --repeat-each=10 --workers=1 --max-failures=0
-      - name: Verify toolbar, page navigation, highlight choices and canonical Issue state
-        run: npx playwright test tests/browser/toolbar-select.spec.ts tests/browser/page-navigation.spec.ts tests/browser/highlight-demo.spec.ts tests/browser/issue-state.spec.ts --workers=1 --max-failures=0
+      - name: Verify toolbar, page navigation and canonical Issue state
+        run: npx playwright test tests/browser/toolbar-select.spec.ts tests/browser/page-navigation.spec.ts tests/browser/issue-state.spec.ts --workers=1 --max-failures=0
       - name: Verify live Status colors across autosave redraws
         run: npx playwright test tests/browser/rich.spec.ts --grep="author is distinct" --repeat-each=3 --workers=1
       - name: Keep focused synthetic interaction evidence
@@ -56,7 +56,6 @@ jobs:
           name: synthetic-interaction-focus
           path: |
             test-results/toolbar-rich-*.png
-            test-results/highlight-demo-*.png
             test-results/issue-state-*.png
           retention-days: 1
           if-no-files-found: ignore
@@ -82,7 +81,7 @@ jobs:
       - name: Verify clipped-card visibility before the full browser suite
         run: npx playwright test tests/browser/unestimated-highlight.spec.ts --project=desktop --grep=overflow --repeat-each=3 --workers=1
       - name: Verify card metadata, U and current Sprint before the full browser suite
-        run: npx playwright test tests/browser/task-metadata.spec.ts tests/browser/current-sprint.spec.ts tests/browser/unestimated-highlight.spec.ts --project=desktop --workers=1
+        run: npx playwright test tests/browser/task-metadata.spec.ts tests/browser/current-sprint.spec.ts tests/browser/highlight-demo-removed.spec.ts tests/browser/unestimated-highlight.spec.ts --project=desktop --workers=1
       - run: npm run test:e2e
       - name: Keep synthetic UI screenshots for review
         if: always()
@@ -101,7 +100,6 @@ jobs:
             test-results/burndown-layout-*.png
             test-results/burndown-enter-*.png
             test-results/toolbar-rich-*.png
-            test-results/highlight-demo-*.png
             test-results/issue-state-*.png
             test-results/detail-issue-number-*.png
             test-results/detail-issue-footer-*.png

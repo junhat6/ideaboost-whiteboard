@@ -13,9 +13,13 @@
 
 ## 選択済みA「ふわっとハロー」（現行契約）
 
-- 利用者がAを明示選択したため、本番Uは全体の光を1.5秒で呼吸させる方式へ変更する。デモ内のB/C選択は本番へ反映しない。
+- 利用者がAを明示選択したため、本番Uは全体の光を1.5秒で呼吸させる方式とする。選択済みのため比較デモの入口・module・CSS・専用dialogは撤去し、Uと操作バーの強調ON/OFFは維持する。
 - opacityのみを動かし、文字・紙面・avatar・hのgeometryは固定。細い静的cueは最小opacity、画面外/非表示/drag pause、reduced-motionでも残す。
+- 「同じ雰囲気で約3倍目立つ」追加要望には速さを変えず、装飾を外側だけ強める。静的1px cueと装飾の1px borderは維持し、外側2px ringを追加する。shadowは14px blurを維持し、spreadを3→9px、accent濃度を40→100%へ変更する。全CSS値を機械的に3倍にしたものではなく、知覚的な強さが厳密に3倍になったとの主張ではない。
+- opacity 0.2→0.8→0.2 / 1.5秒 / ease-in-out、透明な中心、pointer-events:noneは維持。haloはgrid gapの半分（1〜3px）まででclipし、隣の紙面へは入れない。狭小2×2やoverflow viewport端では光の広がりに物理的制約があり、文字面積を削って広げない。
+- 強度比較fixtureは同じcard・同じ自然な中間opacityで、既存のdocument.hidden通知経路を使って停止してから旧shadow CSSと新shadow CSSだけを切り替える。clock/currentTime/durationを変更せず、停止位相の一致・外側RGB差の増加・中心/隣付箋pixel差0・geometry一致を確認する。これは純style強度の比較であり、知覚倍率や実タブ非表示の試験ではない。動きそのものは別試験で自然animation timelineが1500ms以上進む一周期とopacity振幅を測定する。
 - 同じfixtureの6/24/94枚をOFF/ON対照として記録し、94枚stressの限界と通常少数条件を分ける。headless rAFは実利用端末のFPS/GPU保証ではない。
+- 強度変更後の実frame・性能結果はGitHub Actionsの `unestimated-motion-*-strength-*` / `unestimated-motion-*-performance.json` で採取する。未実行のCI結果や旧方式の数値を新しいAの性能合格として扱わない。
 - 以下の周回光の数値・trace・失敗は旧方式の経緯であり、選択済みAの性能証拠には流用しない。
 
 ## 境界を流れる光（旧方式の履歴）
