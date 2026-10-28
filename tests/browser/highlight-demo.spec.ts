@@ -137,6 +137,8 @@ async function motion(page: Page) {
 type MotionSample = {
   elapsed: number;
   time: number | null;
+  duration: number;
+  playState: AnimationPlayState;
   progress: number | null;
   name: string;
   transform: string;
@@ -158,6 +160,9 @@ async function observeNextReplay(page: Page) {
           const duration = Number(
             animation?.effect?.getComputedTiming().duration,
           );
+          const finite = Number.isFinite(
+            animation?.effect?.getComputedTiming().iterations,
+          );
           const start = performance.now(),
             samples: MotionSample[] = [];
           if (!animation || !Number.isFinite(duration)) {
@@ -173,6 +178,8 @@ async function observeNextReplay(page: Page) {
                 typeof animation.currentTime === "number"
                   ? animation.currentTime
                   : null,
+              duration,
+              playState: animation.playState,
               progress: animation.effect?.getComputedTiming().progress ?? null,
               name: css.animationName,
               transform: css.transform,
@@ -180,7 +187,15 @@ async function observeNextReplay(page: Page) {
               scaleY: matrix.d,
               opacity: Number(css.opacity),
             });
-            if (performance.now() - start >= duration + 80) resolve(samples);
+            // CSS playback can start after the click's wall clock, especially
+            // during screenshot capture. Observe its real timeline, not a sleep.
+            const last = samples.at(-1)!;
+            const complete = finite
+              ? last.playState === "finished" && last.progress === 1
+              : last.time !== null && last.time >= duration;
+            // Bound a broken/paused animation; completion assertions below must
+            // still fail rather than treating this diagnostic cap as success.
+            if (complete || performance.now() - start >= 5000) resolve(samples);
             else requestAnimationFrame(sample);
           };
           sample();
@@ -330,6 +345,9 @@ for (const theme of ["light", "dark"])
         ),
       ).toBe(true);
       expect(active.at(-1)!.time!).toBeGreaterThan(active[0].time!);
+      expect(active.at(-1)!.time!).toBeGreaterThanOrEqual(
+        active.at(-1)!.duration,
+      );
       if (variant === "halo") {
         const opacity = intermediate.map((sample) => sample.opacity);
         // The 0.2→0.8 halo must visibly breathe, not merely produce rounding noise.
@@ -337,6 +355,8 @@ for (const theme of ["light", "dark"])
           Math.max(...opacity) - Math.min(...opacity),
         ).toBeGreaterThanOrEqual(0.5);
       } else {
+        expect(samples.at(-1)?.playState).toBe("finished");
+        expect(samples.at(-1)?.progress).toBe(1);
         // Pop returns to scale(1); its two endpoint matrices can legitimately match.
         expect(
           new Set(intermediate.map((sample) => sample.transform)).size,
