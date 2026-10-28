@@ -14,6 +14,9 @@ const names = [
   "git-pull-request-draft",
   "git-pull-request-closed",
   "git-merge",
+  "issue-opened",
+  "issue-closed",
+  "skip",
 ];
 const selected = Object.fromEntries(
   names.map((name) => [

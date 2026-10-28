@@ -151,6 +151,23 @@ export async function fillEditor(page: Page, value: string) {
   await page.keyboard.insertText(value);
 }
 
+export async function chooseToolbarOption(
+  page: Page,
+  id: string,
+  value: string,
+) {
+  const index = await page
+    .locator(`#${id}`)
+    .evaluate(
+      (select: HTMLSelectElement, wanted) =>
+        [...select.options].findIndex((o) => o.value === wanted),
+      value,
+    );
+  expect(index).toBeGreaterThanOrEqual(0);
+  await page.locator(`#${id}-trigger`).click();
+  await page.locator(`#${id}-options`).getByRole("option").nth(index).click();
+}
+
 export async function renderReadHarness(page: Page) {
   await page.locator("#editor-options").click();
   await page.locator("#markdown-source").click();

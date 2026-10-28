@@ -290,7 +290,7 @@ test("actual toolbar/detail input borders and failed avatar use semantic colors"
     "border-top-color",
     "rgb(125, 141, 168)",
   );
-  await expect(page.locator("#assignee-filter")).toHaveCSS(
+  await expect(page.locator("#assignee-filter-trigger")).toHaveCSS(
     "border-top-color",
     "rgb(125, 141, 168)",
   );

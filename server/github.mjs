@@ -144,6 +144,7 @@ export function validateMutation(v) {
           "author",
           "assignees",
           "status",
+          "close",
           "storyPoints",
           "expectedStoryPoints",
           "estimateHours",
@@ -159,13 +160,15 @@ export function validateMutation(v) {
   )
     throw new ApiError(400, "invalid_fields");
   if (
-    v.status === "完了" &&
+    (v.status === "完了" || v.close === true) &&
     (!["OPEN", "CLOSED"].includes(v.expectedState) ||
       ![null, "COMPLETED", "NOT_PLANNED", "REOPENED", "DUPLICATE"].includes(
         v.expectedStateReason,
       ))
   )
     throw new ApiError(400, "invalid_precondition");
+  if ("close" in v && v.close !== true)
+    throw new ApiError(400, "invalid_close");
   if (
     typeof v.expectedFingerprint !== "string" ||
     !/^[a-f0-9]{64}$/.test(v.expectedFingerprint)
@@ -234,6 +237,7 @@ export function validateMutation(v) {
       "body",
       "assignees",
       "status",
+      "close",
       "storyPoints",
       "estimateHours",
     ].some((k) => k in v)
@@ -1384,7 +1388,7 @@ export function createHandler({
     )
       throw new ApiError(409, "conflict", { issue: current });
     if (
-      v.status === "完了" &&
+      (v.status === "完了" || v.close === true) &&
       (v.expectedState !== current.state ||
         v.expectedStateReason !== current.stateReason)
     )
@@ -1420,7 +1424,8 @@ export function createHandler({
       patch.assignees = v.assignees;
     }
     const changeStatus = "status" in v && v.status !== current.status;
-    const closeOnDone = v.status === "完了" && current.state === "OPEN";
+    const closeRequested = v.status === "完了" || v.close === true,
+      closeOpenIssue = closeRequested && current.state === "OPEN";
     let option;
     if (changeStatus) {
       if (!current.projectItemId)
@@ -1480,7 +1485,7 @@ export function createHandler({
         });
         completed.push("status");
       }
-      if (closeOnDone) {
+      if (closeOpenIssue) {
         await api(env, `/repos/${OWNER}/${REPO}/issues/${number}`, {
           method: "PATCH",
           body: { state: "closed", state_reason: "completed" },
@@ -1553,8 +1558,8 @@ export function createHandler({
           : val === actual[k],
       ) &&
       (!changeStatus || actual.status === v.status) &&
-      (v.status !== "完了" || actual.state === "CLOSED") &&
-      (!closeOnDone ||
+      (!closeRequested || actual.state === "CLOSED") &&
+      (!closeOpenIssue ||
         (actual.state === "CLOSED" && actual.stateReason === "COMPLETED")) &&
       (!changePoints || actual.storyPoints === v.storyPoints) &&
       (!changeHours || actual.estimateHours === v.estimateHours);

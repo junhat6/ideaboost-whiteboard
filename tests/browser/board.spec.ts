@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { setup, snapshot, fillEditor } from "./fixtures";
+import { setup, snapshot, fillEditor, chooseToolbarOption } from "./fixtures";
 test("six rows, four cards per cell, whole title lines, no page scroll", async ({
   page,
 }) => {
@@ -562,9 +562,9 @@ test("polling applies upstream fields, a new child and closed PBI without naviga
   await page.clock.fastForward(200);
   await page.locator("#operations").click();
   await page.clock.fastForward(300);
-  await page.locator("#assignee-filter").selectOption("new-user");
+  await chooseToolbarOption(page, "assignee-filter", "new-user");
   await expect(page.locator(".task")).toHaveCount(1);
-  await page.locator("#assignee-filter").selectOption("");
+  await chooseToolbarOption(page, "assignee-filter", "");
   await page.locator("#operations").click();
   await page.clock.fastForward(300);
   await page.locator('[data-pbi="p0"]').first().click();

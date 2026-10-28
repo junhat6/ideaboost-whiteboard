@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { setup } from "./fixtures";
+import { setup, chooseToolbarOption } from "./fixtures";
 const card = (page: Page, id = "t0-0-0") => page.locator(`[data-task="${id}"]`);
 const cell = (page: Page, status: string) =>
   page.locator(`[data-lane="p0"][data-status="${status}"]`);
@@ -417,7 +417,7 @@ test("明示milestone切替中だけdragを止め、切替後の表示と追従G
   });
   try {
     await page.locator("#operations").click();
-    await page.locator("#milestone-filter").selectOption("10");
+    await chooseToolbarOption(page, "milestone-filter", "10");
     await expect.poll(() => reads).toBe(1);
     await expect(card(page)).toHaveAttribute("draggable", "false");
     expect(f.posts()).toBe(0);
@@ -512,7 +512,7 @@ test("editor ACKとmilestone切替GETが競合しても旧選択の明示GETへ�
     await expect.poll(() => posts).toBe(1);
     await page.locator("#close-detail").click();
     await page.locator("#operations").click();
-    await page.locator("#milestone-filter").selectOption("10");
+    await chooseToolbarOption(page, "milestone-filter", "10");
     await expect.poll(() => scopes.length).toBe(1);
     save.release();
     await expect

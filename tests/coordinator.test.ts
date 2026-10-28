@@ -30,6 +30,33 @@ class MemoryLedger implements Ledger {
 }
 const write = (title = "First", id = "request_0123456789") =>
   req("/api/issues/2", patch({ title, requestId: id }));
+test("明示closeも同Issue DOを通り、結果不明の後続を永続fenceで停止する", async () => {
+  const upstream = fixture({ closeUncertain: true }),
+    ledger = new MemoryLedger(),
+    coordinator = new MutationCoordinator(ledger, (r) =>
+      upstream.newHandler()(r, env),
+    );
+  const input = patch({ close: true });
+  delete (input as any).title;
+  const first = await coordinator.fetch(req("/api/issues/2", input));
+  assert.equal(first.status, 502);
+  assert.equal(((await first.json()) as any).ambiguous, true);
+  const restarted = new MutationCoordinator(ledger, (r) =>
+    upstream.newHandler()(r, env),
+  );
+  const next = await restarted.fetch(
+    req("/api/issues/2", {
+      ...input,
+      requestId: "close_next_123456789",
+    }),
+  );
+  assert.equal(next.status, 409);
+  assert.equal(
+    ((await next.json()) as any).error,
+    "mutation_outcome_unresolved",
+  );
+  assert.equal(upstream.calls.filter((c) => c.method === "PATCH").length, 1);
+});
 test("two separate Worker handlers share issue coordinator: first succeeds, second conflicts", async () => {
   const upstream = fixture();
   const storage = new MemoryLedger();

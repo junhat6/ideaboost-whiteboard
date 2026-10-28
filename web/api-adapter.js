@@ -186,7 +186,7 @@
             body: JSON.stringify({
               ...patch,
               expectedRevision,
-              ...(patch.status === "完了"
+              ...(patch.status === "完了" || patch.close === true
                 ? {
                     expectedState: old.state,
                     expectedStateReason: old.stateReason ?? null,
@@ -209,7 +209,11 @@
           if (
             !data.issue ||
             data.issue.id !== id ||
-            data.issue.number !== old.number
+            data.issue.number !== old.number ||
+            (patch.close === true &&
+              (data.issue.state !== "CLOSED" ||
+                (old.state === "OPEN" &&
+                  data.issue.stateReason !== "COMPLETED")))
           ) {
             const e = new Error(
               "保存結果を確認できません。再送せず、最新を取得してください。",

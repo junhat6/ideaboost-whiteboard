@@ -68,6 +68,13 @@
                 stroke-linecap="round"
               />
             </svg></button
+          ><button
+            id="highlight-demo-open"
+            type="button"
+            aria-label="未見積強調のデモを比較"
+            data-tooltip="未見積強調のデモを比較"
+          >
+            強調デモ</button
           ><button id="refresh">最新を取得</button
           ><button
             id="fullscreen"
@@ -207,6 +214,21 @@
             >
               <path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" />
             </svg>
+          </button>
+        </div>
+        <div class="issue-state-row">
+          <span
+            id="issue-state"
+            class="issue-state"
+            aria-label="GitHub Issueの状態"
+          ></span>
+          <button
+            type="button"
+            id="close-issue"
+            class="issue-state-close"
+            hidden
+          >
+            Issueをクローズ
           </button>
         </div>
         <div class="editor-statusbar">

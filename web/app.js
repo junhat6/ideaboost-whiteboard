@@ -32,6 +32,7 @@ const people = { a: "デモ A", b: "デモ B", c: "デモ C", none: "未割り�
 const initial = { lanes: [], tasks: [] };
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const $ = (s) => document.querySelector(s);
+let toolbarSelects = null;
 const esc = (s) =>
   String(s ?? "").replace(
     /[&<>"']/g,
@@ -822,6 +823,12 @@ function focusSelector(element) {
   return null;
 }
 function renderInitial() {
+  $("#assignee-filter").innerHTML = '<option value="">担当者：全員</option>';
+  $("#assignee-filter").disabled = true;
+  $("#milestone-filter").replaceChildren();
+  $("#milestone-filter").hidden = true;
+  toolbarSelects?.close();
+  toolbarSelects?.sync();
   $("#sync-warning").hidden = true;
   const height = $("#board-scroll").clientHeight;
   $("#board").style.setProperty("--rows", 6);
@@ -862,6 +869,7 @@ function beginConnection() {
 function syncAssigneeFilter() {
   const select = $("#assignee-filter"),
     chosen = select.value;
+  select.disabled = false;
   const users = new Map(
     [
       ...(state.assigneeOptions || []),
@@ -875,7 +883,7 @@ function syncAssigneeFilter() {
     [...users.values()]
       .map(
         (a) =>
-          `<option value="${esc(a.login)}">${esc(a.name || a.login)}</option>`,
+          `<option value="${esc(a.login)}" data-login="${esc(a.login)}" data-avatar="${esc(a.avatarUrl || "")}">${esc(a.name || a.login)}</option>`,
       )
       .join("");
   if (select.innerHTML !== html) {
@@ -1052,15 +1060,14 @@ function render() {
   if ($("#milestone-filter").innerHTML !== milestoneOptions)
     $("#milestone-filter").innerHTML = milestoneOptions;
   $("#milestone-filter").value = selectedMilestone;
+  toolbarSelects?.sync();
   const displayed = selectedLanes();
   $("#choose-pbis").textContent = `▦ ${displayed.length} / ${MAX_PBIS}`;
   $("#choose-pbis").disabled = pending || loading || editMode;
   const tasks = matching(),
     height = $("#board-scroll").clientHeight,
     maxRows =
-      $("#fit-mode").value === "pages"
-        ? Math.max(1, Math.floor((height - 44) / 190))
-        : Math.max(1, displayed.length),
+      $("#fit-mode").value === "pages" ? 3 : Math.max(1, displayed.length),
     pages = Math.max(1, Math.ceil(displayed.length / maxRows));
   page = Math.min(page, pages - 1);
   const lanes = displayed.slice(page * maxRows, (page + 1) * maxRows),
@@ -1381,10 +1388,13 @@ function setEdit() {
 }
 function syncEditorControls() {
   const retryCompletion =
-    activeSave()?.retryReady === true && editorDraft().status === "完了";
+    activeSave()?.retryReady === true &&
+    activeSave()?.patch.close !== true &&
+    editorDraft().status === "完了";
   const dirty = editMode || composing || retryCompletion;
   $("#save-issue").disabled =
     !dirty ||
+    activeSave()?.patch.close === true ||
     editorBusy ||
     composing ||
     detailUnavailable ||
@@ -1422,6 +1432,73 @@ function syncEditorControls() {
   renderDetailChoices();
   renderPointsChoices();
   renderHoursInput();
+  renderIssueState();
+}
+function canCloseIssue() {
+  const job = activeSave();
+  return !!(
+    editing &&
+    adapter &&
+    editorLatest?.state === "OPEN" &&
+    !editorBusy &&
+    !composing &&
+    !snapshotPending &&
+    !detailUnavailable &&
+    !editorOutcome &&
+    !Object.keys(editorConflicts).length &&
+    (!job || (job.retryReady && job.patch.close === true))
+  );
+}
+function renderIssueState() {
+  const badge = $("#issue-state"),
+    button = $("#close-issue"),
+    item = editorLatest,
+    job = activeSave();
+  if (!item) {
+    badge.replaceChildren();
+    delete badge.dataset.stateKey;
+    badge.className = "issue-state";
+    badge.setAttribute("aria-label", "GitHub Issueの状態");
+    button.hidden = true;
+    button.disabled = true;
+    button.textContent = "Issueをクローズ";
+    button.setAttribute("aria-busy", "false");
+    return;
+  }
+  const open = item?.state === "OPEN",
+    closed = item?.state === "CLOSED",
+    completed = closed && item.stateReason === "COMPLETED";
+  const reason = {
+    COMPLETED: "完了",
+    NOT_PLANNED: "見送り",
+    DUPLICATE: "重複",
+  }[item?.stateReason];
+  const label = open
+    ? "Open"
+    : closed
+      ? `Closed${reason ? ` · ${reason}` : ""}`
+      : "状態未確認";
+  const icon = open ? "issue-opened" : completed ? "issue-closed" : "skip";
+  const key = `${item?.state}:${item?.stateReason}`;
+  if (badge.dataset.stateKey !== key) {
+    badge.dataset.stateKey = key;
+    badge.className = `issue-state ${open ? "issue-state-open" : completed ? "issue-state-completed" : "issue-state-closed"}`;
+    badge.innerHTML = `${open || closed ? iconMarkup(icon) : ""}<span>${esc(label)}</span>`;
+    badge.setAttribute("aria-label", `GitHub Issue: ${label}`);
+  }
+  button.hidden = !open;
+  button.disabled = !canCloseIssue();
+  button.textContent =
+    job?.patch.close && job.phase === "posting"
+      ? "クローズ中…"
+      : job?.patch.close && job.retryReady
+        ? "クローズを再試行"
+        : "Issueをクローズ";
+  button.title = "完了としてクローズします。Project Statusは変更しません。";
+  button.setAttribute(
+    "aria-busy",
+    String(job?.patch.close === true && job.phase === "posting"),
+  );
 }
 function setComposition(value) {
   composing = value;
@@ -2426,6 +2503,7 @@ function stopPrivateScope(message) {
   editorBody = "";
   editorBaseline = null;
   editorLatest = null;
+  renderIssueState();
   editMode = false;
   composing = false;
   commentComposing = false;
@@ -2965,6 +3043,21 @@ $("#cancel-edit").onclick = () => {
   syncEditorControls();
 };
 $("#close-detail").onclick = closeDetail;
+$("#close-issue").onclick = () => {
+  if (
+    !$("#details").open ||
+    $("#details").classList.contains("closing") ||
+    !canCloseIssue()
+  )
+    return;
+  void startIssueSave(
+    { ...editing },
+    clone(editorLatest),
+    clone(editorDraft()),
+    { close: true },
+    adapter,
+  );
+};
 $("#details").addEventListener("click", (e) => {
   if (e.target !== $("#details")) return;
   const bounds = $("#details").getBoundingClientRect();
@@ -3000,6 +3093,7 @@ $("#detail-form").onsubmit = async (e) => {
     composing ||
     editorBusy ||
     editorOutcome ||
+    activeSave()?.patch.close === true ||
     detailUnavailable ||
     Object.keys(editorConflicts).length ||
     (issueSaves.has(editing.id) && !activeSave()?.retryReady)
@@ -3084,7 +3178,7 @@ async function startIssueSave(
         : baseline,
     ),
     phase: "posting",
-    closeIntent: patch.status === "完了",
+    closeIntent: patch.status === "完了" || patch.close === true,
     requestId: crypto.randomUUID(),
   };
   mutationEpoch++;
@@ -3115,7 +3209,7 @@ async function startIssueSave(
       for (const key of Object.keys(patch))
         if (equalField(patch[key], fieldValue(baseline, key)))
           delete patch[key];
-      job.closeIntent = patch.status === "完了";
+      job.closeIntent = patch.status === "完了" || patch.close === true;
       if (!Object.keys(patch).length) {
         issueSaves.delete(target.id);
         if (isCurrent()) updateDirty();
@@ -3165,7 +3259,11 @@ async function startIssueSave(
     const current = issue(target.kind, target.id);
     if (current) Object.assign(current, result);
     if (dragOrigin) announce("接続先の保存結果を確認しました");
-    if (Object.hasOwn(patch, "estimateHours") || Object.hasOwn(patch, "status"))
+    if (
+      Object.hasOwn(patch, "estimateHours") ||
+      Object.hasOwn(patch, "status") ||
+      patch.close === true
+    )
       burnPanel?.refresh();
     if (
       Object.hasOwn(result, "storyPoints") &&
@@ -3178,7 +3276,8 @@ async function startIssueSave(
     }
     issueSaves.delete(target.id);
     if (isCurrent()) {
-      for (const key of Object.keys(patch)) setBaseField(key, draft[key]);
+      for (const key of Object.keys(patch))
+        if (editorFields.includes(key)) setBaseField(key, draft[key]);
       editorPosting = false;
       editorBusy = false;
       editorOutcome = null;
@@ -3307,14 +3406,27 @@ $("#fit-mode").onchange = () => {
   page = 0;
   render();
 };
-$("#prev-page").onclick = () => {
-  page--;
+function stepBoardPage(direction) {
+  const button = direction < 0 ? $("#prev-page") : $("#next-page");
+  if ($("#fit-mode").value !== "pages" || button.disabled) return false;
+  page += direction < 0 ? -1 : 1;
   render();
-};
-$("#next-page").onclick = () => {
-  page++;
-  render();
-};
+  return true;
+}
+$("#prev-page").onclick = () => stepBoardPage(-1);
+$("#next-page").onclick = () => stepBoardPage(1);
+void import("./page-navigation.js")
+  .then(({ attachPageNavigation }) =>
+    attachPageNavigation({
+      board: $("#board"),
+      enabled: () => $("#fit-mode").value === "pages",
+      blocked: () => !!(dragged || $("#details").open || pickerDraft || pending || loading),
+      step: stepBoardPage,
+    }),
+  )
+  .catch(() => {
+    // Previous/next buttons remain usable if the optional gesture module fails.
+  });
 $("#show-deferred").onclick = () => openList(null, "見送り");
 $("#show-unmapped").onclick = () => openList(null, "未分類");
 function burnScopeKey(board) {
@@ -3454,7 +3566,7 @@ $("#recover-edit").onclick = async () => {
     const job = activeSave();
     if (job?.closeIntent && editorOutcome.uncertain) {
       $("#detail-error").textContent =
-        "完了処理の結果が不明です。再送せず、管理者による保存結果の確認が必要です。";
+        `${job.patch.close ? "クローズ" : "完了処理"}の結果が不明です。再送せず、管理者による保存結果の確認が必要です。`;
       $("#detail-error").hidden = false;
       editorBusy = false;
       syncEditorControls();
@@ -3466,7 +3578,9 @@ $("#recover-edit").onclick = async () => {
       job.retryReady = true;
       job.outcome = null;
       job.error =
-        "Statusの変更後、Issueを閉じる処理が完了していません。確認後に「完了処理を再試行」を押してください。";
+        job.patch.close
+          ? "Issueのクローズが完了していません。確認後に「クローズを再試行」を押してください。"
+          : "Statusの変更後、Issueを閉じる処理が完了していません。確認後に「完了処理を再試行」を押してください。";
       editorOutcome = null;
       $("#detail-error").textContent = job.error;
       $("#detail-error").hidden = false;
@@ -3499,6 +3613,7 @@ $("#milestone-filter").onchange = async () => {
   const previous = selectedMilestone;
   if (!(await refreshBoard({ milestone: $("#milestone-filter").value })))
     $("#milestone-filter").value = String(previous);
+  toolbarSelects?.sync();
 };
 
 $("#choose-pbis").onclick = openPicker;
@@ -3536,6 +3651,7 @@ function syncControls() {
   $("#operations").setAttribute("aria-expanded", String(open));
 }
 function dismissControls() {
+  toolbarSelects?.close();
   controlsHoverBlocked = controlsHoverBlocked || controlsHovered;
   controlsPinned = false;
   controlsHovered = false;
@@ -3716,7 +3832,7 @@ document.addEventListener("keydown", (e) => {
   )
     return;
   const writing = (node) =>
-    node?.closest?.("input,textarea,select,[contenteditable],.cm-editor");
+    node?.closest?.("input,textarea,select,[role=combobox],[contenteditable],.cm-editor");
   if (writing(e.target) || writing(document.activeElement)) return;
   const button = $("#highlight-unestimated");
   if (button.hidden || button.disabled) return;
@@ -3738,7 +3854,7 @@ document.addEventListener("keydown", (e) => {
   )
     return;
   const writing = (node) =>
-    node?.closest?.("input,textarea,select,[contenteditable],.cm-editor");
+    node?.closest?.("input,textarea,select,[role=combobox],[contenteditable],.cm-editor");
   if (writing(e.target) || writing(document.activeElement)) return;
   e.preventDefault();
   $("#fullscreen").click();
@@ -3937,8 +4053,58 @@ $("#theme").onclick = () => {
   } catch {}
 };
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !document.querySelector("dialog[open]"))
+  if (e.key === "Escape" && !document.querySelector("dialog[open]")) {
+    if (demoPending) cancelDemoOpening();
     dismissControls();
+  }
+});
+
+// Small progressive enhancement: never waits for remote data or delays the board.
+void import("./toolbar-select.js")
+  .then(({ enhanceToolbarSelects }) => {
+    toolbarSelects = enhanceToolbarSelects([
+      $("#assignee-filter"), $("#milestone-filter"), $("#fit-mode"),
+    ]);
+  })
+  .catch(() => {}); // Native selectors remain fully usable if the module fails.
+
+let highlightDemo = null, demoModule = null, demoIntent = 0, demoPending = false;
+function cancelDemoOpening() {
+  demoIntent++;
+  demoPending = false;
+  highlightDemo?.close();
+  $("#highlight-demo-open").removeAttribute("aria-busy");
+}
+$("#highlight-demo-open").onclick = async () => {
+  const ticket = ++demoIntent;
+  demoPending = true;
+  $("#highlight-demo-open").setAttribute("aria-busy", "true");
+  toolbarSelects?.close();
+  try {
+    demoModule ||= import("./highlight-demo.js");
+    const { mountHighlightDemo } = await demoModule;
+    if (ticket !== demoIntent || document.querySelector("dialog[open]")) return;
+    highlightDemo ||= mountHighlightDemo({ onClose: () => {
+      controlsPinned = true;
+      syncControls();
+    } });
+    await highlightDemo.open($("#highlight-demo-open"));
+  } catch {
+    demoModule = null;
+    if (ticket === demoIntent) announce("デモを開けませんでした。もう一度お試しください。");
+  } finally {
+    if (ticket === demoIntent) {
+      demoPending = false;
+      $("#highlight-demo-open").removeAttribute("aria-busy");
+    }
+  }
+};
+document.addEventListener("pointerdown", e => {
+  if (demoPending && !e.target.closest("#highlight-demo-open, #highlight-demo"))
+    cancelDemoOpening();
+}, true);
+$("#highlight-demo-open").addEventListener("blur", () => {
+  if (demoPending && !highlightDemo?.isOpen()) cancelDemoOpening();
 });
 
 // Conventional icons retain explicit names and keyboard focus, without permanent prose.
