@@ -202,6 +202,75 @@ async function frame(target: Locator, path: string) {
   // Never disable animation or seek currentTime: these pixels reflect real elapsed time.
   return target.screenshot({ path, animations: "allow", scale: "css" });
 }
+async function sampleFrameTime(page: Page) {
+  // Identical wall-clock rAF sampling for OFF and ON; no screenshot, seek, API
+  // request or FPS threshold is introduced during either measurement window.
+  const sample = await page.evaluate(
+    () =>
+      new Promise<{
+        durations: number[];
+        activeAnimations: number;
+        visibleCards: number;
+      }>((resolve) => {
+        const stamps: number[] = [];
+        const tick = (time: number) => {
+          stamps.push(time);
+          if (stamps.length < 61) return requestAnimationFrame(tick);
+          resolve({
+            durations: stamps
+              .slice(1)
+              .map((stamp, index) => stamp - stamps[index]),
+            activeAnimations: document
+              .getAnimations()
+              .filter(
+                (animation) =>
+                  (animation as CSSAnimation).animationName ===
+                    "unestimated-orbit" && animation.playState === "running",
+              ).length,
+            visibleCards: document.querySelectorAll(
+              ".unestimated-highlight.unestimated-visible",
+            ).length,
+          });
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+  expect(sample.durations).toHaveLength(60);
+  expect(
+    sample.durations.every(
+      (duration) => Number.isFinite(duration) && duration > 0,
+    ),
+  ).toBe(true);
+  const sorted = [...sample.durations].sort((a, b) => a - b);
+  return {
+    ...sample,
+    mean:
+      sample.durations.reduce((sum, duration) => sum + duration, 0) /
+      sample.durations.length,
+    p50: sorted[Math.floor(sorted.length * 0.5)],
+    p95: sorted[Math.floor(sorted.length * 0.95)],
+    max: sorted.at(-1)!,
+  };
+}
+function summarizeFrameWindows(
+  samples: Awaited<ReturnType<typeof sampleFrameTime>>[],
+) {
+  const durations = samples.flatMap((sample) => sample.durations),
+    sorted = [...durations].sort((a, b) => a - b);
+  return {
+    samples,
+    sampleCount: samples.length,
+    activeAnimations: Math.max(
+      ...samples.map((sample) => sample.activeAnimations),
+    ),
+    visibleCards: Math.max(...samples.map((sample) => sample.visibleCards)),
+    mean:
+      durations.reduce((sum, duration) => sum + duration, 0) / durations.length,
+    p50: sorted[Math.floor(sorted.length * 0.5)],
+    p95: sorted[Math.floor(sorted.length * 0.95)],
+    max: sorted.at(-1)!,
+  };
+}
 
 for (const appearance of ["light", "dark"])
   test(`${appearance}の6PBI・2×2で紙面geometryを変えず境界の光が実時間で移動する`, async ({
@@ -213,6 +282,15 @@ for (const appearance of ["light", "dark"])
       before = await geometry(page),
       requests = f.requests.length;
     const offFrame = await frame(card(page), `${stem}-off.png`);
+    await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+    const baseline = summarizeFrameWindows([
+      await sampleFrameTime(page),
+      await sampleFrameTime(page),
+    ]);
+    for (const sample of baseline.samples) {
+      expect(sample.activeAnimations).toBe(0);
+      expect(sample.visibleCards).toBe(0);
+    }
     const port = card(page).locator(
       "xpath=ancestor::*[contains(@class,'cell-viewport')]",
     );
@@ -271,47 +349,26 @@ for (const appearance of ["light", "dark"])
     expect(firstDiff.center).toBe(0);
     expect(secondDiff.center).toBe(0);
     await writeFile(`${stem}-diff.png`, firstDiff.image);
-    const performance = await page.evaluate(
-      () =>
-        new Promise<{
-          durations: number[];
-          activeAnimations: number;
-          visibleCards: number;
-        }>((resolve) => {
-          const stamps: number[] = [];
-          const sample = (time: number) => {
-            stamps.push(time);
-            if (stamps.length < 61) return requestAnimationFrame(sample);
-            resolve({
-              durations: stamps
-                .slice(1)
-                .map((stamp, index) => stamp - stamps[index]),
-              activeAnimations: document
-                .getAnimations()
-                .filter(
-                  (animation) =>
-                    (animation as CSSAnimation).animationName ===
-                      "unestimated-orbit" && animation.playState === "running",
-                ).length,
-              visibleCards: document.querySelectorAll(
-                ".unestimated-highlight.unestimated-visible",
-              ).length,
-            });
-          };
-          requestAnimationFrame(sample);
-        }),
-    );
-    expect(performance.durations).toHaveLength(60);
-    expect(
-      performance.durations.every(
-        (duration) => Number.isFinite(duration) && duration > 0,
+    const performance = summarizeFrameWindows([
+      await sampleFrameTime(page),
+      await sampleFrameTime(page),
+    ]);
+    for (const sample of performance.samples) {
+      expect(sample.activeAnimations).toBeGreaterThan(0);
+      expect(sample.activeAnimations).toBeLessThanOrEqual(sample.visibleCards);
+    }
+    const onOverOff = Object.fromEntries(
+        (["mean", "p50", "p95", "max"] as const).map((key) => [
+          key,
+          performance[key] / baseline[key],
+        ]),
       ),
-    ).toBe(true);
-    expect(performance.activeAnimations).toBeGreaterThan(0);
-    expect(performance.activeAnimations).toBeLessThanOrEqual(
-      performance.visibleCards,
-    );
-    const sorted = [...performance.durations].sort((a, b) => a - b),
+      offOverOn = Object.fromEntries(
+        (["mean", "p50", "p95", "max"] as const).map((key) => [
+          key,
+          baseline[key] / performance[key],
+        ]),
+      ),
       metrics = {
         viewport: page.viewportSize(),
         appearance,
@@ -319,11 +376,9 @@ for (const appearance of ["light", "dark"])
         pixelDiff: [firstDiff, secondDiff].map(
           ({ boundary, center, total }) => ({ boundary, center, total }),
         ),
-        frameTimeProxy: {
-          ...performance,
-          p95: sorted[Math.floor(sorted.length * 0.95)],
-          max: sorted.at(-1),
-        },
+        frameTimeProxy: performance,
+        frameTimeBaseline: baseline,
+        frameTimeComparison: { onOverOff, offOverOn },
         geometryUnchanged: true,
         paperPixels: paper,
       };
