@@ -55,6 +55,9 @@ colors:
   dark-ink: "#eceef3"
   dark-muted: "#b7bfcc"
   dark-line: "#424b5b"
+  dark-issue-state-open: "#7ee787"
+  dark-issue-state-completed: "#bc8cff"
+  dark-issue-state-closed: "{colors.dark-muted}"
 typography:
   title:
     fontFamily: system-ui, -apple-system, BlinkMacSystemFont, Hiragino Kaku Gothic ProN, Yu Gothic, Meiryo, sans-serif
@@ -298,3 +301,5 @@ PBI配下の非PBI Issueに任意の見積時間（h）を持つ。種類名を�
 詳細上端のIssue番号は16pxの文字だけのnative buttonとし、追加アイコン・説明tooltipは置かない。表示番号と一致する固定repoのcanonical Issue URLだけをクリック/Enter/Spaceでコピーする。URL未確認は無効化してariaで伝え、clipboard成功後だけ番号の横に一時的なチェックと「コピーしました」をdialog内live statusで2秒表示し、拒否時も同じ場所で失敗を伝える。常設コピーアイコンは追加せず、番号・×・見出しの位置は変えない。再クリックで表示timerを更新し、Issue切替/close/公開失効/接続変更で通知と旧完了の所有権を即消去する。古い接続元・drawer sessionの完了通知は新しいIssueへ出さず、追加APIは呼ばない。
 
 詳細のIssue stateはboardが持つcanonical GitHub state/stateReasonのみを用い、Project Statusから推測しない。Openはgreen、Closed completedはpurple、not-planned/duplicateはneutral、未知は「状態未確認」。付箋へ状態badgeを戻さない。Open/Closed表示はheaderに残し、Openの時だけ「Issueをクローズ」を詳細最下部の左寄せ・低強調の独立行へ出す。コメント投稿とは別行で32px離し、隣接する二者択一に見せない。チェック入り円の既存Closedアイコン、淡い紫の面と枠・濃い紫の文字で、青い投稿primaryとは別の完了操作として示す。高さ36px、keyboard focusを保ち、送信中/再試行でもiconと文言を維持する。赤いdanger表現や追加アニメーション/APIは用いない。クローズ時に未保存本文・タイトル・Project Statusを便乗送信しない。既存のIssue単位保存queue/DO/request ID/revision/fingerprintと公開scope guardを通り、state/reasonもpreflight比較する。POST中は同Issueの追加closeを止めるがdrawerは閉じられる。成功のcanonical CLOSED/COMPLETEDを確認してから表示し、失敗・競合・結果不明は保持して勝手に再送しない。状態確認GETだけで未知結果のfenceを解除せず、公開失効時は古いstate DOMも消す。既存Done→close、他Issue並行保存、未見積の確認済null・0h区別は変更しない。
+
+headerの13px Issue state文字・icon・輪郭はdark専用の局所tokenを使い、Open #7ee787／completed #bc8cff／neutral・状態未確認 #b7bfccとする。dark surface #232730との文字contrastは順に9.73／5.93／8.07:1。ライトの既存green／purple／gray、Project Status共通token、下部の独立したClose actionの配色は変更しない。canonical文言・iconを残し、色だけで状態を伝えない。

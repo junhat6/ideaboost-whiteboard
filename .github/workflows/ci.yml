@@ -14,6 +14,16 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
+      - name: Verify canonical Issue state contrast in both themes
+        run: npx playwright test tests/browser/issue-state-contrast.spec.ts --workers=1 --max-failures=0
+      - name: Keep focused synthetic Issue state contrast evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: synthetic-issue-state-contrast-focus
+          path: test-results/issue-state-contrast-*.png
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Verify saved observation dates and independent Sprint refresh
         run: npx playwright test tests/browser/burndown-observation-visibility.spec.ts --workers=1 --max-failures=0
       - name: Keep focused synthetic observation visibility evidence

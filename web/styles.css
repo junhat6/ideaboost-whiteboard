@@ -3372,13 +3372,18 @@ input[type="checkbox"] {
   fill: currentColor;
 }
 .issue-state-open {
-  color: var(--status-green);
+  color: var(--issue-state-open, var(--status-green));
 }
 .issue-state-completed {
-  color: var(--status-purple);
+  color: var(--issue-state-completed, var(--status-purple));
 }
 .issue-state-closed {
-  color: var(--status-gray);
+  color: var(--issue-state-closed, var(--status-gray));
+}
+[data-theme="dark"] .issue-state {
+  --issue-state-open: #7ee787;
+  --issue-state-completed: #bc8cff;
+  --issue-state-closed: var(--muted);
 }
 .issue-state-close {
   --issue-close-ink: #6940b3;
