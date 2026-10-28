@@ -1451,6 +1451,7 @@ function canCloseIssue() {
   );
 }
 function renderIssueState() {
+  renderDetailIssueNumber();
   const badge = $("#issue-state"),
     button = $("#close-issue"),
     item = editorLatest,
@@ -1551,6 +1552,54 @@ function canonicalIssueUrl(t) {
     return null;
   }
 }
+function detailIssueCopyUrl() {
+  const item = editorLatest;
+  if (!adapter || !Number.isSafeInteger(item?.number) || item.number < 1)
+    return null;
+  const url = canonicalIssueUrl(item);
+  return url === `https://github.com/engineer-first/idea-boost/issues/${item.number}`
+    ? url
+    : null;
+}
+function renderDetailIssueNumber() {
+  const button = $("#detail-meta"),
+    label = editorLatest ? issueLabel(editorLatest) : "Issue",
+    url = detailIssueCopyUrl();
+  button.textContent = label;
+  button.disabled = !url;
+  button.setAttribute(
+    "aria-label",
+    url
+      ? `${label} のリンクをコピー`
+      : `${label}（リンク未確認のためコピーできません）`,
+  );
+}
+let detailCopySequence = 0;
+$("#detail-meta").onclick = async () => {
+  if (!$("#details").open || $("#details").classList.contains("closing")) return;
+  const url = detailIssueCopyUrl();
+  if (!url) {
+    announce("IssueのURLを確認できないためコピーできません。");
+    return;
+  }
+  const source = adapter,
+    session = editorSession,
+    sequence = ++detailCopySequence,
+    number = editorLatest.number;
+  const current = () =>
+    source === adapter &&
+    session === editorSession &&
+    sequence === detailCopySequence &&
+    $("#details").open &&
+    !$("#details").classList.contains("closing") &&
+    detailIssueCopyUrl() === url;
+  try {
+    await navigator.clipboard.writeText(url);
+    if (current()) announce(`#${number} のリンクをコピーしました。`);
+  } catch {
+    if (current()) announce("リンクをコピーできませんでした。");
+  }
+};
 const statusPalette = {
   GRAY: "var(--status-gray)",
   BLUE: "var(--status-blue)",
@@ -2054,7 +2103,6 @@ function fillDetailFields() {
   const url = canonicalIssueUrl(t);
   if (url) $("#detail-heading").href = url;
   else $("#detail-heading").removeAttribute("href");
-  $("#detail-meta").textContent = issueLabel(t);
   $("#detail-status").innerHTML = rawStatuses
     .map((s) => `<option>${esc(s)}</option>`)
     .join("");

@@ -169,7 +169,13 @@
     <dialog id="details" class="detail-dialog" aria-labelledby="detail-heading">
       <form id="detail-form">
         <div class="dialog-top">
-          <span class="section-kicker" id="detail-meta"></span
+          <button
+            type="button"
+            class="section-kicker"
+            id="detail-meta"
+            aria-label="Issueのリンクをコピー"
+            disabled
+          ></button
           ><button
             type="button"
             id="close-detail"
@@ -222,14 +228,6 @@
             class="issue-state"
             aria-label="GitHub Issueの状態"
           ></span>
-          <button
-            type="button"
-            id="close-issue"
-            class="issue-state-close"
-            hidden
-          >
-            Issueをクローズ
-          </button>
         </div>
         <div class="editor-statusbar">
           <div class="detail-context">
@@ -389,6 +387,11 @@
           </div>
         </form>
       </section>
+      <div class="detail-footer">
+        <button type="button" id="close-issue" class="issue-state-close" hidden>
+          Issueをクローズ
+        </button>
+      </div>
     </dialog>
     <dialog id="list-dialog" aria-labelledby="list-heading">
       <div class="dialog-top">

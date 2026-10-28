@@ -1437,9 +1437,18 @@ dialog dt,
   margin-bottom: 8px;
 }
 .detail-dialog #detail-meta {
-  font-size: 11px;
-  letter-spacing: 0.05em;
+  min-height: 32px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: 0.03em;
   color: var(--muted);
+}
+.detail-dialog #detail-meta:disabled {
+  opacity: 1;
 }
 .issue-heading-row {
   display: flex;
@@ -1764,6 +1773,9 @@ dialog dt,
   border-radius: 50%;
 }
 .comment-content {
+  width: 100%;
+  max-width: 100ch;
+  min-width: 0;
   font-size: 16px;
   line-height: 1.85;
   overflow-wrap: anywhere;
@@ -2310,8 +2322,7 @@ dialog dt,
 #markdown-editor .cm-content {
   max-width: 120ch;
 }
-#detail-body-view > p,
-.comment-content > p {
+#detail-body-view > p {
   max-width: 100ch;
 }
 
@@ -3334,6 +3345,18 @@ input[type="checkbox"] {
   min-height: 32px;
   padding: 5px 10px;
   font-size: 13px;
+}
+.detail-footer {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 32px;
+}
+.detail-footer:has(#close-issue[hidden]) {
+  display: none;
+}
+.detail-footer .issue-state-close {
+  color: var(--muted);
+  background: transparent;
 }
 
 /* Toolbar selectors: rich presentation, unchanged native value/change contract. */
