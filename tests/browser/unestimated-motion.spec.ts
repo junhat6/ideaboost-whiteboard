@@ -10,6 +10,21 @@ const { PNG } = createRequire(import.meta.url)(
 const card = (page: Page, id = "t0-0-0") => page.locator(`[data-task="${id}"]`);
 const toggle = (page: Page) => page.locator("#highlight-unestimated");
 const orbit = "unestimated-orbit";
+type OrbitSample = {
+  elapsed: number;
+  currentTime: number;
+  progress: number;
+  iteration: number;
+  transform: string;
+  x: number;
+  y: number;
+  angle: number;
+  positionError: number;
+  angleError: number;
+  linearSpeedLimit: number;
+  width: number;
+  height: number;
+};
 
 async function ready(page: Page, allEligible = false) {
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -98,7 +113,7 @@ async function motion(target: Locator) {
     return {
       name: style.animationName,
       playState: style.animationPlayState,
-      offsetDistance: style.offsetDistance,
+      transform: style.transform,
       currentTime:
         animation && typeof animation.currentTime === "number"
           ? animation.currentTime
@@ -107,6 +122,101 @@ async function motion(target: Locator) {
       outline: getComputedStyle(element).outlineWidth,
     };
   });
+}
+async function sampleOrbitPath(target: Locator) {
+  // Observe a whole real-time circuit without seeking, pausing, or rewriting CSS.
+  // Dense rAF readings cover the short corners between the ten PNG captures.
+  return target.evaluate(
+    (element) =>
+      new Promise<OrbitSample[]>((resolve, reject) => {
+        const span = element.querySelector(".unestimated-motion")!,
+          animation = element
+            .getAnimations({ subtree: true })
+            .find(
+              (value) =>
+                (value as CSSAnimation).animationName === "unestimated-orbit",
+            );
+        const samples: OrbitSample[] = [],
+          begin = performance.now();
+        const tick = () => {
+          const style = getComputedStyle(span, "::after"),
+            timing = animation?.effect?.getComputedTiming();
+          if (
+            !animation ||
+            typeof animation.currentTime !== "number" ||
+            typeof timing?.progress !== "number" ||
+            typeof timing.currentIteration !== "number"
+          ) {
+            reject(new Error("Expected a running CSS orbit to observe"));
+            return;
+          }
+          const matrix = new DOMMatrixReadOnly(style.transform),
+            { width, height } = span.getBoundingClientRect(),
+            inset = parseFloat(style.getPropertyValue("--u-inset")),
+            radius = parseFloat(style.getPropertyValue("--u-radius")),
+            diagonal = radius * (1 - Math.SQRT1_2),
+            left = inset,
+            right = width - inset,
+            top = inset,
+            bottom = height - inset,
+            // Independent coordinates describe the beam CENTER, not its
+            // transform origin. Each corner and the loop endpoints are joined.
+            stops = [
+              [0, left + radius, top, 0],
+              [0.34, right - radius, top, 0],
+              [0.35, right - diagonal, top + diagonal, 45],
+              [0.36, right, top + radius, 90],
+              [0.48, right, bottom - radius, 90],
+              [0.49, right - diagonal, bottom - diagonal, 135],
+              [0.5, right - radius, bottom, 180],
+              [0.84, left + radius, bottom, 180],
+              [0.85, left + diagonal, bottom - diagonal, 225],
+              [0.86, left, bottom - radius, 270],
+              [0.98, left, top + radius, 270],
+              [0.99, left + diagonal, top + diagonal, 315],
+              [1, left + radius, top, 360],
+            ],
+            next = stops.findIndex(
+              (stop, index) => index > 0 && stop[0] >= timing.progress!,
+            ),
+            start = stops[next - 1],
+            end = stops[next],
+            fraction = (timing.progress - start[0]) / (end[0] - start[0]),
+            expected = start
+              .slice(1)
+              .map(
+                (value, index) => value + (end[index + 1] - value) * fraction,
+              ),
+            x = matrix.m41 + parseFloat(style.width) / 2,
+            y = matrix.m42 + parseFloat(style.height) / 2,
+            rawAngle = (Math.atan2(matrix.m12, matrix.m11) * 180) / Math.PI,
+            angle = rawAngle + Math.round((expected[2] - rawAngle) / 360) * 360;
+          samples.push({
+            elapsed: performance.now() - begin,
+            currentTime: animation.currentTime,
+            progress: timing.progress,
+            iteration: timing.currentIteration,
+            transform: style.transform,
+            x,
+            y,
+            angle: angle + timing.currentIteration * 360,
+            positionError: Math.hypot(x - expected[0], y - expected[1]),
+            angleError: Math.abs(angle - expected[2]),
+            linearSpeedLimit: Math.max(
+              (right - left - 2 * radius) / (0.34 * 6400),
+              (bottom - top - 2 * radius) / (0.12 * 6400),
+              (radius * 2 * Math.sin(Math.PI / 8)) / (0.01 * 6400),
+            ),
+            width,
+            height,
+          });
+          if (samples.at(-1)!.elapsed - samples[0].elapsed >= 6800)
+            resolve(samples);
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
 }
 async function geometry(page: Page) {
   return page.locator("#board [data-task]").evaluateAll((elements) =>
@@ -339,8 +449,8 @@ for (const appearance of ["light", "dark"])
       c = await frame(card(page), `${stem}-frame-2.png`);
     expect(middle.currentTime!).toBeGreaterThan(start.currentTime!);
     expect(end.currentTime!).toBeGreaterThan(middle.currentTime!);
-    expect(middle.offsetDistance).not.toBe(start.offsetDistance);
-    expect(end.offsetDistance).not.toBe(middle.offsetDistance);
+    expect(middle.transform).not.toBe(start.transform);
+    expect(end.transform).not.toBe(middle.transform);
     expect(new Set([start.opacity, middle.opacity, end.opacity]).size).toBe(1);
     const firstDiff = diffPng(a, b),
       secondDiff = diffPng(b, c);
@@ -397,6 +507,173 @@ for (const appearance of ["light", "dark"])
     expect(f.requests).toHaveLength(requests);
     expect(f.posts()).toBe(0);
   });
+
+test("境界の光が実時間で一周して全角を連続移動し、resize後も紙面へ入らない", async ({
+  page,
+}) => {
+  // Separate from the OFF/ON performance windows so each test keeps 30s.
+  const f = await ready(page),
+    viewport = page.viewportSize()!,
+    stem = `test-results/unestimated-motion-${viewport.width}-loop`,
+    requests = f.requests.length;
+  await enable(page);
+  await twoFrames(page);
+  const target = card(page),
+    before = await geometry(page),
+    initialBox = (await target.boundingBox())!,
+    pathPromise = sampleOrbitPath(target),
+    frames: Buffer[] = [],
+    states: Awaited<ReturnType<typeof motion>>[] = [],
+    stamps: number[] = [];
+  for (let index = 0; index < 10; index++) {
+    if (index) await page.waitForTimeout(760);
+    states.push(await motion(target));
+    frames.push(await frame(target, `${stem}-frame-${index}.png`));
+    stamps.push(await page.evaluate(() => performance.now()));
+  }
+  const samples = await pathPromise,
+    first = samples[0],
+    last = samples.at(-1)!,
+    corners = [
+      [0.34, 0.36],
+      [0.48, 0.5],
+      [0.84, 0.86],
+      [0.98, 1],
+    ].map(
+      ([start, end]) =>
+        samples.filter(
+          (sample) => sample.progress > start && sample.progress < end,
+        ).length,
+    ),
+    continuity = samples.slice(1).map((sample, index) => {
+      const previous = samples[index],
+        elapsed = sample.currentTime - previous.currentTime;
+      return {
+        elapsed,
+        angleStep: sample.angle - previous.angle,
+        positionStep: Math.hypot(sample.x - previous.x, sample.y - previous.y),
+        positionLimit:
+          Math.max(sample.linearSpeedLimit, previous.linearSpeedLimit) *
+          elapsed,
+        angleLimit: (45 / (0.01 * 6400)) * elapsed,
+      };
+    });
+  // Persist raw evidence before assertions so a failed path check remains diagnosable.
+  await writeFile(
+    `${stem}-metrics.json`,
+    JSON.stringify(
+      {
+        viewport,
+        frameTimes: stamps,
+        frames: states,
+        samples,
+        cornerSamples: corners,
+        continuity,
+      },
+      null,
+      2,
+    ),
+  );
+  expect(stamps.at(-1)! - stamps[0]).toBeGreaterThanOrEqual(6400);
+  expect(last.elapsed - first.elapsed).toBeGreaterThanOrEqual(6400);
+  expect(last.currentTime - first.currentTime).toBeGreaterThanOrEqual(6400);
+  expect(last.iteration).toBeGreaterThan(first.iteration);
+  expect(last.angle - first.angle).toBeGreaterThanOrEqual(360);
+  expect(samples.length).toBeGreaterThan(10);
+  for (const count of corners) expect(count).toBeGreaterThan(0);
+  // Matrix rounding tolerance is sub-pixel; these are path/continuity checks,
+  // not FPS thresholds. Bounds scale with the actual time between samples.
+  expect(
+    Math.max(...samples.map((sample) => sample.positionError)),
+  ).toBeLessThan(0.1);
+  expect(Math.max(...samples.map((sample) => sample.angleError))).toBeLessThan(
+    0.1,
+  );
+  for (const step of continuity) {
+    expect(step.elapsed).toBeGreaterThanOrEqual(0);
+    expect(step.angleStep).toBeGreaterThanOrEqual(-0.1);
+    expect(step.angleStep).toBeLessThanOrEqual(step.angleLimit + 0.1);
+    expect(step.positionStep).toBeLessThanOrEqual(step.positionLimit + 0.1);
+  }
+  const differences = [];
+  for (let index = 1; index < frames.length; index++) {
+    const diff = diffPng(frames[index - 1], frames[index]);
+    expect(diff.boundary).toBeGreaterThan(0);
+    expect(diff.center).toBe(0);
+    differences.push({ boundary: diff.boundary, center: diff.center });
+    await writeFile(`${stem}-diff-${index}.png`, diff.image);
+  }
+  expect(await geometry(page)).toEqual(before);
+
+  await page.setViewportSize({
+    width: viewport.width - 160,
+    height: viewport.height - 80,
+  });
+  await expect
+    .poll(async () => {
+      const box = (await target.boundingBox())!;
+      return box.width !== initialBox.width || box.height !== initialBox.height;
+    })
+    .toBe(true);
+  await twoFrames(page);
+  const resizedGeometry = await geometry(page),
+    resizedBox = (await target.boundingBox())!,
+    resizedStart = await motion(target),
+    resizedFirst = await frame(target, `${stem}-resize-frame-0.png`);
+  await page.waitForTimeout(450);
+  const resizedEnd = await motion(target),
+    resizedSecond = await frame(target, `${stem}-resize-frame-1.png`),
+    resizedDiff = diffPng(resizedFirst, resizedSecond);
+  await writeFile(
+    `${stem}-resize-metrics.json`,
+    JSON.stringify(
+      {
+        initialBox,
+        resizedBox,
+        frames: [resizedStart, resizedEnd],
+        pixelDiff: {
+          boundary: resizedDiff.boundary,
+          center: resizedDiff.center,
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  expect(resizedEnd.currentTime!).toBeGreaterThan(resizedStart.currentTime!);
+  expect(resizedEnd.transform).not.toBe(resizedStart.transform);
+  expect(resizedDiff.boundary).toBeGreaterThan(0);
+  expect(resizedDiff.center).toBe(0);
+  expect(await geometry(page)).toEqual(resizedGeometry);
+  await writeFile(`${stem}-resize-diff.png`, resizedDiff.image);
+  await writeFile(
+    `${stem}-metrics.json`,
+    JSON.stringify(
+      {
+        viewport,
+        frameTimes: stamps,
+        frames: states,
+        pixelDiff: differences,
+        samples,
+        cornerSamples: corners,
+        continuity,
+        resize: {
+          initialBox,
+          resizedBox,
+          frames: [resizedStart, resizedEnd],
+          pixelDiff: {
+            boundary: resizedDiff.boundary,
+            center: resizedDiff.center,
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  expect(f.requests).toHaveLength(requests);
+  expect(f.posts()).toBe(0);
+});
 
 test("overflowで見えない光はpausedとなり、再入場時だけ実時間の移動を再開する", async ({
   page,
