@@ -134,6 +134,66 @@ async function motion(page: Page) {
       };
     });
 }
+type MotionSample = {
+  elapsed: number;
+  time: number | null;
+  progress: number | null;
+  name: string;
+  transform: string;
+  scaleX: number;
+  scaleY: number;
+  opacity: number;
+};
+async function observeNextReplay(page: Page) {
+  await page.evaluate(() => {
+    const replay = document.querySelector("#highlight-demo-replay")!;
+    const plate = document.querySelector(".hd-plate")!;
+    (window as any).__highlightDemoMotion = new Promise((resolve) => {
+      // Registered after the UI's onclick: observe the newly restarted animation.
+      // This does not trigger playback, seek a timeline, or alter its duration.
+      replay.addEventListener(
+        "click",
+        () => {
+          const animation = plate.getAnimations()[0];
+          const duration = Number(
+            animation?.effect?.getComputedTiming().duration,
+          );
+          const start = performance.now(),
+            samples: MotionSample[] = [];
+          if (!animation || !Number.isFinite(duration)) {
+            resolve(samples);
+            return;
+          }
+          const sample = () => {
+            const css = getComputedStyle(plate),
+              matrix = new DOMMatrixReadOnly(css.transform);
+            samples.push({
+              elapsed: performance.now() - start,
+              time:
+                typeof animation.currentTime === "number"
+                  ? animation.currentTime
+                  : null,
+              progress: animation.effect?.getComputedTiming().progress ?? null,
+              name: css.animationName,
+              transform: css.transform,
+              scaleX: matrix.a,
+              scaleY: matrix.d,
+              opacity: Number(css.opacity),
+            });
+            if (performance.now() - start >= duration + 80) resolve(samples);
+            else requestAnimationFrame(sample);
+          };
+          sample();
+        },
+        { once: true },
+      );
+    });
+  });
+}
+async function replaySamples(page: Page): Promise<MotionSample[]> {
+  return page.evaluate(() => (window as any).__highlightDemoMotion);
+}
+
 function differences(
   a: Buffer,
   b: Buffer,
@@ -201,6 +261,7 @@ for (const theme of ["light", "dark"])
         x: paperBox!.x - stageBox!.x,
         y: paperBox!.y - stageBox!.y,
       };
+      await observeNextReplay(page);
       await page.locator("#highlight-demo-replay").click();
       const before = await motion(page);
       const frame0 = await page.locator(".hd-stage").screenshot({
@@ -213,11 +274,7 @@ for (const theme of ["light", "dark"])
         animations: "allow",
       });
       const after = await motion(page);
-      expect(before.name).toBe(`hd-${variant}`);
-      expect(Number(after.time)).toBeGreaterThan(Number(before.time));
-      if (variant === "halo") expect(after.opacity).not.toBe(before.opacity);
-      else expect(after.transform).not.toBe(before.transform);
-      const diff = differences(frame0, frame1, paper);
+      const samples = await replaySamples(page);
       console.log(
         JSON.stringify({
           metric: "highlight-demo-frames",
@@ -226,9 +283,82 @@ for (const theme of ["light", "dark"])
           width: page.viewportSize()!.width,
           before,
           after,
+          samples,
+        }),
+      );
+      const diff = differences(frame0, frame1, paper);
+      console.log(
+        JSON.stringify({
+          metric: "highlight-demo-pixels",
+          theme,
+          variant,
+          width: page.viewportSize()!.width,
           ...diff,
         }),
       );
+      expect(before.name).toBe(`hd-${variant}`);
+      const intermediate = samples.filter(
+        (sample) =>
+          sample.progress !== null &&
+          sample.progress > 0 &&
+          sample.progress < 1,
+      );
+      expect(intermediate.length).toBeGreaterThan(1);
+      expect(samples.every((sample) => sample.name === `hd-${variant}`)).toBe(
+        true,
+      );
+      // A pending first frame may have no currentTime yet; real timeline samples must be finite and advance.
+      const active = samples.filter((sample) => sample.time !== null);
+      expect(active.length).toBeGreaterThan(1);
+      expect(
+        active.every((sample) =>
+          [
+            sample.elapsed,
+            sample.time,
+            sample.progress,
+            sample.scaleX,
+            sample.scaleY,
+            sample.opacity,
+          ].every(
+            (value) => typeof value === "number" && Number.isFinite(value),
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        active.every(
+          (sample, index) => !index || sample.time! >= active[index - 1].time!,
+        ),
+      ).toBe(true);
+      expect(active.at(-1)!.time!).toBeGreaterThan(active[0].time!);
+      if (variant === "halo") {
+        const opacity = intermediate.map((sample) => sample.opacity);
+        // The 0.2→0.8 halo must visibly breathe, not merely produce rounding noise.
+        expect(
+          Math.max(...opacity) - Math.min(...opacity),
+        ).toBeGreaterThanOrEqual(0.5);
+      } else {
+        // Pop returns to scale(1); its two endpoint matrices can legitimately match.
+        expect(
+          new Set(intermediate.map((sample) => sample.transform)).size,
+        ).toBeGreaterThan(1);
+        if (variant === "pop") {
+          expect(
+            Math.max(...intermediate.map((sample) => sample.scaleX)),
+          ).toBeGreaterThanOrEqual(1.02);
+          expect(
+            Math.max(...intermediate.map((sample) => sample.scaleY)),
+          ).toBeGreaterThanOrEqual(1.02);
+        } else {
+          const early = intermediate.filter((sample) => sample.progress! < 0.3);
+          const late = intermediate.filter((sample) => sample.progress! > 0.8);
+          expect(early.length).toBeGreaterThan(0);
+          expect(late.length).toBeGreaterThan(0);
+          expect(early[0].scaleX - late.at(-1)!.scaleX).toBeGreaterThan(0.01);
+          expect(early[0].scaleY - late.at(-1)!.scaleY).toBeGreaterThan(0.01);
+        }
+        expect(samples.at(-1)?.scaleX).toBeCloseTo(1, 3);
+        expect(samples.at(-1)?.scaleY).toBeCloseTo(1, 3);
+      }
       expect(diff.paperChanged).toBe(0);
       expect(diff.outsideChanged).toBeGreaterThan(0);
       expect(await geometry(page)).toEqual(original);

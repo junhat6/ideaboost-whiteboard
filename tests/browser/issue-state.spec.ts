@@ -419,3 +419,81 @@ test("closeの遅いACKは失効した時間fieldを復活させない", async (
     release();
   }
 });
+
+test("editor bundle読込中も明示closeを一度だけ送り、閉じたdrawerを復活させない", async ({
+  page,
+}) => {
+  let releaseEditor!: () => void,
+    releaseSave!: () => void,
+    editorRequests = 0;
+  const editorGate = new Promise<void>((resolve) => (releaseEditor = resolve));
+  const saveGate = new Promise<void>((resolve) => (releaseSave = resolve));
+  const payloads: Record<string, unknown>[] = [];
+  await page.route("**/editor-bundle.js", async (route) => {
+    editorRequests++;
+    await editorGate;
+    return route.continue();
+  });
+  try {
+    const f = await setup(page);
+    const originalBody = f.board.tasks[0].body;
+    await page.route("**/api/issues/100", async (route) => {
+      payloads.push(route.request().postDataJSON());
+      await saveGate;
+      Object.assign(f.board.tasks[0], {
+        state: "CLOSED",
+        stateReason: "COMPLETED",
+        revision: "2026-10-28T03:00:00Z",
+      });
+      return route.fulfill({ json: { ok: true, issue: f.board.tasks[0] } });
+    });
+    await page.locator('[data-open="t0-0-0"]').click();
+    await expect.poll(() => editorRequests).toBe(1);
+    await expect(page.locator(".cm-content")).toHaveCount(0);
+    await expect(page.locator("#detail-body")).toBeVisible();
+    await page.locator("#detail-body").fill("遅延読込中の本文も便乗保存しない");
+    await expect(page.locator("#close-issue")).toBeEnabled();
+    await page.locator("#close-issue").click();
+    await expect.poll(() => payloads.length).toBe(1);
+    await expect(page.locator("#close-issue")).toBeDisabled();
+    expect(payloads[0].close).toBe(true);
+    expect(payloads[0].expectedState).toBe("OPEN");
+    for (const field of [
+      "body",
+      "title",
+      "status",
+      "assignees",
+      "storyPoints",
+      "estimateHours",
+    ])
+      expect(payloads[0]).not.toHaveProperty(field);
+    expect(f.board.tasks[0].body).toBe(originalBody);
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#close-detail").click();
+    await expect(page.locator("#details")).not.toBeVisible();
+    releaseEditor();
+    // Await the same module's evaluation, not a timeout or a second UI click.
+    await page.evaluate(async () => {
+      await import(/* @vite-ignore */ "/editor-bundle.js");
+    });
+    await expect(page.locator("#details")).not.toBeVisible();
+    await expect(page.locator(".cm-content")).toHaveCount(0);
+    releaseSave();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as any).Whiteboard.getSnapshot().tasks[0].state,
+        ),
+      )
+      .toBe("CLOSED");
+    await expect(page.locator("#details")).not.toBeVisible();
+    await expect(page.locator(".cm-content")).toHaveCount(0);
+    expect(payloads).toHaveLength(1);
+    expect(editorRequests).toBe(1);
+    expect(f.board.tasks[0].body).toBe(originalBody);
+  } finally {
+    releaseEditor();
+    releaseSave();
+  }
+});
