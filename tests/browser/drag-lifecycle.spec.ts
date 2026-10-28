@@ -225,95 +225,122 @@ test("開いたままの操作バーはnative drag開始で閉じ、次の付箋
   }
 });
 
-test("native drag端auto-scrollはdragendで途中停止し、次の別付箋dragを妨げない", async ({
-  page,
-}) => {
-  const f = await overflowFixture(page, 20),
-    port = cell(page, "ToDo").locator(".cell-viewport");
-  await port.evaluate((element) => {
-    const trace = { writes: [] as object[], events: [] as object[] };
-    (window as any).__dragScrollTrace = trace;
-    const descriptor = Object.getOwnPropertyDescriptor(
-      Element.prototype,
-      "scrollTop",
-    )!;
-    Object.defineProperty(element, "scrollTop", {
-      configurable: true,
-      get() {
-        return descriptor.get!.call(this);
-      },
-      set(value) {
-        trace.writes.push({
-          at: performance.now(),
-          value,
-          dragging: !!document.querySelector(".dragging"),
-          caller: new Error().stack?.split("\n").slice(1, 4),
-        });
-        descriptor.set!.call(this, value);
-      },
-    });
-    for (const type of ["dragend", "drop", "blur", "scroll", "scrollend"])
-      window.addEventListener(
-        type,
-        () =>
-          trace.events.push({
-            type,
+for (const cancellation of ["outside-release", "Escape"] as const)
+  test(`native drag端auto-scrollの${cancellation}取消はアプリwriteを止め、次の別付箋dragを妨げない`, async ({
+    page,
+  }) => {
+    const f = await overflowFixture(page, 20),
+      port = cell(page, "ToDo").locator(".cell-viewport");
+    await port.evaluate((element) => {
+      const trace = { writes: [] as object[], events: [] as object[] };
+      (window as any).__dragScrollTrace = trace;
+      const descriptor = Object.getOwnPropertyDescriptor(
+        Element.prototype,
+        "scrollTop",
+      )!;
+      Object.defineProperty(element, "scrollTop", {
+        configurable: true,
+        get() {
+          return descriptor.get!.call(this);
+        },
+        set(value) {
+          trace.writes.push({
             at: performance.now(),
-            top: element.scrollTop,
-            connected: element.isConnected,
-          }),
-        true,
-      );
-  });
-  try {
-    await beginDrag(page, card(page, "t0-1-0"));
-    const box = (await port.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 3, {
-      steps: 8,
+            value,
+            dragging: !!document.querySelector(".dragging"),
+            caller: new Error().stack?.split("\n").slice(1, 4),
+          });
+          descriptor.set!.call(this, value);
+        },
+      });
+      for (const type of [
+        "dragend",
+        "drop",
+        "blur",
+        "mouseup",
+        "scroll",
+        "scrollend",
+      ])
+        window.addEventListener(
+          type,
+          () =>
+            trace.events.push({
+              type,
+              at: performance.now(),
+              top: element.scrollTop,
+              connected: element.isConnected,
+            }),
+          true,
+        );
     });
-    await page.mouse.move(box.x + box.width / 2 + 1, box.y + box.height - 3, {
-      steps: 2,
-    });
-    await expect
-      .poll(() => port.evaluate((element) => element.scrollTop))
-      .toBeGreaterThan(0);
-    expect(
-      await port.evaluate(
+    try {
+      await beginDrag(page, card(page, "t0-1-0"));
+      const box = (await port.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height - 3, {
+        steps: 8,
+      });
+      await page.mouse.move(box.x + box.width / 2 + 1, box.y + box.height - 3, {
+        steps: 2,
+      });
+      await expect
+        .poll(() => port.evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(0);
+      expect(
+        await port.evaluate(
+          (element) =>
+            element.scrollTop < element.scrollHeight - element.clientHeight,
+        ),
+      ).toBe(true);
+      if (cancellation === "Escape") await page.keyboard.press("Escape");
+      else
+        await page.mouse.move(2, page.viewportSize()!.height - 2, {
+          steps: 10,
+        });
+      await page.mouse.up();
+      await cleanGesture(page);
+      expect(f.posts()).toBe(0);
+      const positions = await port.evaluate(
         (element) =>
-          element.scrollTop < element.scrollHeight - element.clientHeight,
-      ),
-    ).toBe(true);
-    await page.keyboard.press("Escape");
-    await page.mouse.up();
-    await cleanGesture(page);
-    expect(f.posts()).toBe(0);
-    const positions = await port.evaluate(
-      (element) =>
-        new Promise<number[]>((resolve) => {
-          const samples = [element.scrollTop];
-          const sample = () => {
-            samples.push(element.scrollTop);
-            if (samples.length === 7) resolve(samples);
-            else requestAnimationFrame(sample);
-          };
-          requestAnimationFrame(sample);
+          new Promise<number[]>((resolve) => {
+            const samples = [element.scrollTop];
+            const sample = () => {
+              samples.push(element.scrollTop);
+              if (samples.length === 7) resolve(samples);
+              else requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+          }),
+      );
+      const trace = await page.evaluate(
+        () => (window as any).__dragScrollTrace,
+      );
+      console.log(
+        JSON.stringify({
+          metric: "native-scroll-cancellation",
+          cancellation,
+          width: page.viewportSize()!.width,
+          positions,
+          trace,
         }),
-    );
-    console.log(
-      JSON.stringify({
-        metric: "native-scroll-cancellation",
-        width: page.viewportSize()!.width,
-        positions,
-        trace: await page.evaluate(() => (window as any).__dragScrollTrace),
-      }),
-    );
-    expect(new Set(positions).size).toBe(1);
-    await move(page, "t0-1-1", "Wait");
-    await expect.poll(f.posts).toBe(1);
-    await expect(
-      cell(page, "Doing").locator('[data-task="t0-1-0"]'),
-    ).toHaveCount(1);
-  } finally {
-    await page.mouse.up();
-  }
-});
+      );
+      const ended = trace.events.find((event: any) => event.type === "dragend");
+      expect(ended).toBeTruthy();
+      expect(trace.writes.filter((write: any) => write.at >= ended.at)).toEqual(
+        [],
+      );
+      expect(trace.events.every((event: any) => event.connected)).toBe(true);
+      // Real pointer exit/release exercises target-side cleanup and must halt.
+      // Playwright intercepts Escape with CDP dragCancel (source-only); Chromium's
+      // target-native autoscroll can survive that synthetic cancellation. Keep
+      // application-write and next-gesture assertions, not an OS-equivalence claim.
+      if (cancellation === "outside-release")
+        expect(new Set(positions).size).toBe(1);
+      await move(page, "t0-1-1", "Wait");
+      await expect.poll(f.posts).toBe(1);
+      await expect(
+        cell(page, "Doing").locator('[data-task="t0-1-0"]'),
+      ).toHaveCount(1);
+    } finally {
+      await page.mouse.up();
+    }
+  });

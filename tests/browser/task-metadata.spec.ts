@@ -232,7 +232,8 @@ test("色凡例は操作バー内だけ、未知・未設定を同じ中立色�
     const panel = await page.locator(".control-panel").boundingBox(),
       operations = await page.locator("#operations").boundingBox(),
       lb = await legend.boundingBox();
-    expect(panel!.height).toBeLessThanOrEqual(64);
+    // Bounding-box transforms can report 64.0000019 for the exact 64px layout.
+    expect(Math.round(panel!.height * 1e4) / 1e4).toBeLessThanOrEqual(64);
     expect(lb!.x + lb!.width).toBeLessThanOrEqual(operations!.x);
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({
