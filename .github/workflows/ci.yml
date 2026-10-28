@@ -15,7 +15,7 @@ jobs:
       - run: npm run check
       - run: npx playwright install --with-deps chromium
       - name: Verify comment delivery and loaded-page continuity
-        run: npx playwright test tests/browser/comment-continuity.spec.ts --workers=1 --max-failures=0
+        run: npx playwright test tests/browser/comment-continuity.spec.ts tests/browser/enhancements.spec.ts --workers=1 --max-failures=0
       - name: Diagnose immediate close delivery repeatedly
         run: npx playwright test tests/browser/issue-state.spec.ts --grep=closeの遅いACK --repeat-each=10 --workers=1 --max-failures=0
       - name: Verify toolbar, page navigation, highlight choices and canonical Issue state

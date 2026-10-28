@@ -3121,76 +3121,37 @@ input[type="checkbox"] {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
+.task-grid > .unestimated-highlight {
+  /* Text/avatar retain their own clipping; only the decorative aura extends. */
+  overflow: visible;
+}
 .unestimated-motion {
-  display: none;
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  /* Half the actual grid gap: never paint onto the neighbouring paper. */
+  --u-halo-room: clamp(1px, calc(var(--row-height) * 0.0125), 3px);
+  clip-path: inset(calc(-1 * var(--u-halo-room)));
+}
+.unestimated-motion::after {
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 1;
+  border: 1px solid var(--accent);
+  background: transparent;
+  box-shadow: 0 0 14px 3px color-mix(in srgb, var(--accent) 40%, transparent);
+  animation: unestimated-halo 1.5s ease-in-out infinite;
+  animation-play-state: paused;
 }
-/* Keep the moving light inside a 2px edge, including rounded corners. */
-@supports (container-type: size) and (transform: translate(1cqw, 1cqh)) and
-  (mask-composite: exclude) {
-  .unestimated-motion {
-    display: block;
-    container-type: size;
-    --u-pad: 2px;
-    --u-inset: 1px;
-    --u-radius: 3px;
-    padding: var(--u-pad);
-    mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    mask-composite: exclude;
-  }
+.unestimated-highlight.unestimated-visible:not(.dragging)
   .unestimated-motion::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 32px;
-    height: 3px;
-    border-radius: 50%;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      var(--accent) 22%,
-      #fff 50%,
-      var(--accent) 78%,
-      transparent
-    );
-    box-shadow: 0 0 5px var(--accent);
-    /* Query this wrapper's content box, then restore its mask padding. */
-    --u-left: calc(var(--u-inset) - 16px);
-    --u-right: calc(100cqw + 2 * var(--u-pad) - var(--u-inset) - 16px);
-    --u-top: calc(var(--u-inset) - 1.5px);
-    --u-bottom: calc(100cqh + 2 * var(--u-pad) - var(--u-inset) - 1.5px);
-    --u-diag: calc(var(--u-radius) * 0.2928932188);
-    transform-origin: center;
-    animation: unestimated-orbit 6.4s linear infinite;
-    animation-delay: var(--unestimated-phase, 0s);
-    animation-play-state: paused;
-  }
-  .unestimated-highlight:nth-child(4n + 2) {
-    --unestimated-phase: -1.6s;
-  }
-  .unestimated-highlight:nth-child(4n + 3) {
-    --unestimated-phase: -3.2s;
-  }
-  .unestimated-highlight:nth-child(4n + 4) {
-    --unestimated-phase: -4.8s;
-  }
-  .unestimated-highlight.unestimated-visible:not(.dragging)
-    .unestimated-motion::after {
-    animation-play-state: running;
-  }
-  #board.dense .unestimated-motion {
-    --u-pad: 1px;
-    --u-inset: 0.5px;
-    --u-radius: 1px;
-  }
+  animation-play-state: running;
+}
+#board.unestimated-suspended .unestimated-motion::after {
+  animation-play-state: paused;
 }
 .unestimated-cue {
   padding: 0;
@@ -3200,111 +3161,13 @@ input[type="checkbox"] {
   letter-spacing: 0;
   white-space: nowrap;
 }
-/* Continuous corner rotation and identical loop endpoints; no per-frame layout. */
-@keyframes unestimated-orbit {
-  0% {
-    transform: translate3d(
-        calc(var(--u-left) + var(--u-radius)),
-        var(--u-top),
-        0
-      )
-      rotate(0deg);
-  }
-  34% {
-    transform: translate3d(
-        calc(var(--u-right) - var(--u-radius)),
-        var(--u-top),
-        0
-      )
-      rotate(0deg);
-  }
-  35% {
-    transform: translate3d(
-        calc(var(--u-right) - var(--u-diag)),
-        calc(var(--u-top) + var(--u-diag)),
-        0
-      )
-      rotate(45deg);
-  }
-  36% {
-    transform: translate3d(
-        var(--u-right),
-        calc(var(--u-top) + var(--u-radius)),
-        0
-      )
-      rotate(90deg);
-  }
-  48% {
-    transform: translate3d(
-        var(--u-right),
-        calc(var(--u-bottom) - var(--u-radius)),
-        0
-      )
-      rotate(90deg);
-  }
-  49% {
-    transform: translate3d(
-        calc(var(--u-right) - var(--u-diag)),
-        calc(var(--u-bottom) - var(--u-diag)),
-        0
-      )
-      rotate(135deg);
+@keyframes unestimated-halo {
+  0%,
+  100% {
+    opacity: 0.2;
   }
   50% {
-    transform: translate3d(
-        calc(var(--u-right) - var(--u-radius)),
-        var(--u-bottom),
-        0
-      )
-      rotate(180deg);
-  }
-  84% {
-    transform: translate3d(
-        calc(var(--u-left) + var(--u-radius)),
-        var(--u-bottom),
-        0
-      )
-      rotate(180deg);
-  }
-  85% {
-    transform: translate3d(
-        calc(var(--u-left) + var(--u-diag)),
-        calc(var(--u-bottom) - var(--u-diag)),
-        0
-      )
-      rotate(225deg);
-  }
-  86% {
-    transform: translate3d(
-        var(--u-left),
-        calc(var(--u-bottom) - var(--u-radius)),
-        0
-      )
-      rotate(270deg);
-  }
-  98% {
-    transform: translate3d(
-        var(--u-left),
-        calc(var(--u-top) + var(--u-radius)),
-        0
-      )
-      rotate(270deg);
-  }
-  99% {
-    transform: translate3d(
-        calc(var(--u-left) + var(--u-diag)),
-        calc(var(--u-top) + var(--u-diag)),
-        0
-      )
-      rotate(315deg);
-  }
-  100% {
-    transform: translate3d(
-        calc(var(--u-left) + var(--u-radius)),
-        var(--u-top),
-        0
-      )
-      rotate(360deg);
+    opacity: 0.8;
   }
 }
 @media (prefers-reduced-motion: reduce) {

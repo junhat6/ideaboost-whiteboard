@@ -11,7 +11,14 @@
 - 補正後run 40644652702の同一43字fixtureは11pxのまま3完全行・38字（可用高43.766px）へ増えた。他3枚は34〜38字の全文が3行で表示された。両画面幅・light/darkの3完全行/30字以上・文字とavatar/hの非交差・contrast 7:1以上を確認。1920のPNGも目視した。
 - 全文が常に収まる保証ではない。長文は付箋内scrollと詳細で保持し、tooltipへの依存はなくす。OSごとの日本語font実描画は未検証。
 
-## 境界を流れる光
+## 選択済みA「ふわっとハロー」（現行契約）
+
+- 利用者がAを明示選択したため、本番Uは全体の光を1.5秒で呼吸させる方式へ変更する。デモ内のB/C選択は本番へ反映しない。
+- opacityのみを動かし、文字・紙面・avatar・hのgeometryは固定。細い静的cueは最小opacity、画面外/非表示/drag pause、reduced-motionでも残す。
+- 同じfixtureの6/24/94枚をOFF/ON対照として記録し、94枚stressの限界と通常少数条件を分ける。headless rAFは実利用端末のFPS/GPU保証ではない。
+- 以下の周回光の数値・trace・失敗は旧方式の経緯であり、選択済みAの性能証拠には流用しない。
+
+## 境界を流れる光（旧方式の履歴）
 
 - 同じcardでU前後のgeometry/紙面pixel不変、実時間のframe間で境界だけ変化・中心pixel差0を検証。
 - 静的1px cueは動作中も停止中も残す。未取得≠null、0h≠未見積、公開失効clear、overflow外/drag中pause、reduced-motion静止は既存契約。

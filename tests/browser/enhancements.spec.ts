@@ -172,6 +172,8 @@ test("unknown comment result retains draft and blocks replay after GET and reope
   await page.locator("#details").waitFor({ state: "hidden" });
   await open(page);
   await expect(page.locator("#comment-error")).toContainText("再投稿を停止");
+  await expect(page.locator("#comment-body")).toHaveValue("不明の下書き");
+  await expect(page.locator("#post-comment")).toBeDisabled();
   expect(posts).toBe(1);
 });
 test("comment POST acknowledgement unlocks input and close before background GET, preserving the next draft selection", async ({
@@ -293,12 +295,19 @@ test("an older comment GET cannot unlock a newer POST or allow duplicate submiss
       ).requestSubmit(),
     );
     await page.locator("#close-detail").click();
-    await expect(page.locator("#details")).toBeVisible();
+    await expect(page.locator("#details")).not.toBeVisible();
+    await open(page);
+    await expect(page.locator("#comment-body")).toBeDisabled();
+    await expect(page.locator("#comment-body")).toHaveValue(
+      "2件目はPOST待機中",
+    );
+    await expect(page.locator("#post-comment")).toHaveText("投稿中…");
     expect(posts).toBe(2);
     postGate.release();
     await expect(page.locator("#comment-body")).toBeEnabled();
+    await expect(page.locator("#comment-body")).toHaveValue("");
     await expect(page.locator(".issue-comment")).toHaveCount(3);
-    await expect.poll(() => reads).toBe(3);
+    await expect.poll(() => reads).toBe(4);
     expect(posts).toBe(2);
     expect(s.posts()).toBe(0);
   } finally {

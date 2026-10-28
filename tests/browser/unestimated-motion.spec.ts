@@ -9,24 +9,19 @@ const { PNG } = createRequire(import.meta.url)(
 );
 const card = (page: Page, id = "t0-0-0") => page.locator(`[data-task="${id}"]`);
 const toggle = (page: Page) => page.locator("#highlight-unestimated");
-const orbit = "unestimated-orbit";
-type OrbitSample = {
+const halo = "unestimated-halo";
+const frameMargin = 6;
+type HaloSample = {
   elapsed: number;
   currentTime: number;
   progress: number;
-  iteration: number;
+  opacity: number;
   transform: string;
-  x: number;
-  y: number;
-  angle: number;
-  positionError: number;
-  angleError: number;
-  linearSpeedLimit: number;
-  width: number;
-  height: number;
+  duration: string;
+  easing: string;
 };
 
-async function ready(page: Page, allEligible = false) {
+async function ready(page: Page, allEligible = false, eligibleCount?: number) {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.route("https://avatars.githubusercontent.com/**", (route) =>
     route.fulfill({
@@ -40,6 +35,7 @@ async function ready(page: Page, allEligible = false) {
       requests.push(request.url());
   });
   const f = await setup(page);
+  await expect.poll(f.sprintReads).toBe(1);
   await page.route(/\/api\/burndown(?:\?.*)?$/, (route) =>
     route.fulfill({ status: 404, json: { error: "sprint_unavailable" } }),
   );
@@ -54,9 +50,18 @@ async function ready(page: Page, allEligible = false) {
     (f.board.tasks[1] as any).estimateHours = 0;
     delete (f.board.tasks[2] as any).estimateHours;
   }
+  if (eligibleCount !== undefined) {
+    for (const task of f.board.tasks) Object.assign(task, { estimateHours: 4 });
+    const visible = f.board.tasks.filter(
+      (task) => task.lane !== "p6" && Number(task.id.split("-").at(-1)) < 4,
+    );
+    for (const task of visible.slice(0, eligibleCount))
+      Object.assign(task, { estimateHours: null });
+  }
   f.board.tasks[5].type = "競合調査";
   f.board.tasks[9].type = "Bug";
   await page.reload();
+  await expect.poll(f.sprintReads).toBe(2);
   await expect(page.locator(".pbi-title")).toHaveCount(6);
   await page.evaluate(async () => {
     await document.fonts.ready;
@@ -108,7 +113,7 @@ async function motion(target: Locator) {
         .getAnimations({ subtree: true })
         .find(
           (value) =>
-            (value as CSSAnimation).animationName === "unestimated-orbit",
+            (value as CSSAnimation).animationName === "unestimated-halo",
         );
     return {
       name: style.animationName,
@@ -123,99 +128,92 @@ async function motion(target: Locator) {
     };
   });
 }
-async function sampleOrbitPath(target: Locator) {
-  // Observe a whole real-time circuit without seeking, pausing, or rewriting CSS.
-  // Dense rAF readings cover the short corners between the ten PNG captures.
+async function sampleHalo(target: Locator) {
+  // One natural-time cycle; no clock/seek/duration changes.
   return target.evaluate(
     (element) =>
-      new Promise<OrbitSample[]>((resolve, reject) => {
-        const span = element.querySelector(".unestimated-motion")!,
-          animation = element
+      new Promise<HaloSample[]>((resolve, reject) => {
+        const span = element.querySelector(".unestimated-motion")!;
+        const samples: HaloSample[] = [],
+          begin = performance.now();
+        let animation: Animation | undefined;
+        const tick = () => {
+          animation ||= element
             .getAnimations({ subtree: true })
             .find(
               (value) =>
-                (value as CSSAnimation).animationName === "unestimated-orbit",
+                (value as CSSAnimation).animationName === "unestimated-halo",
             );
-        const samples: OrbitSample[] = [],
-          begin = performance.now();
-        const tick = () => {
           const style = getComputedStyle(span, "::after"),
             timing = animation?.effect?.getComputedTiming();
+          if (performance.now() - begin > 5000) {
+            reject(
+              new Error(
+                `Halo did not complete one real timeline cycle within 5s: ${JSON.stringify(samples)}`,
+              ),
+            );
+            return;
+          }
           if (
             !animation ||
             typeof animation.currentTime !== "number" ||
-            typeof timing?.progress !== "number" ||
-            typeof timing.currentIteration !== "number"
+            typeof timing?.progress !== "number"
           ) {
-            reject(new Error("Expected a running CSS orbit to observe"));
+            // A pending initial frame is unmeasured, not a failed or completed cycle.
+            requestAnimationFrame(tick);
             return;
           }
-          const matrix = new DOMMatrixReadOnly(style.transform),
-            { width, height } = span.getBoundingClientRect(),
-            inset = parseFloat(style.getPropertyValue("--u-inset")),
-            radius = parseFloat(style.getPropertyValue("--u-radius")),
-            diagonal = radius * (1 - Math.SQRT1_2),
-            left = inset,
-            right = width - inset,
-            top = inset,
-            bottom = height - inset,
-            // Independent coordinates describe the beam CENTER, not its
-            // transform origin. Each corner and the loop endpoints are joined.
-            stops = [
-              [0, left + radius, top, 0],
-              [0.34, right - radius, top, 0],
-              [0.35, right - diagonal, top + diagonal, 45],
-              [0.36, right, top + radius, 90],
-              [0.48, right, bottom - radius, 90],
-              [0.49, right - diagonal, bottom - diagonal, 135],
-              [0.5, right - radius, bottom, 180],
-              [0.84, left + radius, bottom, 180],
-              [0.85, left + diagonal, bottom - diagonal, 225],
-              [0.86, left, bottom - radius, 270],
-              [0.98, left, top + radius, 270],
-              [0.99, left + diagonal, top + diagonal, 315],
-              [1, left + radius, top, 360],
-            ],
-            next = stops.findIndex(
-              (stop, index) => index > 0 && stop[0] >= timing.progress!,
-            ),
-            start = stops[next - 1],
-            end = stops[next],
-            fraction = (timing.progress - start[0]) / (end[0] - start[0]),
-            expected = start
-              .slice(1)
-              .map(
-                (value, index) => value + (end[index + 1] - value) * fraction,
-              ),
-            x = matrix.m41 + parseFloat(style.width) / 2,
-            y = matrix.m42 + parseFloat(style.height) / 2,
-            rawAngle = (Math.atan2(matrix.m12, matrix.m11) * 180) / Math.PI,
-            angle = rawAngle + Math.round((expected[2] - rawAngle) / 360) * 360;
           samples.push({
             elapsed: performance.now() - begin,
             currentTime: animation.currentTime,
             progress: timing.progress,
-            iteration: timing.currentIteration,
+            opacity: Number(style.opacity),
             transform: style.transform,
-            x,
-            y,
-            angle: angle + timing.currentIteration * 360,
-            positionError: Math.hypot(x - expected[0], y - expected[1]),
-            angleError: Math.abs(angle - expected[2]),
-            linearSpeedLimit: Math.max(
-              (right - left - 2 * radius) / (0.34 * 6400),
-              (bottom - top - 2 * radius) / (0.12 * 6400),
-              (radius * 2 * Math.sin(Math.PI / 8)) / (0.01 * 6400),
-            ),
-            width,
-            height,
+            duration: style.animationDuration,
+            easing: style.animationTimingFunction,
           });
-          if (samples.at(-1)!.elapsed - samples[0].elapsed >= 6800)
+          if (samples.at(-1)!.currentTime - samples[0].currentTime >= 1500)
             resolve(samples);
           else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
       }),
+  );
+}
+function assertHaloCycle(samples: HaloSample[]) {
+  expect(samples.length).toBeGreaterThan(5);
+  expect(
+    samples.every((sample) =>
+      [
+        sample.elapsed,
+        sample.currentTime,
+        sample.progress,
+        sample.opacity,
+      ].every(Number.isFinite),
+    ),
+  ).toBe(true);
+  expect(
+    samples.every(
+      (sample) =>
+        sample.transform === "none" &&
+        sample.duration === "1.5s" &&
+        sample.easing === "ease-in-out",
+    ),
+  ).toBe(true);
+  expect(
+    samples.at(-1)!.currentTime - samples[0].currentTime,
+  ).toBeGreaterThanOrEqual(1500);
+  expect(
+    samples.every(
+      (sample, index) =>
+        !index || sample.currentTime >= samples[index - 1].currentTime,
+    ),
+  ).toBe(true);
+  const opacity = samples.map((sample) => sample.opacity);
+  expect(Math.min(...opacity)).toBeGreaterThanOrEqual(0.199);
+  expect(Math.max(...opacity)).toBeLessThanOrEqual(0.801);
+  expect(Math.max(...opacity) - Math.min(...opacity)).toBeGreaterThanOrEqual(
+    0.5,
   );
 }
 async function geometry(page: Page) {
@@ -257,7 +255,10 @@ function diffPng(first: Buffer, second: Buffer) {
           (channel) => a.data[offset + channel] !== b.data[offset + channel],
         );
       if (changed) {
-        if (x < 6 || y < 6 || x >= a.width - 6 || y >= a.height - 6) boundary++;
+        // Captures include 6px outside the card; retain the original 6px edge band inside it.
+        const edge = frameMargin + 6;
+        if (x < edge || y < edge || x >= a.width - edge || y >= a.height - edge)
+          boundary++;
         else center++;
       }
       output.data[offset] = changed ? 220 : 245;
@@ -310,7 +311,18 @@ function paperPixels(
 }
 async function frame(target: Locator, path: string) {
   // Never disable animation or seek currentTime: these pixels reflect real elapsed time.
-  return target.screenshot({ path, animations: "allow", scale: "css" });
+  const box = (await target.boundingBox())!;
+  return target.page().screenshot({
+    path,
+    animations: "allow",
+    scale: "css",
+    clip: {
+      x: box.x - frameMargin,
+      y: box.y - frameMargin,
+      width: box.width + frameMargin * 2,
+      height: box.height + frameMargin * 2,
+    },
+  });
 }
 async function sampleFrameTime(page: Page) {
   // Identical wall-clock rAF sampling for OFF and ON; no screenshot, seek, API
@@ -335,7 +347,7 @@ async function sampleFrameTime(page: Page) {
               .filter(
                 (animation) =>
                   (animation as CSSAnimation).animationName ===
-                    "unestimated-orbit" && animation.playState === "running",
+                    "unestimated-halo" && animation.playState === "running",
               ).length,
             visibleCards: document.querySelectorAll(
               ".unestimated-highlight.unestimated-visible",
@@ -382,8 +394,43 @@ function summarizeFrameWindows(
   };
 }
 
+async function captureCycle(target: Locator, stem: string) {
+  const samplesPromise = sampleHalo(target),
+    states = [],
+    frames = [];
+  for (let i = 0; i < 3; i++) {
+    if (i) await target.page().waitForTimeout(i === 1 ? 250 : 350);
+    states.push(await motion(target));
+    frames.push(await frame(target, `${stem}-frame-${i}.png`));
+  }
+  const samples = await samplesPromise,
+    differences = [
+      diffPng(frames[0], frames[1]),
+      diffPng(frames[1], frames[2]),
+    ];
+  const metrics = {
+    states,
+    samples,
+    pixelDiff: differences.map(({ boundary, center, total }) => ({
+      boundary,
+      center,
+      total,
+    })),
+  };
+  await writeFile(`${stem}-metrics.json`, JSON.stringify(metrics, null, 2));
+  console.log(JSON.stringify({ metric: "unestimated-halo-cycle", ...metrics }));
+  assertHaloCycle(samples);
+  // Periodic endpoints may coincide; the three real PNGs must still include a visible change.
+  expect(
+    differences.reduce((sum, value) => sum + value.boundary, 0),
+  ).toBeGreaterThan(0);
+  for (const diff of differences) expect(diff.center).toBe(0);
+  await writeFile(`${stem}-diff.png`, differences[0].image);
+  return { first: frames[0], metrics };
+}
+
 for (const appearance of ["light", "dark"])
-  test(`${appearance}の6PBI・2×2で紙面geometryを変えず境界の光が実時間で移動する`, async ({
+  test(`${appearance}の6PBI・2×2で全辺ハローがふわっと変化し紙面と隣付箋を覆わない`, async ({
     page,
   }) => {
     const f = await ready(page);
@@ -392,21 +439,9 @@ for (const appearance of ["light", "dark"])
       before = await geometry(page),
       requests = f.requests.length;
     const offFrame = await frame(card(page), `${stem}-off.png`);
-    await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
-    const baseline = summarizeFrameWindows([
-      await sampleFrameTime(page),
-      await sampleFrameTime(page),
-    ]);
-    for (const sample of baseline.samples) {
-      expect(sample.activeAnimations).toBe(0);
-      expect(sample.visibleCards).toBe(0);
-    }
-    const port = card(page).locator(
-      "xpath=ancestor::*[contains(@class,'cell-viewport')]",
-    );
-    expect(
-      await port.locator(".cell-page").first().locator(".task").count(),
-    ).toBe(4);
+    const neighbourBefore = await card(page, "t0-0-1").screenshot({
+      animations: "allow",
+    });
     await enable(page);
     expect(await geometry(page)).toEqual(before);
     await expect(card(page, "t0-0-1")).not.toHaveClass(/unestimated-highlight/);
@@ -427,78 +462,31 @@ for (const appearance of ["light", "dark"])
       .poll(async () => (await motion(card(page))).playState)
       .toBe("running");
     await twoFrames(page);
-    const start = await motion(card(page));
-    expect(start.name).toBe(orbit);
-    expect(start.currentTime).not.toBeNull();
-    const a = await frame(card(page), `${stem}-frame-0.png`);
-    const original = before.find((value) => value.id === "t0-0-0")!,
+    expect((await motion(card(page))).name).toBe(halo);
+    const cycle = await captureCycle(card(page), stem),
+      original = before.find((value) => value.id === "t0-0-0")!,
       fill = original.fill.match(/\d+/g)!.slice(0, 3).map(Number),
-      paper = paperPixels(offFrame, a, fill, {
-        left: original.hours.left - original.card.left,
-        right: original.hours.right - original.card.left,
-        top: original.hours.top - original.card.top,
-        bottom: original.hours.bottom - original.card.top,
+      paper = paperPixels(offFrame, cycle.first, fill, {
+        left: original.hours.left - original.card.left + frameMargin,
+        right: original.hours.right - original.card.left + frameMargin,
+        top: original.hours.top - original.card.top + frameMargin,
+        bottom: original.hours.bottom - original.card.top + frameMargin,
       });
-    expect(paper.checked).toBeGreaterThan(0);
-    expect(paper.changed).toBe(0);
-    await page.waitForTimeout(300); // Real wall-clock progression, not Playwright clock.
-    const middle = await motion(card(page)),
-      b = await frame(card(page), `${stem}-frame-1.png`);
-    await page.waitForTimeout(450);
-    const end = await motion(card(page)),
-      c = await frame(card(page), `${stem}-frame-2.png`);
-    expect(middle.currentTime!).toBeGreaterThan(start.currentTime!);
-    expect(end.currentTime!).toBeGreaterThan(middle.currentTime!);
-    expect(middle.transform).not.toBe(start.transform);
-    expect(end.transform).not.toBe(middle.transform);
-    expect(new Set([start.opacity, middle.opacity, end.opacity]).size).toBe(1);
-    const firstDiff = diffPng(a, b),
-      secondDiff = diffPng(b, c);
-    expect(firstDiff.boundary).toBeGreaterThan(0);
-    expect(secondDiff.boundary).toBeGreaterThan(0);
-    expect(firstDiff.center).toBe(0);
-    expect(secondDiff.center).toBe(0);
-    await writeFile(`${stem}-diff.png`, firstDiff.image);
-    const performance = summarizeFrameWindows([
-      await sampleFrameTime(page),
-      await sampleFrameTime(page),
-    ]);
-    for (const sample of performance.samples) {
-      expect(sample.activeAnimations).toBeGreaterThan(0);
-      expect(sample.activeAnimations).toBeLessThanOrEqual(sample.visibleCards);
-    }
-    const onOverOff = Object.fromEntries(
-        (["mean", "p50", "p95", "max"] as const).map((key) => [
-          key,
-          performance[key] / baseline[key],
-        ]),
-      ),
-      offOverOn = Object.fromEntries(
-        (["mean", "p50", "p95", "max"] as const).map((key) => [
-          key,
-          baseline[key] / performance[key],
-        ]),
-      ),
-      metrics = {
-        viewport: page.viewportSize(),
-        appearance,
-        frames: [start, middle, end],
-        pixelDiff: [firstDiff, secondDiff].map(
-          ({ boundary, center, total }) => ({ boundary, center, total }),
-        ),
-        frameTimeProxy: performance,
-        frameTimeBaseline: baseline,
-        frameTimeComparison: { onOverOff, offOverOn },
-        geometryUnchanged: true,
-        paperPixels: paper,
-      };
-    await writeFile(`${stem}-metrics.json`, JSON.stringify(metrics, null, 2));
     console.log(
       JSON.stringify({
-        metric: "unestimated-motion-frame-time-proxy",
-        ...metrics,
+        metric: "unestimated-halo-paper",
+        viewport: page.viewportSize(),
+        appearance,
+        paper,
       }),
     );
+    expect(paper.checked).toBeGreaterThan(0);
+    expect(paper.changed).toBe(0);
+    const neighbourAfter = await card(page, "t0-0-1").screenshot({
+      animations: "allow",
+    });
+    expect(diffPng(neighbourBefore, neighbourAfter).total).toBe(0);
+    expect(await geometry(page)).toEqual(before);
     await page.screenshot({
       path: `${stem}-board.png`,
       animations: "allow",
@@ -508,174 +496,95 @@ for (const appearance of ["light", "dark"])
     expect(f.posts()).toBe(0);
   });
 
-test("境界の光が実時間で一周して全角を連続移動し、resize後も紙面へ入らない", async ({
+test("ハローはresize後も全辺同時に変化し、紙面geometryと背景を保つ", async ({
   page,
 }) => {
-  // Separate from the OFF/ON performance windows so each test keeps 30s.
   const f = await ready(page),
     viewport = page.viewportSize()!,
-    stem = `test-results/unestimated-motion-${viewport.width}-loop`,
     requests = f.requests.length;
   await enable(page);
-  await twoFrames(page);
-  const target = card(page),
-    before = await geometry(page),
-    initialBox = (await target.boundingBox())!,
-    pathPromise = sampleOrbitPath(target),
-    frames: Buffer[] = [],
-    states: Awaited<ReturnType<typeof motion>>[] = [],
-    stamps: number[] = [];
-  for (let index = 0; index < 10; index++) {
-    if (index) await page.waitForTimeout(760);
-    states.push(await motion(target));
-    frames.push(await frame(target, `${stem}-frame-${index}.png`));
-    stamps.push(await page.evaluate(() => performance.now()));
-  }
-  const samples = await pathPromise,
-    first = samples[0],
-    last = samples.at(-1)!,
-    corners = [
-      [0.34, 0.36],
-      [0.48, 0.5],
-      [0.84, 0.86],
-      [0.98, 1],
-    ].map(
-      ([start, end]) =>
-        samples.filter(
-          (sample) => sample.progress > start && sample.progress < end,
-        ).length,
-    ),
-    continuity = samples.slice(1).map((sample, index) => {
-      const previous = samples[index],
-        elapsed = sample.currentTime - previous.currentTime;
-      return {
-        elapsed,
-        angleStep: sample.angle - previous.angle,
-        positionStep: Math.hypot(sample.x - previous.x, sample.y - previous.y),
-        positionLimit:
-          Math.max(sample.linearSpeedLimit, previous.linearSpeedLimit) *
-          elapsed,
-        angleLimit: (45 / (0.01 * 6400)) * elapsed,
-      };
-    });
-  // Persist raw evidence before assertions so a failed path check remains diagnosable.
-  await writeFile(
-    `${stem}-metrics.json`,
-    JSON.stringify(
-      {
-        viewport,
-        frameTimes: stamps,
-        frames: states,
-        samples,
-        cornerSamples: corners,
-        continuity,
-      },
-      null,
-      2,
-    ),
-  );
-  expect(stamps.at(-1)! - stamps[0]).toBeGreaterThanOrEqual(6400);
-  expect(last.elapsed - first.elapsed).toBeGreaterThanOrEqual(6400);
-  expect(last.currentTime - first.currentTime).toBeGreaterThanOrEqual(6400);
-  expect(last.iteration).toBeGreaterThan(first.iteration);
-  expect(last.angle - first.angle).toBeGreaterThanOrEqual(360);
-  expect(samples.length).toBeGreaterThan(10);
-  for (const count of corners) expect(count).toBeGreaterThan(0);
-  // Matrix rounding tolerance is sub-pixel; these are path/continuity checks,
-  // not FPS thresholds. Bounds scale with the actual time between samples.
-  expect(
-    Math.max(...samples.map((sample) => sample.positionError)),
-  ).toBeLessThan(0.1);
-  expect(Math.max(...samples.map((sample) => sample.angleError))).toBeLessThan(
-    0.1,
-  );
-  for (const step of continuity) {
-    expect(step.elapsed).toBeGreaterThanOrEqual(0);
-    expect(step.angleStep).toBeGreaterThanOrEqual(-0.1);
-    expect(step.angleStep).toBeLessThanOrEqual(step.angleLimit + 0.1);
-    expect(step.positionStep).toBeLessThanOrEqual(step.positionLimit + 0.1);
-  }
-  const differences = [];
-  for (let index = 1; index < frames.length; index++) {
-    const diff = diffPng(frames[index - 1], frames[index]);
-    expect(diff.boundary).toBeGreaterThan(0);
-    expect(diff.center).toBe(0);
-    differences.push({ boundary: diff.boundary, center: diff.center });
-    await writeFile(`${stem}-diff-${index}.png`, diff.image);
-  }
-  expect(await geometry(page)).toEqual(before);
-
+  const initialBox = (await card(page).boundingBox())!;
   await page.setViewportSize({
     width: viewport.width - 160,
     height: viewport.height - 80,
   });
   await expect
     .poll(async () => {
-      const box = (await target.boundingBox())!;
+      const box = (await card(page).boundingBox())!;
       return box.width !== initialBox.width || box.height !== initialBox.height;
     })
     .toBe(true);
+  await expect
+    .poll(async () => (await motion(card(page))).playState)
+    .toBe("running");
   await twoFrames(page);
-  const resizedGeometry = await geometry(page),
-    resizedBox = (await target.boundingBox())!,
-    resizedStart = await motion(target),
-    resizedFirst = await frame(target, `${stem}-resize-frame-0.png`);
-  await page.waitForTimeout(450);
-  const resizedEnd = await motion(target),
-    resizedSecond = await frame(target, `${stem}-resize-frame-1.png`),
-    resizedDiff = diffPng(resizedFirst, resizedSecond);
-  await writeFile(
-    `${stem}-resize-metrics.json`,
-    JSON.stringify(
-      {
-        initialBox,
-        resizedBox,
-        frames: [resizedStart, resizedEnd],
-        pixelDiff: {
-          boundary: resizedDiff.boundary,
-          center: resizedDiff.center,
-        },
-      },
-      null,
-      2,
-    ),
+  const before = await geometry(page);
+  await captureCycle(
+    card(page),
+    `test-results/unestimated-motion-${viewport.width}-resize`,
   );
-  expect(resizedEnd.currentTime!).toBeGreaterThan(resizedStart.currentTime!);
-  expect(resizedEnd.transform).not.toBe(resizedStart.transform);
-  expect(resizedDiff.boundary).toBeGreaterThan(0);
-  expect(resizedDiff.center).toBe(0);
-  expect(await geometry(page)).toEqual(resizedGeometry);
-  await writeFile(`${stem}-resize-diff.png`, resizedDiff.image);
-  await writeFile(
-    `${stem}-metrics.json`,
-    JSON.stringify(
-      {
-        viewport,
-        frameTimes: stamps,
-        frames: states,
-        pixelDiff: differences,
-        samples,
-        cornerSamples: corners,
-        continuity,
-        resize: {
-          initialBox,
-          resizedBox,
-          frames: [resizedStart, resizedEnd],
-          pixelDiff: {
-            boundary: resizedDiff.boundary,
-            center: resizedDiff.center,
-          },
-        },
-      },
-      null,
-      2,
-    ),
-  );
+  expect(await geometry(page)).toEqual(before);
   expect(f.requests).toHaveLength(requests);
   expect(f.posts()).toBe(0);
 });
 
-test("overflowで見えない光はpausedとなり、再入場時だけ実時間の移動を再開する", async ({
+for (const count of [6, 24, 94])
+  test(`${count}枚のハローを同一自然時間窓でOFF/ON比較し性能限界を記録`, async ({
+    page,
+  }) => {
+    const f = await ready(page, false, count),
+      requests = f.requests.length;
+    await page.mouse.move(2, page.viewportSize()!.height - 2);
+    const baseline = summarizeFrameWindows([
+      await sampleFrameTime(page),
+      await sampleFrameTime(page),
+    ]);
+    await enable(page);
+    await expect(
+      page.locator(".unestimated-highlight.unestimated-visible"),
+    ).toHaveCount(count);
+    await twoFrames(page);
+    const performance = summarizeFrameWindows([
+      await sampleFrameTime(page),
+      await sampleFrameTime(page),
+    ]);
+    const onOverOff = Object.fromEntries(
+      (["mean", "p50", "p95", "max"] as const).map((key) => [
+        key,
+        performance[key] / baseline[key],
+      ]),
+    );
+    const metrics = {
+      viewport: page.viewportSize(),
+      count,
+      frameTimeBaseline: baseline,
+      frameTimeProxy: performance,
+      frameTimeComparison: { onOverOff },
+    };
+    await writeFile(
+      `test-results/unestimated-motion-${page.viewportSize()!.width}-${count}-performance.json`,
+      JSON.stringify(metrics, null, 2),
+    );
+    console.log(
+      JSON.stringify({
+        metric: "unestimated-halo-frame-time-proxy",
+        ...metrics,
+      }),
+    );
+    for (const sample of baseline.samples) {
+      expect(sample.activeAnimations).toBe(0);
+      expect(sample.visibleCards).toBe(0);
+    }
+    for (const sample of performance.samples) {
+      expect(sample.activeAnimations).toBe(count);
+      expect(sample.visibleCards).toBe(count);
+    }
+    // No arbitrary FPS pass threshold: record matched-window evidence honestly.
+    expect(f.requests).toHaveLength(requests);
+    expect(f.posts()).toBe(0);
+  });
+
+test("overflowで見えないハローはpausedとなり、再入場時だけ変化を再開する", async ({
   page,
 }) => {
   const f = await ready(page, true),
@@ -712,7 +621,7 @@ test("overflowで見えない光はpausedとなり、再入場時だけ実時間
   expect(f.posts()).toBe(0);
 });
 
-test("native drag中は細いcueだけ残し光をpause、取消後は再開する", async ({
+test("native drag中は細いcueだけ残しハローをpause、取消後は再開する", async ({
   page,
 }) => {
   const f = await ready(page),
@@ -753,6 +662,47 @@ test("native drag中は細いcueだけ残し光をpause、取消後は再開す�
   } finally {
     await page.mouse.up();
   }
+});
+
+test("document非表示通知ではhaloをpauseし、再表示でcueを残して再開する", async ({
+  page,
+}) => {
+  const f = await ready(page);
+  await enable(page);
+  try {
+    // Synthetic visibility notification exercises the app guard, not an OS/tab emulation claim.
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        value: true,
+      });
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "hidden",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect(page.locator("#board")).toHaveClass(/unestimated-suspended/);
+    await expect
+      .poll(async () => (await motion(card(page))).playState)
+      .toBe("paused");
+    await twoFrames(page);
+    const paused = await motion(card(page));
+    await page.waitForTimeout(250);
+    expect(await motion(card(page))).toEqual(paused);
+    await expect(card(page)).toHaveCSS("outline-width", "1px");
+  } finally {
+    await page.evaluate(() => {
+      Reflect.deleteProperty(document, "hidden");
+      Reflect.deleteProperty(document, "visibilityState");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  }
+  await expect(page.locator("#board")).not.toHaveClass(/unestimated-suspended/);
+  await expect
+    .poll(async () => (await motion(card(page))).playState)
+    .toBe("running");
+  expect(f.posts()).toBe(0);
 });
 
 for (const appearance of ["light", "dark"])

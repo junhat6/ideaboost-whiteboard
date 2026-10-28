@@ -94,7 +94,7 @@ test("未見積強調は初期OFF、確定nullの末端作業だけを型色を�
             .animationName,
       ),
     )
-    .toBe("unestimated-orbit");
+    .toBe("unestimated-halo");
   await shortcut(page);
   await expect(
     page.locator(".unestimated-highlight, .unestimated-cue"),
@@ -530,7 +530,7 @@ test("読取中と取得失敗後は0件通知を出さない", async ({ page })
   expect(f.burndownReads()).toBe(0);
 });
 
-test("drag中も細い輪郭を保ち、終了後に境界の光だけ再開する", async ({
+test("drag中も細い輪郭を保ち、終了後に全辺のハローだけ再開する", async ({
   page,
 }) => {
   const f = await ready(page);
@@ -569,7 +569,7 @@ test("drag中も細い輪郭を保ち、終了後に境界の光だけ再開す�
           ).animationName,
       ),
     )
-    .toBe("unestimated-orbit");
+    .toBe("unestimated-halo");
   expect(f.posts()).toBe(0);
 });
 

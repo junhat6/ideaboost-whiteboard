@@ -658,6 +658,7 @@ function syncUnestimatedToggle() {
     : "未見積を強調（U）";
 }
 function paintUnestimatedHighlights() {
+  $("#board").classList.toggle("unestimated-suspended", document.hidden);
   syncUnestimatedToggle();
   paintCardEstimates();
   unestimatedObserver?.disconnect();
@@ -2309,35 +2310,113 @@ async function loadLinkedPrs(more = false) {
   }
 }
 const commentDrafts = new Map();
+const commentReadPools = new WeakMap();
+async function readCommentPage(source, number, page, current) {
+  let pool = commentReadPools.get(source);
+  if (!pool) commentReadPools.set(source, (pool = new Set()));
+  while (current() && pool.size >= 2) await Promise.race(pool);
+  if (!current()) return null;
+  const pending = Promise.resolve().then(() =>
+    current() ? source.loadComments(number, page) : null,
+  );
+  const settled = pending.then(
+    () => {},
+    () => {},
+  );
+  pool.add(settled);
+  try {
+    return await pending;
+  } finally {
+    pool.delete(settled);
+  }
+}
 let commentConfirmed = new Map();
 let commentItems = [],
   commentNext = null,
+  commentLoadedPages = 0,
   commentsLoading = false,
+  commentRead = null,
   commentRefreshQueued = null,
   commentComposing = false;
 function commentEntry() {
   const n = editorLatest?.number;
-  return n ? commentDrafts.get(n) : null;
+  const entry = n ? commentDrafts.get(n) : null;
+  return entry?.source === adapter ? entry : null;
+}
+function protectedComment(entry) {
+  return !!(entry?.posting || entry?.outcome || entry?.error);
 }
 function commentDirty() {
-  return !!commentEntry()?.body.trim();
+  const entry = commentEntry();
+  return !!entry?.body.trim() && !protectedComment(entry);
 }
-function commentPosting() {
-  return !!commentEntry()?.posting;
+function hasCommentWork() {
+  return [...commentDrafts.values()].some(
+    (entry) =>
+      entry.source === adapter &&
+      (protectedComment(entry) || entry.body.trim()),
+  );
+}
+function discardUnsubmittedComment() {
+  const entry = commentEntry();
+  if (entry && !protectedComment(entry)) entry.body = "";
+}
+function currentCommentView(entry) {
+  return (
+    entry.source === adapter &&
+    commentEntry() === entry &&
+    $("#details").open &&
+    !$("#details").classList.contains("closing")
+  );
+}
+function clearComments() {
+  commentDrafts.clear();
+  commentConfirmed = new Map();
+  commentItems = [];
+  commentNext = null;
+  commentLoadedPages = 0;
+  commentsLoading = false;
+  commentRead = null;
+  commentRefreshQueued = null;
+  commentComposing = false;
+  $("#comments-list")
+    .querySelectorAll(".comment-content")
+    .forEach((n) => composerModule?.clearPreview(n));
+  $("#comments-list").replaceChildren();
+  $("#comments-list").setAttribute("aria-busy", "false");
+  $("#comments-status").textContent = "";
+  $("#comments-status").removeAttribute("title");
+  $("#comments-skeleton").hidden = true;
+  $("#comment-body").value = "";
+  $("#comment-body").disabled = false;
+  $("#post-comment").disabled = true;
+  $("#post-comment").textContent = "コメントを投稿";
+  $("#comment-state").textContent = "";
+  $("#comment-error").textContent = "";
+  $("#comment-error").hidden = true;
+  $("#comments-more").hidden = true;
+  $("#comments-refresh").disabled = false;
+  $("#comments-refresh").setAttribute("aria-busy", "false");
 }
 function setupComments() {
   const n = editorLatest.number;
-  if (!commentDrafts.has(n))
+  if (commentDrafts.get(n)?.source !== adapter)
     commentDrafts.set(n, {
+      source: adapter,
       body: "",
       requestId: null,
       outcome: null,
+      error: "",
       posting: false,
+      confirmed: new Map(),
+      confirmedEpoch: 0,
     });
   commentItems = [];
-  commentConfirmed.clear();
+  commentConfirmed = commentEntry().confirmed;
   commentNext = null;
+  commentLoadedPages = 0;
   commentsLoading = false;
+  commentRead = null;
   commentRefreshQueued = null;
   commentComposing = false;
   $("#comment-body").value = commentEntry().body;
@@ -2346,7 +2425,8 @@ function setupComments() {
     .forEach((n) => composerModule?.clearPreview(n));
   $("#comments-list").replaceChildren();
   $("#comments-status").textContent = "コメントを読み込み中…";
-  $("#comment-state").textContent = "";
+  $("#comments-status").removeAttribute("title");
+  renderComments(); // Same-source ACK evidence stays visible even if the new GET fails.
   syncCommentControls();
 }
 function syncCommentControls() {
@@ -2364,6 +2444,7 @@ function syncCommentControls() {
   $("#post-comment").textContent = entry.posting ? "投稿中…" : "コメントを投稿";
   $("#comment-error").hidden = !entry.outcome;
   $("#comment-error").textContent = entry.outcome || "";
+  $("#comment-state").textContent = entry.error || "";
   $("#comments-refresh").disabled = commentsLoading;
   $("#comments-refresh").setAttribute("aria-busy", String(commentsLoading));
   $("#comments-more").hidden = !commentNext;
@@ -2492,14 +2573,7 @@ function stopPrivateScope(message) {
   editorSession++;
   clearLinkedPrs();
   composerModule?.clearPreview($("#detail-body-view"));
-  $("#comments-list")
-    .querySelectorAll(".comment-content")
-    .forEach((n) => composerModule?.clearPreview(n));
-  $("#comments-list").replaceChildren();
-  commentItems = [];
-  commentConfirmed.clear();
-  commentDrafts.clear();
-  commentRefreshQueued = null;
+  clearComments();
   editorBody = "";
   editorBaseline = null;
   editorLatest = null;
@@ -2533,8 +2607,22 @@ function refreshCommentsAfterPost(session) {
 }
 async function loadComments(more = false) {
   if (commentsLoading || !adapter?.loadComments || !$("#details").open) return;
+  if (more && !commentNext) return;
+  const entry = commentEntry();
+  if (!entry) return;
   const session = editorSession,
-    number = editorLatest.number;
+    number = editorLatest.number,
+    source = adapter,
+    firstPage = more ? commentNext : 1,
+    lastPage = more ? commentNext : Math.max(1, commentLoadedPages),
+    confirmedEpoch = entry.confirmedEpoch,
+    read = {};
+  commentRead = read;
+  const current = () =>
+    source === adapter &&
+    session === editorSession &&
+    commentRead === read &&
+    currentCommentView(entry);
   commentsLoading = true;
   $("#comments-skeleton").hidden = commentItems.length > 0;
   $("#comments-list").setAttribute("aria-busy", "true");
@@ -2543,33 +2631,82 @@ async function loadComments(more = false) {
     : "コメントを読み込み中…";
   syncCommentControls();
   try {
-    const result = await adapter.loadComments(number, more ? commentNext : 1);
-    if (session !== editorSession) return;
-    if (!Array.isArray(result.comments))
+    // Revalidate only the pages already opened, with at most two reads active.
+    // A partial result must never replace the visible range or its pagination.
+    const pages = new Map();
+    let nextPage = firstPage,
+      failed = false;
+    const worker = async () => {
+      while (!failed && nextPage <= lastPage && current()) {
+        const page = nextPage++;
+        try {
+          const result = await readCommentPage(source, number, page, current);
+          if (!current()) return;
+          if (
+            !Array.isArray(result.comments) ||
+            result.comments.length > 50 ||
+            result.comments.some(
+              (c) =>
+                !Number.isSafeInteger(c?.id) ||
+                c.id < 1 ||
+                typeof c.body !== "string",
+            ) ||
+            (result.nextPage != null && result.nextPage !== page + 1)
+          )
+            throw Error("コメントを確認できません。");
+          pages.set(page, result);
+        } catch (error) {
+          failed = true;
+          // Even after another page failed, a late same-source 403 revokes all
+          // views. An old source may never clear a newly connected board.
+          if (source === adapter && error.code === "scope_not_public")
+            stopPrivateScope(error.message);
+          throw error;
+        }
+      }
+    };
+    const settled = await Promise.allSettled(
+      Array.from({ length: Math.min(2, lastPage - firstPage + 1) }, worker),
+    );
+    if (!current()) return;
+    if (settled.some((result) => result.status === "rejected"))
       throw Error("コメントを確認できません。");
-    commentItems = more
-      ? [
-          ...new Map(
-            [...commentItems, ...result.comments].map((c) => [c.id, c]),
-          ).values(),
-        ]
-      : result.comments;
-    commentNext = result.nextPage;
+    const refreshed = [];
+    let result,
+      loadedThrough = firstPage;
+    for (let page = firstPage; page <= lastPage; page++) {
+      result = pages.get(page);
+      if (!result) throw Error("コメントを確認できません。");
+      refreshed.push(...result.comments);
+      loadedThrough = page;
+      if (result.nextPage == null) break;
+    }
+    commentItems = [
+      ...new Map(
+        [...(more ? commentItems : []), ...refreshed].map((c) => [c.id, c]),
+      ).values(),
+    ];
+    commentNext = result.nextPage ?? null;
+    commentLoadedPages = loadedThrough;
+    const loaded = new Set(commentItems.map((c) => c.id));
+    for (const [id, confirmed] of entry.confirmed) {
+      // A GET begun before an ACK cannot retire that newly confirmed overlay.
+      // Once canonical data covers it, later edits/deletions must win.
+      if (confirmed.confirmedEpoch <= confirmedEpoch && loaded.has(id))
+        entry.confirmed.delete(id);
+    }
     renderComments();
     $("#comments-status").textContent = commentItems.length
       ? `${commentItems.length}件のコメント`
       : "まだコメントはありません。";
     $("#comments-status").title = `取得: ${result.fetchedAt || "現在"}`;
   } catch (error) {
-    if (error.code === "scope_not_public") {
-      stopPrivateScope(error.message);
-      return;
-    }
-    if (session === editorSession)
+    if (current())
       $("#comments-status").textContent =
         "コメントを取得できませんでした。「更新」で再確認できます。";
   } finally {
-    if (session === editorSession) {
+    if (current()) {
+      commentRead = null;
       commentsLoading = false;
       $("#comments-skeleton").hidden = true;
       $("#comments-list").setAttribute("aria-busy", "false");
@@ -2582,7 +2719,10 @@ async function loadComments(more = false) {
   }
 }
 $("#comment-body").addEventListener("input", () => {
-  commentEntry().body = $("#comment-body").value;
+  const entry = commentEntry();
+  if (!entry || entry.posting) return;
+  entry.body = $("#comment-body").value;
+  if (!entry.body.trim() && !entry.outcome) entry.error = "";
   syncCommentControls();
 });
 $("#comment-body").addEventListener("compositionstart", () => {
@@ -2620,36 +2760,47 @@ $("#comment-form").onsubmit = async (e) => {
     editorPosting
   )
     return;
-  const session = editorSession,
-    number = editorLatest.number;
+  const number = editorLatest.number,
+    source = adapter,
+    body = entry.body;
   let refreshAfterPost = false;
   entry.posting = true;
+  entry.error = "";
   entry.requestId ||= crypto.randomUUID();
+  const requestId = entry.requestId;
+  const owns = () =>
+    source === adapter &&
+    commentDrafts.get(number) === entry &&
+    entry.requestId === requestId;
   syncCommentControls();
   try {
-    const result = await adapter.postComment(
-      number,
-      entry.body,
-      entry.requestId,
-    );
+    const result = await source.postComment(number, body, requestId);
+    if (!owns()) return;
     if (!result.ok || !(result.comment?.id || result.commentReceipt?.id))
       throw Error("投稿結果を確認できません。");
     entry.body = "";
-    entry.requestId = null;
     entry.outcome = null;
-    if (session === editorSession) {
+    if (result.comment) {
+      entry.confirmed.set(result.comment.id, {
+        ...result.comment,
+        confirmedEpoch: ++entry.confirmedEpoch,
+      });
+      while (entry.confirmed.size > 10)
+        entry.confirmed.delete(entry.confirmed.keys().next().value);
+    }
+    if (currentCommentView(entry)) {
       $("#comment-body").value = "";
-      $("#comment-state").textContent = "";
       if (result.comment) {
-        commentConfirmed.set(result.comment.id, result.comment);
-        while (commentConfirmed.size > 10)
-          commentConfirmed.delete(commentConfirmed.keys().next().value);
-        commentItems.push(result.comment);
         renderComments();
       }
       refreshAfterPost = true;
     }
   } catch (error) {
+    if (!owns()) return;
+    if (error.code === "scope_not_public") {
+      stopPrivateScope(error.message);
+      return;
+    }
     const uncertain =
       error.ambiguous ||
       !error.httpStatus ||
@@ -2659,28 +2810,28 @@ $("#comment-form").onsubmit = async (e) => {
       entry.outcome =
         "投稿結果を確定できません。下書きを保持し、再投稿を停止しました。コメント一覧・GitHubで確認し、管理者へ確認してください。自動再送はしません。";
     else {
-      entry.requestId = null;
-      if (session === editorSession)
-        $("#comment-state").textContent =
-          "投稿できませんでした。下書きは保持しています。内容・接続を確認して再度操作してください。";
+      entry.error =
+        "投稿できませんでした。下書きは保持しています。内容・接続を確認して再度操作してください。";
     }
-    if (error.code === "scope_not_public") stopPrivateScope(error.message);
     if (
       error.serverError === "estimate_hours_not_public" ||
       error.code === "estimate_hours_not_public"
     )
       invalidateHours();
   } finally {
-    entry.posting = false;
-    if (session === editorSession) syncCommentControls();
+    if (owns()) {
+      entry.posting = false;
+      if (!entry.outcome) entry.requestId = null;
+      if (currentCommentView(entry)) syncCommentControls();
+    }
   }
   // An old list read must never own or release a subsequent comment POST lock.
-  if (refreshAfterPost) refreshCommentsAfterPost(session);
+  if (refreshAfterPost && currentCommentView(entry))
+    refreshCommentsAfterPost(editorSession);
 };
 let returnFocusSelector = null,
   returnCell = null;
 function openIssue(kind, id) {
-  if (commentPosting()) return;
   if ((pending && !loading) || !adapter || !issue(kind, id)) return;
   if (
     $("#details").open &&
@@ -2688,7 +2839,7 @@ function openIssue(kind, id) {
     !confirm("未保存の変更を破棄して別のIssueを開きますか？")
   )
     return;
-  if ($("#details").open && commentEntry()) commentEntry().body = "";
+  if ($("#details").open) discardUnsubmittedComment();
   editorSession++;
   composer?.destroy();
   composer = null;
@@ -2724,7 +2875,7 @@ function openIssue(kind, id) {
   $("#close-detail").focus();
 }
 function closeDetail() {
-  if (composing || commentPosting() || commentComposing) return;
+  if (composing || commentComposing) return;
   if (
     (editMode || commentDirty()) &&
     !confirm("未保存の変更・コメントを破棄して閉じますか？")
@@ -2732,7 +2883,7 @@ function closeDetail() {
     return;
   const d = $("#details");
   if (d.classList.contains("closing")) return;
-  if (commentEntry()) commentEntry().body = "";
+  discardUnsubmittedComment();
   const job = activeSave();
   if (job?.phase === "posting" && job.viewDraft) {
     for (const key of editorFields)
@@ -2747,6 +2898,8 @@ function closeDetail() {
     .querySelectorAll(".comment-content")
     .forEach((n) => composerModule?.clearPreview(n));
   editorSession++; // Drawer cleanup never cancels an explicitly submitted Issue save.
+  commentRead = null;
+  commentsLoading = false;
   commentRefreshQueued = null;
   clearLinkedPrs();
   $("#editor-tools").hidePopover();
@@ -3420,7 +3573,8 @@ void import("./page-navigation.js")
     attachPageNavigation({
       board: $("#board"),
       enabled: () => $("#fit-mode").value === "pages",
-      blocked: () => !!(dragged || $("#details").open || pickerDraft || pending || loading),
+      blocked: () =>
+        !!(dragged || $("#details").open || pickerDraft || pending || loading),
       step: stepBoardPage,
     }),
   )
@@ -3577,10 +3731,9 @@ $("#recover-edit").onclick = async () => {
       job.draft = clone(editorDraft());
       job.retryReady = true;
       job.outcome = null;
-      job.error =
-        job.patch.close
-          ? "Issueのクローズが完了していません。確認後に「クローズを再試行」を押してください。"
-          : "Statusの変更後、Issueを閉じる処理が完了していません。確認後に「完了処理を再試行」を押してください。";
+      job.error = job.patch.close
+        ? "Issueのクローズが完了していません。確認後に「クローズを再試行」を押してください。"
+        : "Statusの変更後、Issueを閉じる処理が完了していません。確認後に「完了処理を再試行」を押してください。";
       editorOutcome = null;
       $("#detail-error").textContent = job.error;
       $("#detail-error").hidden = false;
@@ -3832,7 +3985,9 @@ document.addEventListener("keydown", (e) => {
   )
     return;
   const writing = (node) =>
-    node?.closest?.("input,textarea,select,[role=combobox],[contenteditable],.cm-editor");
+    node?.closest?.(
+      "input,textarea,select,[role=combobox],[contenteditable],.cm-editor",
+    );
   if (writing(e.target) || writing(document.activeElement)) return;
   const button = $("#highlight-unestimated");
   if (button.hidden || button.disabled) return;
@@ -3854,7 +4009,9 @@ document.addEventListener("keydown", (e) => {
   )
     return;
   const writing = (node) =>
-    node?.closest?.("input,textarea,select,[role=combobox],[contenteditable],.cm-editor");
+    node?.closest?.(
+      "input,textarea,select,[role=combobox],[contenteditable],.cm-editor",
+    );
   if (writing(e.target) || writing(document.activeElement)) return;
   e.preventDefault();
   $("#fullscreen").click();
@@ -3924,6 +4081,7 @@ window.Whiteboard = {
     initialLoading = false;
     clearTimeout(initialTimer);
     adapter = next;
+    clearComments();
     state = clone(snapshot);
     selectedMilestone = String(
       snapshot.scope?.selectedMilestone ?? snapshot.scope?.milestone ?? "",
@@ -4024,6 +4182,7 @@ window.addEventListener("offline", () => {
   }
 });
 document.addEventListener("visibilitychange", () => {
+  $("#board").classList.toggle("unestimated-suspended", document.hidden);
   if (document.visibilityState === "visible") autoRefresh();
 });
 
@@ -4032,8 +4191,7 @@ window.addEventListener("beforeunload", (e) => {
     issueSaves.size > 0 ||
     editMode ||
     composing ||
-    commentDirty() ||
-    commentPosting() ||
+    hasCommentWork() ||
     (pending && !loading)
   ) {
     e.preventDefault();
@@ -4063,12 +4221,17 @@ document.addEventListener("keydown", (e) => {
 void import("./toolbar-select.js")
   .then(({ enhanceToolbarSelects }) => {
     toolbarSelects = enhanceToolbarSelects([
-      $("#assignee-filter"), $("#milestone-filter"), $("#fit-mode"),
+      $("#assignee-filter"),
+      $("#milestone-filter"),
+      $("#fit-mode"),
     ]);
   })
   .catch(() => {}); // Native selectors remain fully usable if the module fails.
 
-let highlightDemo = null, demoModule = null, demoIntent = 0, demoPending = false;
+let highlightDemo = null,
+  demoModule = null,
+  demoIntent = 0,
+  demoPending = false;
 function cancelDemoOpening() {
   demoIntent++;
   demoPending = false;
@@ -4084,14 +4247,17 @@ $("#highlight-demo-open").onclick = async () => {
     demoModule ||= import("./highlight-demo.js");
     const { mountHighlightDemo } = await demoModule;
     if (ticket !== demoIntent || document.querySelector("dialog[open]")) return;
-    highlightDemo ||= mountHighlightDemo({ onClose: () => {
-      controlsPinned = true;
-      syncControls();
-    } });
+    highlightDemo ||= mountHighlightDemo({
+      onClose: () => {
+        controlsPinned = true;
+        syncControls();
+      },
+    });
     await highlightDemo.open($("#highlight-demo-open"));
   } catch {
     demoModule = null;
-    if (ticket === demoIntent) announce("デモを開けませんでした。もう一度お試しください。");
+    if (ticket === demoIntent)
+      announce("デモを開けませんでした。もう一度お試しください。");
   } finally {
     if (ticket === demoIntent) {
       demoPending = false;
@@ -4099,10 +4265,17 @@ $("#highlight-demo-open").onclick = async () => {
     }
   }
 };
-document.addEventListener("pointerdown", e => {
-  if (demoPending && !e.target.closest("#highlight-demo-open, #highlight-demo"))
-    cancelDemoOpening();
-}, true);
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    if (
+      demoPending &&
+      !e.target.closest("#highlight-demo-open, #highlight-demo")
+    )
+      cancelDemoOpening();
+  },
+  true,
+);
 $("#highlight-demo-open").addEventListener("blur", () => {
   if (demoPending && !highlightDemo?.isOpen()) cancelDemoOpening();
 });
