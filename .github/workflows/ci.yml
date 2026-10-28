@@ -14,6 +14,18 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
+      - name: Diagnose isolated halo neighbour pixels repeatedly
+        run: npx playwright test tests/browser/unestimated-motion.spec.ts --grep=同じ自然停止位相 --repeat-each=3 --workers=1 --max-failures=0
+      - name: Keep isolated halo neighbour evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: synthetic-halo-neighbour-diagnostic
+          path: |
+            test-results/unestimated-motion-*-strength-*.png
+            test-results/unestimated-motion-*-strength-*.json
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Verify Close affordance and visible Issue link copy feedback
         run: npx playwright test tests/browser/close-button-design.spec.ts tests/browser/detail-copy-feedback.spec.ts --workers=1 --max-failures=0
       - name: Keep focused synthetic Close and copy evidence

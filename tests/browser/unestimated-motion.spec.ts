@@ -352,6 +352,135 @@ function exteriorStrength(off: Buffer, highlighted: Buffer) {
     }
   return { changed, absoluteRgbDelta };
 }
+function changedPixelDetails(first: Buffer, second: Buffer) {
+  const a = PNG.sync.read(first),
+    b = PNG.sync.read(second);
+  expect([b.width, b.height]).toEqual([a.width, a.height]);
+  const coordinates: {
+    x: number;
+    y: number;
+    before: number[];
+    after: number[];
+  }[] = [];
+  let total = 0,
+    minX = a.width,
+    minY = a.height,
+    maxX = -1,
+    maxY = -1,
+    maxChannelDelta = 0;
+  for (let y = 0; y < a.height; y++)
+    for (let x = 0; x < a.width; x++) {
+      const offset = (y * a.width + x) * 4,
+        before = [...a.data.subarray(offset, offset + 4)],
+        after = [...b.data.subarray(offset, offset + 4)],
+        delta = Math.max(
+          ...before.map((value, channel) => Math.abs(value - after[channel])),
+        );
+      if (!delta) continue;
+      total++;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      maxChannelDelta = Math.max(maxChannelDelta, delta);
+      if (coordinates.length < 200) coordinates.push({ x, y, before, after });
+    }
+  return {
+    image: { width: a.width, height: a.height },
+    total,
+    bounds: total ? { minX, minY, maxX, maxY } : null,
+    maxChannelDelta,
+    truncated: total > coordinates.length,
+    coordinates,
+  };
+}
+async function strengthVisualState(page: Page) {
+  return page.evaluate(() => {
+    const identify = (element: Element | null) =>
+      element && {
+        tag: element.tagName,
+        id: element.id,
+        class: element.getAttribute("class"),
+        task: element.getAttribute("data-task"),
+      };
+    const inspect = (element: Element | null, pseudo?: string) => {
+      if (!element) return null;
+      const style = getComputedStyle(element, pseudo),
+        properties = [
+          "width",
+          "height",
+          "padding",
+          "margin",
+          "border",
+          "border-radius",
+          "background-color",
+          "color",
+          "box-shadow",
+          "outline",
+          "opacity",
+          "transform",
+          "filter",
+          "clip-path",
+          "overflow",
+          "position",
+          "z-index",
+          "contain",
+          "container-type",
+          "font",
+          "line-height",
+          "animation-play-state",
+        ];
+      return {
+        element: identify(element),
+        rect: element.getBoundingClientRect().toJSON(),
+        scroll: {
+          left: element.scrollLeft,
+          top: element.scrollTop,
+          width: element.scrollWidth,
+          height: element.scrollHeight,
+          clientWidth: element.clientWidth,
+          clientHeight: element.clientHeight,
+        },
+        style: Object.fromEntries(
+          properties.map((property) => [
+            property,
+            style.getPropertyValue(property),
+          ]),
+        ),
+      };
+    };
+    const readCard = (id: string) => {
+      const element = document.querySelector(`[data-task="${id}"]`)!,
+        span = element.querySelector(".unestimated-motion"),
+        grid = element.closest(".task-grid")!,
+        port = element.closest(".cell-viewport");
+      return {
+        card: inspect(element),
+        title: inspect(element.querySelector(".task-title")),
+        titleText: inspect(element.querySelector(".task-title-text")),
+        avatar: inspect(element.querySelector(".person")),
+        hours: inspect(element.querySelector(".task-estimate")),
+        motion: inspect(span),
+        motionAfter: inspect(span, "::after"),
+        haloRoom:
+          span && getComputedStyle(span).getPropertyValue("--u-halo-room"),
+        grid: inspect(grid),
+        gridGap: getComputedStyle(grid).gap,
+        port: inspect(port),
+      };
+    };
+    return {
+      dpr: devicePixelRatio,
+      viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY },
+      hidden: document.hidden,
+      visibilityState: document.visibilityState,
+      focus: identify(document.activeElement),
+      hovered: [...document.querySelectorAll(":hover")].map(identify),
+      target: readCard("t0-0-0"),
+      neighbour: readCard("t0-0-1"),
+    };
+  });
+}
 function paperPixels(
   first: Buffer,
   second: Buffer,
@@ -511,16 +640,21 @@ async function captureCycle(target: Locator, stem: string) {
 for (const appearance of ["light", "dark"])
   test(`${appearance}の旧Aと強めたAを同じ自然停止位相で比較し外側だけ強くする`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     const f = await ready(page, false, 1);
     await theme(page, appearance);
     const target = card(page),
       neighbour = card(page, "t0-0-1"),
-      stem = `test-results/unestimated-motion-${page.viewportSize()!.width}-${appearance}-strength`,
+      stem = `test-results/unestimated-motion-${page.viewportSize()!.width}-${appearance}-strength-r${testInfo.repeatEachIndex}`,
       geometryBefore = await geometry(page),
       requests = f.requests.length,
       off = await frame(target, `${stem}-off.png`),
-      neighbourBefore = await neighbour.screenshot({ animations: "allow" });
+      visualBefore = await strengthVisualState(page),
+      neighbourBefore = await neighbour.screenshot({
+        path: `${stem}-neighbour-before.png`,
+        animations: "allow",
+      }),
+      visualBeforeAfterCapture = await strengthVisualState(page);
     let baselineStyle: Awaited<ReturnType<Page["addStyleTag"]>> | undefined;
     try {
       await enable(page);
@@ -547,6 +681,14 @@ for (const appearance of ["light", "dark"])
         beforeStrength = exteriorStrength(off, baseline),
         afterStrength = exteriorStrength(off, stronger),
         difference = diffPng(baseline, stronger),
+        visualAfter = await strengthVisualState(page),
+        neighbourAfter = await neighbour.screenshot({
+          path: `${stem}-neighbour-after.png`,
+          animations: "allow",
+        }),
+        visualAfterAfterCapture = await strengthVisualState(page),
+        neighbourDifference = diffPng(neighbourBefore, neighbourAfter),
+        neighbourPixels = changedPixelDetails(neighbourBefore, neighbourAfter),
         metrics = {
           metric: "unestimated-halo-style-strength",
           comparison:
@@ -563,9 +705,15 @@ for (const appearance of ["light", "dark"])
             boundary: difference.boundary,
             center: difference.center,
           },
+          neighbourPixels,
+          visualBefore,
+          visualBeforeAfterCapture,
+          visualAfter,
+          visualAfterAfterCapture,
         };
       await writeFile(`${stem}-metrics.json`, JSON.stringify(metrics, null, 2));
       await writeFile(`${stem}-diff.png`, difference.image);
+      await writeFile(`${stem}-neighbour-diff.png`, neighbourDifference.image);
       console.log(JSON.stringify(metrics));
       expect(beforeState).toEqual(paused);
       expect(afterState).toEqual(paused);
@@ -576,12 +724,7 @@ for (const appearance of ["light", "dark"])
       );
       expect(difference.boundary).toBeGreaterThan(0);
       expect(difference.center).toBe(0);
-      expect(
-        diffPng(
-          neighbourBefore,
-          await neighbour.screenshot({ animations: "allow" }),
-        ).total,
-      ).toBe(0);
+      expect(neighbourDifference.total).toBe(0);
       expect(await geometry(page)).toEqual(geometryBefore);
       expect(f.requests).toHaveLength(requests);
       expect(f.posts()).toBe(0);
