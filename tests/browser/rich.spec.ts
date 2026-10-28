@@ -59,15 +59,17 @@ test("author is distinct, avatar tiles preserve multiple and outside assignments
   ).toEqual(["outside", "tester"]);
   await page.getByRole("button", { name: "レビュー中", exact: true }).click();
   await expect(page.locator("#detail-status")).toHaveValue("レビュー中");
-  expect(
-    await page
-      .locator('[data-status="レビュー中"] .status-dot')
-      .evaluate((el) => getComputedStyle(el).borderTopColor),
-  ).toBe(
-    await page
-      .locator(".board-head .status-dot.wait")
-      .evaluate((el) => getComputedStyle(el).borderTopColor),
-  );
+  // The autosave ACK replaces board DOM. A one-shot evaluate can read the
+  // detached old dot and return an empty computed style. Re-resolve each live
+  // locator and require the actual ORANGE token, not equality of two unknowns.
+  for (const selector of [
+    '[data-status="レビュー中"] .status-dot',
+    ".board-head .status-dot.wait",
+  ])
+    await expect(page.locator(selector)).toHaveCSS(
+      "border-top-color",
+      "rgb(188, 76, 0)",
+    );
   await expect.poll(s.posts).toBeGreaterThan(0);
   page.once("dialog", (d) => d.accept());
   await page.locator("#close-detail").click();
