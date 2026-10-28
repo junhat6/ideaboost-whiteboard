@@ -915,6 +915,10 @@ dialog dd {
 .task-grid[data-count="4"] {
   grid-template-rows: repeat(2, minmax(0, 1fr));
 }
+.task-grid[data-count="3"] .task-top,
+.task-grid[data-count="4"] .task-top {
+  display: none;
+}
 .task-grid > .task {
   container-type: size;
   min-width: 0;
@@ -1870,7 +1874,8 @@ dialog dt,
 
 /* Live paper surface and compact controls. */
 .control-panel {
-  padding: 12px 16px;
+  /* Include the 1px bottom border in the compact 64px two-row height. */
+  padding: 4px 16px 3px;
   display: flex;
   gap: 20px;
   align-items: center;
@@ -1885,7 +1890,7 @@ dialog dt,
 }
 .toolbar {
   flex: 1;
-  gap: 8px;
+  gap: 4px 8px;
   margin: 0;
 }
 .toolbar input {

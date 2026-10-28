@@ -232,7 +232,7 @@ test("色凡例は操作バー内だけ、未知・未設定を同じ中立色�
     const panel = await page.locator(".control-panel").boundingBox(),
       operations = await page.locator("#operations").boundingBox(),
       lb = await legend.boundingBox();
-    expect(panel!.height).toBeLessThan(100);
+    expect(panel!.height).toBeLessThanOrEqual(64);
     expect(lb!.x + lb!.width).toBeLessThanOrEqual(operations!.x);
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({
@@ -245,9 +245,22 @@ test("色凡例は操作バー内だけ、未知・未設定を同じ中立色�
   await page.mouse.move(500, 300);
   await page.mouse.move(500, 2);
   await expect(page.locator("#chrome")).toHaveClass(/controls-open/);
-  // The toolbar is an overlay; click an actually exposed card, not the first
-  // row title covered by the open contextual toolbar. No force/focus bypass.
-  await card(page, "t1-0-0").locator(".task-title").click();
+  // Even with both contextual rows visible, the first compact title must be
+  // reachable by a normal pointer click, without force or keyboard substitution.
+  const title = card(page).locator(".task-title");
+  await expect
+    .poll(() =>
+      title.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return (
+          document
+            .elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+            ?.closest(".task-title") === el
+        );
+      }),
+    )
+    .toBe(true);
+  await title.click();
   await expect(page.locator("#chrome")).not.toHaveClass(/controls-open/);
   await page.keyboard.press("Escape");
   expect(f.posts()).toBe(0);
