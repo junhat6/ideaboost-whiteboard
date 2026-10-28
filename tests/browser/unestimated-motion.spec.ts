@@ -510,8 +510,14 @@ test("ハローはresize後も全辺同時に変化し、紙面geometryと背景
   });
   await expect
     .poll(async () => {
-      const box = (await card(page).boundingBox())!;
-      return box.width !== initialBox.width || box.height !== initialBox.height;
+      // ResizeObserver may replace the card between locator resolution and
+      // geometry read. A missing frame is not resized geometry; poll the live
+      // locator until the real, changed box is present.
+      const box = await card(page).boundingBox();
+      return Boolean(
+        box &&
+          (box.width !== initialBox.width || box.height !== initialBox.height),
+      );
     })
     .toBe(true);
   await expect
