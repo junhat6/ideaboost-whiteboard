@@ -4,16 +4,7 @@ import { setup } from "./fixtures";
 const toggle = (page: Page) => page.locator("#highlight-unestimated");
 const card = (page: Page, id = "t0-0-0") => page.locator(`[data-task="${id}"]`);
 async function expectFixedFrame(page: Page, target = card(page)) {
-  const width = await page
-    .locator("#board")
-    .evaluate((board) =>
-      board.classList.contains("dense")
-        ? "1px"
-        : board.classList.contains("compact")
-          ? "2px"
-          : "4px",
-    );
-  await expect(target).toHaveCSS("outline-width", width);
+  await expect(target).toHaveCSS("outline-width", "1px");
   await expect(target).toHaveCSS("outline-style", "solid");
 }
 const hour = (page: Page, value: number) =>
@@ -93,13 +84,17 @@ test("未見積強調は初期OFF、確定nullの末端作業だけを型色を�
   await expectFixedFrame(page);
   await expect(card(page).locator(".unestimated-cue")).toHaveCSS(
     "background-color",
-    "rgb(49, 89, 201)",
+    "rgba(0, 0, 0, 0)",
   );
   await expect
     .poll(() =>
-      card(page).evaluate((n) => getComputedStyle(n, "::after").animationName),
+      card(page).evaluate(
+        (n) =>
+          getComputedStyle(n.querySelector(".unestimated-motion")!, "::after")
+            .animationName,
+      ),
     )
-    .toBe("unestimated-breathe");
+    .toBe("unestimated-orbit");
   await shortcut(page);
   await expect(
     page.locator(".unestimated-highlight, .unestimated-cue"),
@@ -407,7 +402,9 @@ test("動きの軽減設定では穏やかな強調も静止し、scope変更で
   await expect(card(page)).toHaveClass(/unestimated-visible/);
   expect(
     await card(page).evaluate(
-      (n) => getComputedStyle(n, "::after").animationName,
+      (n) =>
+        getComputedStyle(n.querySelector(".unestimated-motion")!, "::after")
+          .animationName,
     ),
   ).toBe("none");
   expect(
@@ -533,7 +530,7 @@ test("読取中と取得失敗後は0件通知を出さない", async ({ page })
   expect(f.burndownReads()).toBe(0);
 });
 
-test("drag中も固定枠を保ち、終了後に補助pulseだけ復帰する", async ({
+test("drag中も細い輪郭を保ち、終了後に境界の光だけ再開する", async ({
   page,
 }) => {
   const f = await ready(page);
@@ -551,9 +548,13 @@ test("drag中も固定枠を保ち、終了後に補助pulseだけ復帰する",
   await expectFixedFrame(page);
   expect(
     await card(page).evaluate(
-      (element) => getComputedStyle(element, "::after").animationName,
+      (element) =>
+        getComputedStyle(
+          element.querySelector(".unestimated-motion")!,
+          "::after",
+        ).animationPlayState,
     ),
-  ).toBe("none");
+  ).toBe("paused");
   await card(page).dispatchEvent("dragend");
   await expect(card(page)).not.toHaveClass(/dragging/);
   await expect(card(page)).toHaveClass(/unestimated-highlight/);
@@ -561,14 +562,18 @@ test("drag中も固定枠を保ち、終了後に補助pulseだけ復帰する",
   await expect
     .poll(() =>
       card(page).evaluate(
-        (element) => getComputedStyle(element, "::after").animationName,
+        (element) =>
+          getComputedStyle(
+            element.querySelector(".unestimated-motion")!,
+            "::after",
+          ).animationName,
       ),
     )
-    .toBe("unestimated-breathe");
+    .toBe("unestimated-orbit");
   expect(f.posts()).toBe(0);
 });
 
-test("未見積の固定枠と種類色をlight・darkの実pixel資料に残す", async ({
+test("未見積の細い輪郭と種類色をlight・darkの実pixel資料に残す", async ({
   page,
 }) => {
   const f = await ready(page);
@@ -651,7 +656,7 @@ test("公開field読取の403は以前のnullを強調せず、復旧後も勝�
   expect(f.burndownReads()).toBe(0);
 });
 
-test("多数の小さい付箋でも固定枠とlabelはtitle・担当者の領域を圧迫せず枠を内側に収める", async ({
+test("多数の小さい付箋でも細い輪郭とlabelはtitle・担当者の領域を圧迫せず枠を内側に収める", async ({
   page,
 }) => {
   const f = await ready(page);

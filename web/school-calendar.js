@@ -57,18 +57,12 @@ export function createSchoolCalendar({ onChange }) {
   const element = el("div", "burn-calendar");
   element.id = "burn-school-days";
   const headingId = `burn-calendar-month-${++sequence}`,
-    helpId = `burn-calendar-help-${sequence}`,
     header = el("div", "burn-calendar-header"),
     previous = el("button", "burn-calendar-nav", "‹"),
     heading = el("h3", "burn-calendar-month"),
     next = el("button", "burn-calendar-nav", "›"),
     grid = el("div", "burn-calendar-grid"),
     count = el("p", "burn-calendar-count"),
-    help = el(
-      "p",
-      "burn-calendar-help",
-      "日付を押すたびに追加・解除できます。矢印キーで移動、Space / Enterで選択。",
-    ),
     warning = el("p", "burn-calendar-warning");
   heading.id = headingId;
   heading.setAttribute("aria-live", "polite");
@@ -78,14 +72,12 @@ export function createSchoolCalendar({ onChange }) {
   header.append(previous, heading, next);
   grid.setAttribute("role", "grid");
   grid.setAttribute("aria-labelledby", headingId);
-  grid.setAttribute("aria-describedby", helpId);
   grid.setAttribute("aria-multiselectable", "true");
-  help.id = helpId;
   count.setAttribute("role", "status");
   count.setAttribute("aria-live", "polite");
   warning.setAttribute("role", "alert");
   warning.hidden = true;
-  element.append(header, grid, count, help, warning);
+  element.append(header, grid, count, warning);
   let days = [],
     month = null,
     focusedDay = null,

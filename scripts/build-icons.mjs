@@ -2,6 +2,7 @@ import icons from "@primer/octicons";
 import { writeFile } from "node:fs/promises";
 const names = [
   "sync",
+  "calendar",
   "screen-full",
   "moon",
   "question",

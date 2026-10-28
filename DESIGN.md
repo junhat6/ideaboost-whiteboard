@@ -75,7 +75,7 @@ typography:
     fontFamily: system-ui, -apple-system, BlinkMacSystemFont, Hiragino Kaku Gothic ProN, Yu Gothic, Meiryo, sans-serif
     fontSize: 12px
     fontWeight: 500
-    lineHeight: 1.35
+    lineHeight: 1.25
   label:
     fontFamily: system-ui, -apple-system, BlinkMacSystemFont, Hiragino Kaku Gothic ProN, Yu Gothic, Meiryo, sans-serif
     fontSize: 12px
@@ -151,9 +151,9 @@ IdeaBoost のチームが、会議中に同じ一枚の作業面を見て状況�
 
 ## Typography
 
-日本語を OS 標準のゴシックで描画し、外部フォント通信を不要にする。英語向けの負の字間や小さな薄文字を日本語タイトルに適用しない。カードは `{typography.card}`、本文は `{typography.body}`、PBI は 14–18px。2560幅ではカードを14pxへ広げる。
+日本語を OS 標準のゴシックで描画し、外部フォント通信を不要にする。英語向けの負の字間や小さな薄文字を日本語タイトルに適用しない。カードは `{typography.card}`、本文は `{typography.body}`、PBI は 14–18px。2560幅ではカードを14pxへ広げる。 [デジタル庁のタイポグラフィ指針](https://design.digital.go.jp/dads/foundations/typography/)で、OS書体の利用・用途に応じた行高・提供weightへのfallbackを確認した。一般本文の16px以上／原則14px未満を使わない基準への準拠を主張せず、この6PBI同時俯瞰ではタイトル12px（wide14px）・500・行高1.25・通常字間を用途上の選択とし、収まらないカードだけ11pxまで調整する。日本語の細部を潰さないよう一律600/700化や外部font追加はせず、既存inkとtype背景の十分なcontrastを維持する。最重要の見積hは12px/600へ上げ、塗りなしの未見積textも同じ書式を継承する（footerは16pxのまま）。
 
-Issue タイトルは原文。勝手な略称、要約、番号への置き換えをしない。限られたカード領域では完全な行単位で表示し、長文はカード内スクロールとクリック先の全文で読めるようにする。部分的な行や文字を切らない。担当者名のみ省略可能で、アバターと名前の全文アクセシブルラベルを持たせる。付箋footerは20pxの非圧縮領域としてGitHub担当者avatarと見積hを常時表示し、名前はtooltip/ariaへ移す。2×2でもfooterを隠さず、type記号・Status文字は置かない。Issue番号は2×2表示の付箋で省略し、1枚・2枚表示でも高さ80px以下なら省略する。大きな付箋では維持する。0h・選択肢外の値は丸めず保持し、公開確認済みnullは「未設定」、未取得・非公開・対象外は「—」で区別する。通常の再取得中は既知値を保ち、公開失効時はDOMの古い数値も即座に消す。
+Issue タイトルは原文。勝手な略称、要約、番号への置き換えをしない。限られたカード領域では完全な行単位で表示し、長文はカード内スクロールとクリック先の全文で読めるようにする。部分的な行や文字を切らない。担当者名のみ省略可能で、アバターと名前の全文アクセシブルラベルを持たせる。付箋footerは16pxの非圧縮領域としてGitHub担当者avatarと見積hを常時表示し、名前は全文ariaへ残す。付箋内のtitle・担当者・見積・保存状態にnative/custom tooltipを出さず、hoverでタイトル全文を補完しない。PBI・操作バーのヒントは維持する。2×2でもfooterを隠さず、type記号・Status文字は置かない。Issue番号は2×2表示の付箋で省略し、1枚・2枚表示でも高さ80px以下なら省略する。大きな付箋では維持する。0h・選択肢外の値は丸めず保持し、公開確認済みnullは「未設定」、未取得・非公開・対象外は「—」で区別する。通常の再取得中は既知値を保ち、公開失効時はDOMの古い数値も即座に消す。 タスクタイトルは行高1.25、縮小下限11pxとし、2×2ではfooter20→16pxとcompact上下padding2→1pxによってタイトルの可用高を6px増やす（largeな2×2は上下padding5→3pxも合わせ8px増）。1920×1080・6PBI・overflowのCSS寸法では従来約38.8px→約44.8pxとなり、11.5px文字で3全行を目標にする。全ての長文が収まる保証はせず、全文は付箋内scrollと詳細で維持する。文字とavatar・hは重ねず、PBI左列タイトルは変えない。
 
 ## Layout
 
@@ -227,7 +227,7 @@ GitHubの既知の視覚表現で認知負荷を下げ、操作はチーム向�
 
 関連PRはタイトル下・本文上の文脈欄に、状態アイコン＋#番号＋タイトルの丸いリンクで置く。GitHubの正式なclosing/manual linkのみ、固定repoの公開PRのみを扱い、新しいタブで開く。本文とは独立して取得し、空は欄を隠し、取得不可には再試行を示す。open/draft/merged/closed-unmergedを区別し、StatusやIssue完了判定へ混入させない。
 
-アイコンは[GitHub Octicons](https://primer.style/octicons/) 19.42.0（MIT）をビルド時に必要12個だけ抽出する。Lucideのvanilla/tree-shakingも比較したが、今回のGitHub慣例とPR状態表現に合うOcticonsを選ぶ。人気を無欠陥の保証とはしない。runtime CDN/React移行/全icon bundleは不要。共通Iconは16px viewBox・fill currentColor、IconButtonは32px以上、Kbdは22px四方・同一line-height。Macは⌘/Return、その他はCtrl/Enter。更新時もSVGを文字に置換せず、button-local busyと回転（reduced-motionで停止）、disabled、accessible nameを保つ。
+アイコンは[GitHub Octicons](https://primer.style/octicons/) 19.42.0（MIT）をビルド時に必要13個だけ抽出する。Lucideのvanilla/tree-shakingも比較したが、今回のGitHub慣例とPR状態表現に合うOcticonsを選ぶ。人気を無欠陥の保証とはしない。runtime CDN/React移行/全icon bundleは不要。共通Iconは16px viewBox・fill currentColor、IconButtonは32px以上、Kbdは22px四方・同一line-height。Macは⌘/Return、その他はCtrl/Enter。更新時もSVGを文字に置換せず、button-local busyと回転（reduced-motionで停止）、disabled、accessible nameを保つ。
 
 限定disclosure: parse5 8.0.1（MIT）の非DOMパーサーとLezerのコード範囲で、対応するdetails終端まで抽出する。native details/summaryを新規生成し、元属性はopen真偽だけ移す。summaryは安全なplain text（強調等は文字だけ）、内部は開いた時に既存Markdown/media/diagramルートで描画する。閉じた本文はstringのまま、閉じると媒体/図を破棄する。明示openは初期展開。欠けたsummary/終端、過度なネスト（4段階）/件数（20）は原文fallback。汎用HTMLの許可範囲を増やさず、style/on*/id/name/form/iframeや外部callbackを通さない。raw Markdownは変更せず、toggleだけでdirtyにならない。
 
@@ -237,7 +237,7 @@ GitHubの既知の視覚表現で認知負荷を下げ、操作はチーム向�
 
 限定HTMLの耐入力性: details深さ4/件数20に加え、全HTMLノード深さ64・2000個を上限に反復走査し、深いdivやsummaryでも再帰stackを消費せず原文fallbackにする。
 
-セル内付箋の位置はセッション内のみ保持。描画済みscope・検索/担当filter・PBI ID・列のkeyで記録し、詳細から戻る時、同期、resizeでも実際に可視範囲と交差する付箋IDと上端offsetをanchorとして復元する。4枚pageの先頭ではなく中間scroll位置も保持する。消えた場合は同時に見えていた同セルの生存ID、次いで旧位置を範囲内に収める。Status移動後は現在の列の同Issueへfocusを戻す。 ドラッグ保存はIssue単位に所属し、別IssueはPOST待機中でも続けて移動できる。同Issueの投稿中だけdragを止め、保存中のcursor・即時tooltip・aria-busyで伝える。canonical ACK後は全体GETの終了を待たず再操作でき、次の保存はそのACKのrevision/fingerprint/statusを基準にする。 明示的なSprint表示範囲の切替中だけはdragを一時停止し、表示と送信範囲を一致させる。 通常再取得も採用済みの表示選択を明示し、破棄された切替応答が次の範囲を変えない。失敗時は対象の楽観Statusだけを戻して下書きと結果確認導線を保持し、別Issueを止めず自動再送しない。Doneの結果不明・部分失敗の個別確認契約は変えない。GETは読み取り専用のlockと世代で管理し、楽観移動より古い応答や保存中の上書きを捨てる。別IssueのACKやGETで進行中のnative dragのDOMを置換せず、終了後に一度描画する。ただし公開失効は即時消去する。位置のためにfilterを解除しない。Page Up/Downとキーボードでの上下操作は、表示した先頭付箋へfocusを移しEnterで詳細を開ける。上下ボタン/Page Up/Downにより、長タイトルの内部scroll以外からも続きを操作できる。通常wheelはnative scroll/chaining、drag近傍auto-scrollは同PBIの有効な移動先だけ。4枚以下は従来の配置を保つ。
+セル内付箋の位置はセッション内のみ保持。描画済みscope・検索/担当filter・PBI ID・列のkeyで記録し、詳細から戻る時、同期、resizeでも実際に可視範囲と交差する付箋IDと上端offsetをanchorとして復元する。4枚pageの先頭ではなく中間scroll位置も保持する。消えた場合は同時に見えていた同セルの生存ID、次いで旧位置を範囲内に収める。Status移動後は現在の列の同Issueへfocusを戻す。 ドラッグ保存はIssue単位に所属し、別IssueはPOST待機中でも続けて移動できる。同Issueの投稿中だけdragを止め、保存中のcursorとaria-busy・アクセシブル名で伝える。付箋tooltipは出さない。canonical ACK後は全体GETの終了を待たず再操作でき、次の保存はそのACKのrevision/fingerprint/statusを基準にする。 明示的なSprint表示範囲の切替中だけはdragを一時停止し、表示と送信範囲を一致させる。 通常再取得も採用済みの表示選択を明示し、破棄された切替応答が次の範囲を変えない。失敗時は対象の楽観Statusだけを戻して下書きと結果確認導線を保持し、別Issueを止めず自動再送しない。Doneの結果不明・部分失敗の個別確認契約は変えない。GETは読み取り専用のlockと世代で管理し、楽観移動より古い応答や保存中の上書きを捨てる。別IssueのACKやGETで進行中のnative dragのDOMを置換せず、終了後に一度描画する。ただし公開失効は即時消去する。位置のためにfilterを解除しない。Page Up/Downとキーボードでの上下操作は、表示した先頭付箋へfocusを移しEnterで詳細を開ける。上下ボタン/Page Up/Downにより、長タイトルの内部scroll以外からも続きを操作できる。通常wheelはnative scroll/chaining、drag近傍auto-scrollは同PBIの有効な移動先だけ。4枚以下は従来の配置を保つ。
 
 PBI自身のStory pointsは任意の後読込情報。担当者行の右端と詳細サイド欄に小さな`0.1`等の数字だけを表示し、ink/selected/lineを共有する。11px・16px行高・4px角丸で、警告色や強調順位を値で変えない。8/13も正常値。未設定・非公開・未接続・取得失敗は空欄とし、placeholder、警告、必須チェックを追加しない。Taskからの合算や推測はしない。追加応答はバッジだけ更新し、タイトル・担当者・ゲージ・セルscroll・編集中の原文を再構築しない。初回表示や詳細を待たせない。詳細サイド欄ではStory pointsのラベルと0.1/1/2/3/5/8/13・解除を選べる。値の確認前は編集欄を出さない。選択したポイントだけを自動保存patchへ含め、本文・タイトルを便乗送信せず、既存の未知数値を未操作で消さない。canonical org field 49067031のみを更新し、公開定義を保存前後に確認する。Appの権限が不足する場合は機能を省略し、ボード本体を止めない。
 
@@ -277,6 +277,8 @@ PBI配下の非PBI Issueに任意の見積時間（h）を持つ。種類名を�
 
 日程の下書き・revision・保存中状態・エラーはスプリントごとに分離し、別スプリントへ切り替えても取り違えない。遅い保存応答は送信元だけに反映し、切替先の取得失敗でも既知の日程を保つ。赤線は隣り合う観測済み学校日だけを結び、中間の未観測学校日を線で補間しない。
 
+バーンダウンはdesktopで右70vw、狭い画面では全幅。学校日程の入口はheader右上の閉じるボタン隣に置き、42px以上の日付を持つ小型panelで開く。下書きはpanelを閉じても保持し、保存は小さな明示ボタンで行う。Escapeは日程panel、chartの順に閉じ、日程の明示closeは入口へfocusを戻す。外click・Tabで離れた場合は新しいfocusを奪わない。操作方法や計測定義の長い説明は常設せず、理想/実際のlegend、記録なし、失敗状態は残す。登場はIssue drawerと同じtransform/opacityの動きを360ms ease-outへ調整し、reduced-motionでは即表示する。
+
 学校日程は月表示カレンダーから1日ずつ独立して選択・解除する。範囲ドラッグや日付書式の入力は用意しない。月送り、選択数、選択チェック、明瞭なfocusとキーボード移動を備え、選択は明示保存まで下書き。未設定（空・revision 0）のスプリントで日程を初めて開いた時だけ、JSTの今日から期日までの平日を未保存候補にする。開始日が判明したと主張せず、過去/期日不明/180日超/候補60日超は空から選ぶ。祝日・休講は自動推測しない。保存済み空日程、既存のSprint9学校6日、操作済み下書きは候補で上書きしない。月と下書きはスプリント別に保ち、再open/refresh/保存中の追記を維持する。新しいcalendar moduleもバーンダウン初回表示まで読み込まない。
 
-バーンダウンの主値は「残り：61h」の形式。「観測の内訳」の展開表は表示しないが、履歴の保管・整合性と観測時刻は維持する。操作バーの未見積強調は初期OFFの閲覧補助。公開確認済みの末端作業で見積がnullの付箋だけ、種類の背景色を保った太い固定枠・内側の明暗分離・高コントラストの「未見積」ラベルで示す。穏やかな動きは補助に留め、枠は常時残す。小さい付箋では上下の枠を既存padding内へ薄くし、左右の太さを残す。小さい付箋でもfooterの未設定欄を「未見積」ラベルへ切り替え、重複表示や新しい行でタイトル・担当者の領域を削らない。未設定というデータ状態は変えない。通常の再取得中も直前に公開確認できたnullの枠を保ち、取得結果・失効時に更新する。0・未取得・非公開・PBI・親作業は未見積扱いにしない。Uキーは入力/IME/dialog/修飾キー中に発火させず、reduced-motionでは静止した輪郭にする。明示的に強調をONにした時だけ、表示PBI行の付箋（隠れたoverflowページも含む）の見積対象を全て確認でき、未見積が0件なら「未見積もりのタスクは0件です」と一時表示する。読取中・古い表示・未取得・対象不明では0件を断定しない。保存・値の推定・追加API読取は行わない。
+バーンダウンの主値は「残り：61h」の形式。「観測の内訳」の展開表は表示しないが、履歴の保管・整合性と観測時刻は維持する。操作バーの未見積強調は初期OFFの閲覧補助。公開確認済みの末端作業で見積がnullの付箋だけ、1pxの静的な輪郭と境界を流れる光で示す。太い内枠・白いinset・面を覆うbadgeは使わず、種類の背景色を保つ。[CSS Motion Path](https://www.w3.org/TR/motion-1/)のoffset-distanceで32×3pxの光を6.4秒かけて一周させ、opacityだけの呼吸や点滅・拡大縮小はしない。専用の絶対配置spanを[CSS Masking](https://www.w3.org/TR/css-masking-1/#the-mask-composite)で外周2px（denseは1px）だけに制限し、角でも中心のタイトル・avatar・hへ光を描かない。追加library・JSの毎frame処理は不要。表示中の付箋だけ動かし、overflow外やdrag中は位置を保ってpauseする。reduced-motion・未対応browserでは静的輪郭だけを残す。footerの未設定欄は塗り背景のない簡潔な「未見積」textへ切り替え、UのON/OFFで文字・avatar・hのboxやpadding・layout占有を変えない。未設定というデータ状態は変えない。通常の再取得中も直前に公開確認できたnullの輪郭を保ち、取得結果・失効時に更新する。0・未取得・非公開・PBI・親作業は未見積扱いにしない。Uキーは入力/IME/dialog/修飾キー中に発火させず、reduced-motionでは静止した輪郭にする。明示的に強調をONにした時だけ、表示PBI行の付箋（隠れたoverflowページも含む）の見積対象を全て確認でき、未見積が0件なら「未見積もりのタスクは0件です」と一時表示する。読取中・古い表示・未取得・対象不明では0件を断定しない。保存・値の推定・追加API読取は行わない。

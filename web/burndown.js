@@ -27,7 +27,7 @@ const displayFor = (data) =>
 const observedLabel = (display) =>
   display.observedAt
     ? `${display.mode === "historical" ? "最終記録" : "観測"}: ${new Date(display.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`
-    : "記録なし（スプリント終了前の観測がありません）";
+    : "記録なし";
 export function chart(data) {
   const root = node("section", undefined, "burn-chart");
   const display = displayFor(data),
@@ -55,7 +55,7 @@ export function chart(data) {
   const schoolDays = data.schedule?.schoolDays || [];
   const days = schoolDays.length ? schoolDays : points.map((p) => p.day);
   if (!days.length) {
-    root.append(node("p", "履歴の記録を開始しています。", "burn-empty"));
+    root.append(node("p", "記録なし", "burn-empty"));
     return root;
   }
   const visiblePoints = points.filter((p) => days.includes(p.day));
@@ -154,14 +154,7 @@ export function chart(data) {
     );
   legend.append(node("span", "実際（観測した残り見積）", "burn-actual-label"));
   root.append(legend);
-  if (!visiblePoints.length)
-    root.append(
-      node(
-        "p",
-        "学校日の観測はまだありません。過去の実線は推定しません。",
-        "burn-note",
-      ),
-    );
+  if (!visiblePoints.length) root.append(node("p", "記録なし", "burn-note"));
   return root;
 }
 export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
@@ -170,23 +163,46 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   dialog.setAttribute("aria-labelledby", "burndown-heading");
   const top = node("div", undefined, "burn-top"),
     heading = node("h2", "バーンダウン"),
+    actions = node("div", undefined, "burn-top-actions"),
+    settingsToggle = node("button", undefined, "burn-settings-toggle"),
     close = node("button", "×", "icon-button");
   heading.id = "burndown-heading";
   close.type = "button";
   close.setAttribute("aria-label", "バーンダウンを閉じる");
-  top.append(heading, close);
+  settingsToggle.id = "burn-settings-toggle";
+  settingsToggle.type = "button";
+  settingsToggle.setAttribute("aria-label", "学校日程");
+  settingsToggle.setAttribute("aria-haspopup", "dialog");
+  settingsToggle.setAttribute("aria-expanded", "false");
+  settingsToggle.setAttribute("aria-controls", "burn-settings-popover");
+  settingsToggle.hidden = true;
+  if (window.BoardIcons?.calendar)
+    settingsToggle.innerHTML = window.BoardIcons.calendar;
+  settingsToggle.append(node("span", "学校日程"));
+  actions.append(settingsToggle, close);
+  top.append(heading, actions);
   const select = node("select");
   select.setAttribute("aria-label", "バーンダウンのスプリント");
   const content = node("div", undefined, "burn-content"),
     notice = node("p", undefined, "burn-notice");
   notice.setAttribute("role", "status");
   notice.hidden = true;
-  const settings = node("details", undefined, "burn-settings"),
-    settingsLabel = node("summary", "学校日程"),
+  const settings = node("section", undefined, "burn-settings"),
+    settingsTop = node("div", undefined, "burn-settings-top"),
+    settingsLabel = node("h3", "学校日程"),
+    settingsClose = node("button", "×", "icon-button"),
     form = node("form"),
     proposal = node("p", undefined, "burn-note burn-calendar-proposal"),
-    save = node("button", "日程を保存"),
+    save = node("button", "日程を保存", "burn-settings-save"),
     error = node("p", undefined, "burn-settings-error");
+  settings.id = "burn-settings-popover";
+  settings.hidden = true;
+  settings.setAttribute("role", "dialog");
+  settings.setAttribute("aria-labelledby", "burn-settings-heading");
+  settingsLabel.id = "burn-settings-heading";
+  settingsClose.type = "button";
+  settingsClose.setAttribute("aria-label", "学校日程を閉じる");
+  settingsTop.append(settingsLabel, settingsClose);
   const calendar = createSchoolCalendar({
     onChange(days) {
       const draft = activeDraft();
@@ -202,8 +218,9 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   error.setAttribute("role", "alert");
   error.hidden = true;
   form.append(calendar.element, proposal, save, error);
-  settings.append(settingsLabel, form);
-  dialog.append(top, select, content, notice, settings);
+  settings.append(settingsTop, form);
+  top.append(settings);
+  dialog.append(top, select, content, notice);
   document.body.append(dialog);
   const cache = new Map(),
     scheduleDrafts = new Map();
@@ -217,8 +234,15 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     loading = false,
     refreshQueued = false;
   const key = () => (selected === null ? defaultMilestone : selected);
+  function closeSettings(restoreFocus = false) {
+    settings.hidden = true;
+    settingsToggle.setAttribute("aria-expanded", "false");
+    if (restoreFocus && dialog.open && !settingsToggle.hidden)
+      settingsToggle.focus({ preventScroll: true });
+  }
   const hide = () => {
     if (!dialog.open) return;
+    closeSettings();
     generation++;
     refreshQueued = false;
     dialog.close();
@@ -241,13 +265,31 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     calendar.setState({ days: [], month: todayJst().slice(0, 7) });
     delete form.dataset.milestone;
     delete form.dataset.revision;
-    settings.hidden = true;
+    settingsToggle.hidden = true;
     hide();
   };
   close.onclick = hide;
   dialog.addEventListener("cancel", (e) => {
     e.preventDefault();
-    hide();
+    if (!settings.hidden) closeSettings(true);
+    else hide();
+  });
+  settingsClose.onclick = () => closeSettings(true);
+  dialog.addEventListener("pointerdown", (event) => {
+    if (
+      !settings.hidden &&
+      !settings.contains(event.target) &&
+      !settingsToggle.contains(event.target)
+    )
+      closeSettings();
+  });
+  dialog.addEventListener("focusin", (event) => {
+    if (
+      !settings.hidden &&
+      !settings.contains(event.target) &&
+      !settingsToggle.contains(event.target)
+    )
+      closeSettings();
   });
   dialog.onclick = (e) => {
     if (e.target === dialog) {
@@ -291,16 +333,16 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     if (previous) previous.month = calendar.month;
     const changed = form.dataset.milestone !== String(data.milestone);
     const draft = draftFor(data);
-    settings.hidden = !data.milestone;
+    settingsToggle.hidden = !data.milestone;
+    if (!data.milestone) closeSettings();
     calendar.setState({
       days: draft.days,
       ...(changed
         ? { month: draft.month || (draft.days[0] || todayJst()).slice(0, 7) }
         : {}),
     });
-    proposal.textContent = draft.proposal
-      ? "今日（JST）から期日までの平日を仮選択しました。休講日などはクリックで外してから保存してください。"
-      : "学校がある日を1日ずつ選択・解除できます。選択だけでは保存されません。";
+    proposal.hidden = !draft.proposal;
+    proposal.textContent = draft.proposal ? "平日を仮選択中（未保存）" : "";
     form.dataset.milestone = String(data.milestone);
     form.dataset.revision = draft.revision;
     save.disabled = draft.saving;
@@ -320,12 +362,16 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       error.append(reset);
     }
   }
-  settings.addEventListener("toggle", () => {
-    if (!settings.open || !currentData) return;
+  settingsToggle.onclick = () => {
+    if (!settings.hidden) {
+      closeSettings(true);
+      return;
+    }
+    if (!currentData) return;
     const draft = activeDraft();
-    if (!draft || draft.initialized) return;
-    draft.initialized = true;
+    if (!draft) return;
     if (
+      !draft.initialized &&
       !draft.dirty &&
       !draft.saving &&
       !draft.days.length &&
@@ -341,8 +387,14 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         draft.proposal = true;
       }
     }
+    draft.initialized = true;
+    settings.hidden = false;
+    settingsToggle.setAttribute("aria-expanded", "true");
     renderSettings(currentData);
-  });
+    calendar.element
+      .querySelector('button[data-day][tabindex="0"]')
+      ?.focus({ preventScroll: true });
+  };
   function render(data) {
     currentData = data;
     const display = displayFor(data),
@@ -392,19 +444,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       content.replaceChildren(
         summary,
         chart(data),
-        node(
-          "p",
-          historical
-            ? "実消費時間ではなく、終了前に保存した見積時間の推移です。"
-            : "実消費時間ではなく、見積時間の推移です。青線は現在の対象全体の見積から再計算します。",
-          "burn-note",
-        ),
         node("p", observedLabel(display), "burn-note burn-observed"),
       );
-      if ((data.schedule?.schoolDays?.length || 0) < 2)
-        content.append(
-          node("p", "学校日程を設定すると理想線を表示します。", "burn-note"),
-        );
       if (shown?.excludedChildren)
         content.append(
           node(
@@ -434,7 +475,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       return true;
     }
     currentData = null;
-    settings.hidden = true;
+    settingsToggle.hidden = true;
+    closeSettings();
     content.replaceChildren(node("p", "記録を読み込んでいます…", "burn-empty"));
     return false;
   }
@@ -484,7 +526,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         cache.delete(key());
         currentData = null;
         content.replaceChildren();
-        settings.hidden = true;
+        settingsToggle.hidden = true;
+        closeSettings();
         throw new Error("このスプリントは現在の対象にありません。");
       }
       if (!response.ok)
@@ -513,7 +556,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       notice.hidden = false;
       if (!currentData) {
         content.replaceChildren();
-        settings.hidden = true;
+        settingsToggle.hidden = true;
+        closeSettings();
       }
     } finally {
       loading = false;
@@ -630,7 +674,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   };
   select.onchange = () => {
     selected = Number(select.value);
-    settings.open = false;
+    closeSettings();
     error.hidden = true;
     generation++;
     showPrevious();
@@ -640,7 +684,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     open(milestone) {
       origin = document.activeElement;
       selected = milestone ? Number(milestone) : selected;
-      settings.open = false;
+      closeSettings();
       error.hidden = true;
       dialog.showModal();
       showPrevious();

@@ -311,26 +311,27 @@ function safeAvatarUrl(value) {
     return "";
   }
 }
-function assigneeAvatars(t) {
+function assigneeAvatars(t, hints = true) {
+  const hint = (name) => (hints ? ` title="${esc(name)}"` : "");
   const assigned = Array.isArray(t.assignees)
     ? t.assignees
     : t.assignee && t.assignee !== "none"
       ? [{ name: person(t) }]
       : [];
   if (!assigned.length)
-    return '<span class="avatar none" role="img" aria-label="未割り当て" title="未割り当て"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="5" r="2.5"/><path d="M3 14v-1a5 5 0 0 1 10 0v1"/></svg></span>';
+    return `<span class="avatar none" role="img" aria-label="未割り当て"${hint("未割り当て")}><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="5" r="2.5"/><path d="M3 14v-1a5 5 0 0 1 10 0v1"/></svg></span>`;
   const shown = assigned
     .slice(0, 2)
     .map((a) => {
       const name = a.name || a.login || "担当者",
         url = safeAvatarUrl(a.avatarUrl),
         initial = Array.from(name.replace(/^デモ /, "").trim())[0] || "?";
-      return `<span class="avatar" role="img" aria-label="${esc(name)}" title="${esc(name)}"><span aria-hidden="true">${esc(initial)}</span>${url && !failedAvatarUrls.has(url) ? `<img class="avatar-image" src="${esc(url)}" alt="${esc(name)}" title="${esc(name)}" width="16" height="16" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false">` : ""}</span>`;
+      return `<span class="avatar" role="img" aria-label="${esc(name)}"${hint(name)}><span aria-hidden="true">${esc(initial)}</span>${url && !failedAvatarUrls.has(url) ? `<img class="avatar-image" src="${esc(url)}" alt="${esc(name)}"${hint(name)} width="16" height="16" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false">` : ""}</span>`;
     })
     .join("");
   const remaining = assigned.slice(2),
     more = remaining.length
-      ? `<span class="avatar-count" role="img" aria-label="ほか ${remaining.length} 人: ${esc(remaining.map((a) => a.name || a.login || "担当者").join("・"))}" title="${esc(remaining.map((a) => a.name || a.login || "担当者").join("・"))}">+${remaining.length}</span>`
+      ? `<span class="avatar-count" role="img" aria-label="ほか ${remaining.length} 人: ${esc(remaining.map((a) => a.name || a.login || "担当者").join("・"))}"${hint(remaining.map((a) => a.name || a.login || "担当者").join("・"))}>+${remaining.length}</span>`
       : "";
   return `<span class="avatar-stack">${shown}${more}</span>`;
 }
@@ -410,7 +411,7 @@ function paintCardEstimates() {
     if (!estimate) continue;
     const value = cardEstimate(tasks.get(card.dataset.task));
     estimate.dataset.state = value.state;
-    estimate.title = value.label;
+    estimate.removeAttribute("title");
     estimate.setAttribute("aria-label", value.label);
     estimate.querySelector(".estimate-value").textContent = value.text;
   }
@@ -665,13 +666,20 @@ function paintUnestimatedHighlights() {
     card.classList.toggle("unestimated-highlight", active);
     card.classList.remove("unestimated-visible");
     card.querySelector(".estimate-value").hidden = active;
-    let cue = card.querySelector(".unestimated-cue");
+    let cue = card.querySelector(".unestimated-cue"),
+      motion = card.querySelector(".unestimated-motion");
     if (active) {
       if (!cue) {
         cue = document.createElement("span");
         cue.className = "unestimated-cue";
         cue.textContent = "未見積";
         card.querySelector(".task-estimate").append(cue);
+      }
+      if (!motion) {
+        motion = document.createElement("span");
+        motion.className = "unestimated-motion";
+        motion.setAttribute("aria-hidden", "true");
+        card.append(motion);
       }
       if (typeof IntersectionObserver === "function") {
         unestimatedObserver ||= new IntersectionObserver(
@@ -690,7 +698,10 @@ function paintUnestimatedHighlights() {
         );
         unestimatedObserver.observe(card);
       } else card.classList.add("unestimated-visible");
-    } else cue?.remove();
+    } else {
+      cue?.remove();
+      motion?.remove();
+    }
   }
 }
 function clearUnestimatedHighlights() {
@@ -705,10 +716,10 @@ function card(t) {
     job = issueSaves.get(t.id),
     saving = job?.phase === "posting",
     saveMessage = saving ? "保存中…" : job ? "保存結果の確認が必要です" : "";
-  return `<article class="task type-${kind}" data-issue-type="${esc(label)}" aria-label="Issue type: ${esc(label)}${saveMessage ? ` / ${esc(saveMessage)}` : ""}" aria-busy="${saving}" data-save-state="${job ? (saving ? "posting" : "failed") : "idle"}" ${saveMessage ? `data-tooltip="${esc(saveMessage)}"` : ""} draggable="${canDragTask(t)}" data-task="${esc(t.id)}"><div class="task-top"><span class="task-issue-number">${esc(issueLabel(t))}</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}" aria-label="担当者: ${esc(person(t))}">${assigneeAvatars(t)}</span><span class="task-estimate" data-state="${estimate.state}" title="${esc(estimate.label)}" aria-label="${esc(estimate.label)}"><span class="estimate-value">${esc(estimate.text)}</span></span></div></article>`;
+  return `<article class="task type-${kind}" data-issue-type="${esc(label)}" aria-label="Issue type: ${esc(label)}${saveMessage ? ` / ${esc(saveMessage)}` : ""}" aria-busy="${saving}" data-save-state="${job ? (saving ? "posting" : "failed") : "idle"}" draggable="${canDragTask(t)}" data-task="${esc(t.id)}"><div class="task-top"><span class="task-issue-number">${esc(issueLabel(t))}</span></div><button class="task-title" data-open="${esc(t.id)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" aria-label="担当者: ${esc(person(t))}">${assigneeAvatars(t, false)}</span><span class="task-estimate" data-state="${estimate.state}" aria-label="${esc(estimate.label)}"><span class="estimate-value">${esc(estimate.text)}</span></span></div></article>`;
 }
 // Fit only the presentation, never the Issue title. If the available area is
-// genuinely too small at 10.5px, expose whole scrollable lines (and the drawer).
+// genuinely too small at 11px, expose whole scrollable lines (and the drawer).
 function fitCardTitles() {
   for (const button of document.querySelectorAll(".goal-text")) {
     const parent = button.parentElement;
@@ -747,7 +758,7 @@ function fitCardTitles() {
     button.style.fontSize = `${size}px`;
   }
   let shrinking = entries;
-  while (size > 10.5 && shrinking.length) {
+  while (size > 11 && shrinking.length) {
     shrinking = shrinking.filter(
       ({ button, text }) => text.scrollHeight > button.clientHeight + 0.5,
     );

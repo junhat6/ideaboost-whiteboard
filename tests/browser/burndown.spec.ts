@@ -5,6 +5,12 @@ const hour = (page: any, value: number | null) =>
 const calendar = (page: Page) => page.locator("#burn-school-days");
 const calendarDay = (page: Page, day: string) =>
   calendar(page).locator(`button[data-day="${day}"]`);
+async function closeChart(page: Page) {
+  if (await page.locator("#burn-settings-popover").isVisible())
+    await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#burndown-panel")).not.toBeVisible();
+}
 async function calendarMonth(page: Page, day: string) {
   const target = day.slice(0, 7);
   await expect(calendar(page)).toHaveAttribute("data-month", /^20\d{2}-\d{2}$/);
@@ -121,7 +127,7 @@ test("バーンダウンは初回要求なし、右端hoverと明示button、Esc
   expect(reads).toBe(1);
   expect(calendarModules).toBe(1);
   expect(await page.locator("#board").boundingBox()).toEqual(before);
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await expect(page.locator("#burndown-panel")).not.toBeVisible();
   await page.mouse.move(600, 400);
   await page.locator("#burndown-open").click();
@@ -129,7 +135,7 @@ test("バーンダウンは初回要求なし、右端hoverと明示button、Esc
   await page.locator("#burndown-panel").screenshot({
     path: `.wrangler/burndown-${page.viewportSize()!.width}.png`,
   });
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await expect(page.locator("#burndown-open")).toBeFocused();
   await page.locator(".task-title").first().click();
   await page.mouse.move(page.viewportSize()!.width - 2, 400);
@@ -195,7 +201,7 @@ test("未見積のみは達成ゼロ線を描かず、失敗は空履歴にし�
     "見積時間が未設定です（5件）。",
   );
   await expect(page.locator(".burn-chart svg")).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   fail = true;
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-notice")).toContainText(
@@ -461,7 +467,7 @@ test("背景保存後のchartは旧flightを待って一度だけ更新、閉じ
   releaseOld();
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：2h");
   expect(reads).toBe(2);
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator(".task-title").first().click();
   await hour(page, 3).click();
   await expect.poll(() => posts).toBe(2);
@@ -630,7 +636,7 @@ test("Sprint9の6学校日と青ideal/赤actual、過去未観測と未来を補
   await page.screenshot({
     path: `.wrangler/burn-school-${page.viewportSize()!.width}.png`,
   });
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   current.current.estimatedHours = 16;
   await page.locator("#burndown-open").click();
   await expect(svg).toContainText("16");
@@ -658,7 +664,7 @@ test("赤い実線は中間の未観測学校日を補間せず、観測済み�
     "d",
     " M 60 50 M 680 147.5",
   );
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   current.observations.splice(1, 0, {
     ...current.observations[0],
     day: "2026-10-22",
@@ -702,7 +708,7 @@ test("再openは前回観測を即表示、背景更新/失敗保持と公開失
   await page.reload();
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：5h");
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
   await expect.poll(() => n).toBe(2);
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：5h");
@@ -711,11 +717,11 @@ test("再openは前回観測を即表示、背景更新/失敗保持と公開失
   );
   release();
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：4h");
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-notice")).toBeVisible();
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：4h");
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
   await expect(page.locator("#burndown-open")).toBeHidden();
   await expect(page.locator(".burn-summary")).toHaveCount(0);
@@ -744,7 +750,7 @@ test("学校カレンダーの独立選択と明示保存はIssueを変更せず
   await page.reload();
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-summary")).toBeVisible();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, data.schedule.schoolDays);
   await expect(
     page.locator(".burn-settings textarea, .burn-settings input[type=date]"),
@@ -756,9 +762,9 @@ test("学校カレンダーの独立選択と明示保存はIssueを変更せず
   await page.getByRole("button", { name: "日程を保存", exact: true }).click();
   await expect.poll(() => posts.length).toBe(1);
   await expect(page.locator(".burn-settings-error")).toBeHidden();
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, chosen);
   await setSchoolDays(page, chosen, ["2026-10-28"]);
   await page.getByRole("button", { name: "日程を保存", exact: true }).click();
@@ -798,7 +804,7 @@ test("日程の保存中に追記した下書きはackと再取得で失わず�
   await page.reload();
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-summary")).toBeVisible();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   const save = page.getByRole("button", { name: "日程を保存", exact: true }),
     sent = ["2026-10-27", "2026-10-28"],
     draft = ["2026-10-26", "2026-10-27", "2026-10-28"];
@@ -875,10 +881,10 @@ test("別スプリントの日程保存中と遅いack後の取得失敗でも�
   const select = page.getByLabel("バーンダウンのスプリント"),
     save = page.getByRole("button", { name: "日程を保存", exact: true });
   await select.selectOption("10");
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, ten.schedule.schoolDays);
   await select.selectOption("9");
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await setSchoolDays(page, nine.schedule.schoolDays, [
     "2026-10-27",
     "2026-10-28",
@@ -887,7 +893,7 @@ test("別スプリントの日程保存中と遅いack後の取得失敗でも�
   await expect.poll(() => posts.length).toBe(1);
   failTen = true;
   await select.selectOption("10");
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, ten.schedule.schoolDays);
   await expect(save).toBeEnabled();
   await expect(page.locator(".burn-settings form")).toHaveAttribute(
@@ -954,7 +960,7 @@ test("スプリントを切替えても他スプリントのcache/遅い応答�
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：5h");
   await page.getByLabel("バーンダウンのスプリント").selectOption("10");
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：2h");
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
   await expect(page.getByLabel("バーンダウンのスプリント")).toHaveValue("10");
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：2h");
@@ -1021,7 +1027,7 @@ test("未設定の学校日程は初回展開だけ今日JSTから期日まで�
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-summary")).toBeVisible();
   expect(writes).toBe(0);
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   const proposal = [
       "2026-10-27",
       "2026-10-28",
@@ -1038,14 +1044,14 @@ test("未設定の学校日程は初回展開だけ今日JSTから期日まで�
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => reads, { timeout: 10000 }).toBe(2);
   await expectSchoolDays(page, chosen);
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, chosen);
   await setSchoolDays(page, chosen, []);
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, []);
   expect(writes).toBe(0);
   expect(f.posts()).toBe(0);
@@ -1080,7 +1086,7 @@ test("未設定から全候補を解除して空日程を明示保存すると�
   });
   await page.reload();
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   const proposal = [
     "2026-10-27",
     "2026-10-28",
@@ -1101,7 +1107,7 @@ test("未設定から全候補を解除して空日程を明示保存すると�
   );
   await page.reload();
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, []);
   await expect(page.locator(".burn-settings form")).toHaveAttribute(
     "data-revision",
@@ -1138,7 +1144,7 @@ test("初回候補と外部保存が同値なら明示保存で送信せずrevis
   });
   await page.reload();
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, proposal);
   const form = page.locator(".burn-settings form"),
     save = page.getByRole("button", { name: "日程を保存", exact: true }),
@@ -1148,10 +1154,10 @@ test("初回候補と外部保存が同値なら明示保存で送信せずrevis
 
   current.schedule = { schoolDays: proposal, revision: "external-1" };
   current.observedAt = "2026-10-27T08:01:00Z";
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-observed")).toContainText("17:01");
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, proposal);
   // A background read must not silently acknowledge the unsaved proposal.
   await expect(form).toHaveAttribute("data-revision", "0");
@@ -1207,7 +1213,7 @@ test("保存応答503後の同値再取得は明示保存で再送せずエラ�
   });
   await page.reload();
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, initial);
   await setSchoolDays(page, initial, chosen);
   const form = page.locator(".burn-settings form"),
@@ -1263,7 +1269,7 @@ test("連続範囲ではなく月をまたぐ6日を独立選択し、明示保�
   });
   await page.reload();
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, []); // 保存済みの空日程は候補を勝手に復活させない。
   const selected = [
     "2026-10-20",
@@ -1317,7 +1323,7 @@ test("学校カレンダーは矢印と月移動キーでfocusを保ちSpace/Ent
   });
   await page.reload();
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await calendarMonth(page, "2026-10-27");
   await calendarDay(page, "2026-10-27").focus();
   await page.keyboard.press("ArrowRight");
@@ -1391,12 +1397,12 @@ for (const [title, dueOn] of [
     });
     await page.reload();
     await page.locator("#burndown-open").click();
-    await page.locator(".burn-settings summary").click();
+    await page.locator("#burn-settings-toggle").click();
     await expectSchoolDays(page, []);
     await setSchoolDays(page, [], ["2026-10-31"]);
-    await page.keyboard.press("Escape");
+    await closeChart(page);
     await page.locator("#burndown-open").click();
-    await page.locator(".burn-settings summary").click();
+    await page.locator("#burn-settings-toggle").click();
     await expectSchoolDays(page, ["2026-10-31"]);
     expect(posts).toBe(0);
     expect(f.posts()).toBe(0);
@@ -1422,15 +1428,15 @@ test("学校日程の保存失敗は下書きを保持し、公開失効では�
   });
   await page.reload();
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   const chosen = ["2026-10-27", "2026-10-28"];
   await setSchoolDays(page, data.schedule.schoolDays, chosen);
   await page.getByRole("button", { name: "日程を保存", exact: true }).click();
   await expect(page.locator(".burn-settings-error")).toContainText("保存結果");
   await expectSchoolDays(page, chosen);
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   await page.locator("#burndown-open").click();
-  await page.locator(".burn-settings summary").click();
+  await page.locator("#burn-settings-toggle").click();
   await expectSchoolDays(page, chosen);
   expect(posts).toBe(1);
   await page.getByRole("button", { name: "最新の日程に戻す" }).click();
@@ -1523,12 +1529,10 @@ test("繰越後の旧Sprintは終了前の最終記録と学校日を保持し�
     "d",
     "M 60 50 L 680 310",
   );
-  await page
-    .locator("#burndown-panel")
-    .screenshot({
-      path: `test-results/burndown-rollover-${page.viewportSize()!.width}.png`,
-    });
-  await page.keyboard.press("Escape");
+  await page.locator("#burndown-panel").screenshot({
+    path: `test-results/burndown-rollover-${page.viewportSize()!.width}.png`,
+  });
+  await closeChart(page);
   old.observedAt = "2026-10-29T01:00:00Z";
   await page.locator("#burndown-open").click();
   await expect.poll(() => reads).toBe(2);
@@ -1547,7 +1551,7 @@ test("繰越後の旧Sprintは終了前の最終記録と学校日を保持し�
     .getByRole("combobox", { name: "バーンダウンのスプリント" })
     .selectOption("9");
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：5h");
-  await page.keyboard.press("Escape");
+  await closeChart(page);
   privateField = true;
   await page.locator("#burndown-open").click();
   await expect(page.locator("#burndown-open")).toBeHidden();
@@ -1587,9 +1591,7 @@ test("終了前の記録がないSprintは残りをゼロにせず記録なし�
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：—");
   await expect(page.locator(".burn-summary")).toContainText("記録なし");
-  await expect(page.locator(".burn-observed")).toHaveText(
-    "記録なし（スプリント終了前の観測がありません）",
-  );
+  await expect(page.locator(".burn-observed")).toHaveText("記録なし");
   await expect(page.locator(".burn-chart svg")).toHaveCount(0);
   expect(f.posts()).toBe(0);
 });

@@ -932,6 +932,10 @@ dialog dd {
   padding: 5px 7px;
   overflow: hidden;
 }
+.task-grid[data-count="3"] > .task,
+.task-grid[data-count="4"] > .task {
+  padding-block: 3px;
+}
 .task-grid .task-title {
   min-height: 0;
   flex: 1;
@@ -955,18 +959,19 @@ dialog dd {
 }
 .task-grid .task-bottom {
   min-width: 0;
-  flex: 0 0 20px;
-  min-height: 20px;
+  flex: 0 0 16px;
+  min-height: 16px;
   gap: 4px;
-  padding-top: 2px;
+  border-top: 0;
+  padding-top: 0;
 }
 .task-estimate {
   flex: 0 1 auto;
   min-width: 44px;
   margin-left: auto;
   text-align: right;
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 600;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -980,7 +985,7 @@ dialog dd {
 .task-estimate .unestimated-cue {
   display: inline-block;
   margin: 0;
-  font-size: 10px;
+  font-size: inherit;
   line-height: 16px;
 }
 .task-grid .person,
@@ -1051,7 +1056,7 @@ dialog dd {
   }
   .task-bottom {
     border-top: 0;
-    padding-top: 1px !important;
+    padding-top: 0 !important;
   }
   .person {
     font-size: 10px;
@@ -1070,7 +1075,7 @@ dialog dd {
   border-radius: 2px;
 }
 #board.compact:not(.dense) .task-grid > .task {
-  padding: 2px 4px;
+  padding: 1px 4px;
 }
 
 #pbi-picker {
@@ -1195,7 +1200,7 @@ a:focus-visible {
   border-color: #d0e3d3;
 }
 .task-grid .task-title {
-  line-height: 1.35;
+  line-height: 1.25;
 }
 .person,
 .task-top,
@@ -3109,64 +3114,208 @@ input[type="checkbox"] {
 }
 .unestimated-highlight {
   position: relative;
-  outline: 4px solid var(--accent);
-  outline-offset: -4px;
-  box-shadow: inset 0 0 0 7px var(--surface);
-}
-#board.compact .unestimated-highlight {
-  outline-width: 2px;
-  outline-offset: -2px;
-  box-shadow:
-    inset 4px 0 0 var(--accent),
-    inset -4px 0 0 var(--accent),
-    inset 0 0 0 6px var(--surface);
-}
-#board.dense .unestimated-highlight {
-  outline-width: 1px;
+  outline: 1px solid var(--accent);
   outline-offset: -1px;
-  box-shadow:
-    inset 2px 0 0 var(--accent),
-    inset -2px 0 0 var(--accent),
-    inset 0 0 0 3px var(--surface);
 }
-.unestimated-highlight::after {
-  content: "";
+.unestimated-motion {
+  display: none;
   position: absolute;
-  inset: 7px;
+  inset: 0;
   border-radius: inherit;
+  overflow: hidden;
   pointer-events: none;
-  box-shadow: inset 0 0 0 3px var(--accent);
-  opacity: 0.18;
-}
-.unestimated-highlight > * {
-  position: relative;
   z-index: 1;
 }
-.unestimated-highlight.unestimated-visible:not(.dragging)::after {
-  animation: unestimated-breathe 3.8s ease-in-out infinite;
+/* Keep the moving light inside a 2px edge, including rounded corners. */
+@supports (offset-path: inset(1px round 3px)) and (mask-composite: exclude) {
+  .unestimated-motion {
+    display: block;
+    padding: 2px;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+  .unestimated-motion::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 32px;
+    height: 3px;
+    border-radius: 50%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--accent) 22%,
+      #fff 50%,
+      var(--accent) 78%,
+      transparent
+    );
+    box-shadow: 0 0 5px var(--accent);
+    offset-path: inset(1px round 3px);
+    offset-anchor: center;
+    offset-rotate: auto;
+    animation: unestimated-orbit 6.4s linear infinite;
+    animation-delay: var(--unestimated-phase, 0s);
+    animation-play-state: paused;
+  }
+  .unestimated-highlight:nth-child(4n + 2) {
+    --unestimated-phase: -1.6s;
+  }
+  .unestimated-highlight:nth-child(4n + 3) {
+    --unestimated-phase: -3.2s;
+  }
+  .unestimated-highlight:nth-child(4n + 4) {
+    --unestimated-phase: -4.8s;
+  }
+  .unestimated-highlight.unestimated-visible:not(.dragging)
+    .unestimated-motion::after {
+    animation-play-state: running;
+  }
+  #board.dense .unestimated-motion {
+    padding: 1px;
+  }
+  #board.dense .unestimated-motion::after {
+    offset-path: inset(0.5px round 1px);
+  }
 }
 .unestimated-cue {
-  margin-left: auto;
-  padding: 0 5px;
-  border-radius: 2px;
-  color: var(--surface);
-  background: var(--accent);
-  font-size: 10px;
-  font-weight: 750;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-weight: inherit;
   letter-spacing: 0;
   white-space: nowrap;
 }
-@keyframes unestimated-breathe {
-  0%,
-  100% {
-    opacity: 0.18;
-  }
-  50% {
-    opacity: 0.32;
+@keyframes unestimated-orbit {
+  to {
+    offset-distance: 100%;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .unestimated-highlight.unestimated-visible:not(.dragging)::after {
+  .unestimated-motion {
+    display: none;
+  }
+  .unestimated-motion::after {
+    animation: none;
+  }
+}
+
+/* Apply after existing burndown/calendar rules. Existing drawer-in keyframes are reused. */
+.burn-panel {
+  width: 70vw;
+}
+.burn-panel[open] {
+  animation: drawer-in 0.36s ease-out;
+}
+.burn-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  padding-bottom: 12px;
+  margin-bottom: 8px;
+}
+.burn-top-actions,
+.burn-settings-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.burn-top-actions {
+  margin-left: auto;
+}
+.burn-settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+.burn-settings-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+.burn-settings-toggle[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--selected);
+}
+.burn-settings {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 3;
+  width: min(400px, 100%);
+  max-height: calc(100dvh - 116px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 12px 36px rgb(24 43 73 / 18%);
+}
+.burn-settings-top {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.burn-settings-top h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.burn-settings form {
+  margin-top: 0;
+  gap: 10px;
+}
+.burn-settings .burn-calendar {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+.burn-settings .burn-calendar-week {
+  gap: 3px;
+}
+.burn-settings .burn-calendar-day {
+  min-height: 42px;
+}
+.burn-settings-save {
+  justify-self: end;
+  min-height: 32px;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.burn-calendar-proposal,
+.burn-settings-error {
+  margin: 0;
+}
+.burn-settings-error button {
+  margin-top: 8px;
+}
+@media (max-width: 600px) {
+  .burn-panel {
+    width: 100vw;
+  }
+  .burn-top {
+    gap: 8px;
+  }
+  .burn-top h2 {
+    font-size: 20px;
+  }
+  .burn-settings {
+    padding: 12px;
+    max-height: calc(100dvh - 98px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .burn-panel[open] {
     animation: none;
   }
 }
