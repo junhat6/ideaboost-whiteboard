@@ -4164,6 +4164,7 @@ window.Whiteboard = {
     initialLoading = false;
     clearTimeout(initialTimer);
     clearDetailCopyFeedback();
+    burnPanel?.invalidate();
     adapter = next;
     clearComments();
     state = clone(snapshot);
@@ -4240,7 +4241,17 @@ async function drainAutoRefresh() {
   }
   autoRefreshRequested = false;
   lastAutoAttempt = Date.now();
-  if (adapter) return refreshBoard(undefined, { silent: true });
+  if (adapter) {
+    const source = adapter;
+    const refreshed = await refreshBoard(undefined, { silent: true });
+    if (source === adapter)
+      burnPanel?.wake(
+        state.scope?.selectedMilestone ??
+          state.scope?.milestone ??
+          selectedMilestone,
+      );
+    return refreshed;
+  }
   bootstrapAttempt = true;
   try {
     return await window.Whiteboard.connectApi();

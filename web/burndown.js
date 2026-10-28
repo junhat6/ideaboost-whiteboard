@@ -35,9 +35,13 @@ export function chart(data) {
     historical = display.mode === "historical";
   const daily = new Map();
   for (const observation of data.observations)
-    if (Date.parse(observation.at) <= Date.parse(display.observedAt))
+    if (
+      Date.parse(observation.at) <= Date.parse(display.observedAt) &&
+      (!daily.has(observation.day) ||
+        Date.parse(daily.get(observation.day).at) < Date.parse(observation.at))
+    )
       daily.set(observation.day, observation);
-  const points = [...daily.values()].sort((a, b) => a.at.localeCompare(b.at));
+  const points = [...daily.values()].sort((a, b) => a.day.localeCompare(b.day));
   if (!summary?.estimated && !points.some((p) => p.estimated)) {
     root.append(
       node(
@@ -52,13 +56,16 @@ export function chart(data) {
     );
     return root;
   }
-  const schoolDays = data.schedule?.schoolDays || [];
-  const days = schoolDays.length ? schoolDays : points.map((p) => p.day);
+  const schoolDays = [...(data.schedule?.schoolDays || [])].sort();
+  // The saved schedule remains unchanged; actual observations keep their own dates.
+  const days = [
+    ...new Set([...schoolDays, ...points.map((p) => p.day)]),
+  ].sort();
   if (!days.length) {
     root.append(node("p", "記録なし", "burn-empty"));
     return root;
   }
-  const visiblePoints = points.filter((p) => days.includes(p.day));
+  const visiblePoints = points;
   const ideal =
     schoolDays.length >= 2 && summary?.estimated
       ? summary.estimatedHours
@@ -66,7 +73,7 @@ export function chart(data) {
   const svg = svgNode("svg", {
     viewBox: "0 0 720 380",
     role: "img",
-    "aria-label": `学校日ごとの残り見積時間。青は${historical ? "最終記録の" : "現在の"}全体見積から計算した理想、赤は実際の観測。単位は時間。`,
+    "aria-label": `学校日と保存観測日ごとの残り見積時間。青は${historical ? "最終記録の" : "現在の"}全体見積から計算した理想、赤は実際の観測。単位は時間。`,
   });
   const max = Math.max(
     1,
@@ -94,14 +101,31 @@ export function chart(data) {
     );
   }
   svg.append(svgNode("text", { x: 12, y: 24, class: "burn-axis" }, "h"));
-  if (ideal !== null)
+  if (ideal !== null) {
+    const withinSchool = days.filter(
+      (day) => day >= schoolDays[0] && day <= schoolDays.at(-1),
+    );
+    // Preserve the original straight school-day line unless an observed extra day
+    // needs an explicit hold. Never invent ideal values outside the school range.
+    let idealPath = `M ${x(schoolDays[0])} ${y(ideal)} L ${x(schoolDays.at(-1))} ${y(0)}`;
+    if (withinSchool.some((day) => !schoolDays.includes(day))) {
+      let schoolIndex = 0;
+      idealPath = withinSchool
+        .map((day, i) => {
+          if (schoolDays.includes(day)) schoolIndex = schoolDays.indexOf(day);
+          const value = ideal * (1 - schoolIndex / (schoolDays.length - 1));
+          return `${i ? "L" : "M"} ${x(day)} ${y(value)}`;
+        })
+        .join(" ");
+    }
     svg.append(
       svgNode("path", {
-        d: `M 60 ${y(ideal)} L 680 ${y(0)}`,
+        d: idealPath,
         class: "burn-ideal",
         fill: "none",
       }),
     );
+  }
   let path = "",
     previous = null;
   for (const point of visiblePoints) {
@@ -115,32 +139,36 @@ export function chart(data) {
       previous && days.indexOf(point.day) === days.indexOf(previous.day) + 1;
     path += adjacent ? ` L ${px} ${py}` : ` M ${px} ${py}`;
     previous = point;
+    const observationLabel = `${point.day}: ${hours(point.remainingHours)}h / 未見積${point.unestimated}件 / ${schoolDays.includes(point.day) ? "学校日の観測" : "学校日外の観測"} / ${new Date(point.at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`;
     const circle = svgNode("circle", {
+      "aria-label": observationLabel,
       cx: px,
       cy: py,
       r: 4,
       class: "burn-point",
     });
-    circle.append(
-      svgNode(
-        "title",
-        {},
-        `${point.day}: ${hours(point.remainingHours)}h / 未見積${point.unestimated}件`,
-      ),
-    );
+    circle.append(svgNode("title", {}, observationLabel));
     svg.append(circle);
   }
   svg.append(svgNode("path", { d: path, class: "burn-actual", fill: "none" }));
   const stride = Math.max(1, Math.ceil(days.length / 10));
   days.forEach((day, i) => {
-    if (i % stride === 0 || i === days.length - 1)
-      svg.append(
-        svgNode(
-          "text",
-          { x: x(day), y: 340, "text-anchor": "middle", class: "burn-axis" },
-          day.slice(5).replace("-", "/"),
-        ),
+    if (i % stride === 0 || i === days.length - 1) {
+      const label = `${day} ${schoolDays.includes(day) ? "学校日" : "学校日外の観測日"}`;
+      const tick = svgNode(
+        "text",
+        {
+          x: x(day),
+          y: 340,
+          "text-anchor": "middle",
+          class: "burn-axis",
+          "aria-label": label,
+        },
+        day.slice(5).replace("-", "/"),
       );
+      tick.append(svgNode("title", {}, label));
+      svg.append(tick);
+    }
   });
   root.append(svg);
   const legend = node("div", undefined, "burn-legend");
@@ -223,16 +251,20 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
   dialog.append(top, select, content, notice);
   document.body.append(dialog);
   const cache = new Map(),
-    scheduleDrafts = new Map();
+    scheduleDrafts = new Map(),
+    verified = new Map(),
+    attempted = new Map();
   let defaultMilestone = null,
     scope = null,
     currentData = null,
     controller,
     generation = 0,
+    sourceGeneration = 0,
     origin,
     selected = null,
     loading = false,
-    refreshQueued = false;
+    refreshQueued = false,
+    wakeQueued = null;
   const key = () => (selected === null ? defaultMilestone : selected);
   function closeSettings(restoreFocus = false) {
     settings.hidden = true;
@@ -241,6 +273,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       settingsToggle.focus({ preventScroll: true });
   }
   const hide = () => {
+    wakeQueued = null;
     if (!dialog.open) return;
     closeSettings();
     generation++;
@@ -252,6 +285,10 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     onClose();
   };
   const invalidate = () => {
+    sourceGeneration++;
+    controller?.abort();
+    verified.clear();
+    attempted.clear();
     cache.clear();
     scheduleDrafts.clear();
     defaultMilestone = null;
@@ -484,6 +521,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     if (scope !== null && scope !== data.scope) {
       cache.clear();
       scheduleDrafts.clear();
+      verified.clear();
+      attempted.clear();
     }
     scope = data.scope;
     cache.delete(data.milestone);
@@ -491,6 +530,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     while (cache.size > 12) {
       const oldest = cache.keys().next().value;
       cache.delete(oldest);
+      verified.delete(oldest);
+      attempted.delete(oldest);
       // Unsaved choices and the once-only proposal decision survive cache eviction.
     }
   }
@@ -505,7 +546,10 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     controller?.abort();
     controller = new AbortController();
     const session = ++generation,
-      requested = selected;
+      source = sourceGeneration,
+      requested = selected,
+      attempt = { at: Date.now(), day: todayJst() };
+    attempted.set(key(), attempt);
     notice.hidden = true;
     if (!currentData || currentData.milestone !== key()) showPrevious();
     try {
@@ -514,6 +558,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
           { signal: controller.signal, cache: "no-store" },
         ),
         data = await response.json();
+      if (source !== sourceGeneration) return;
       if (response.status === 403 || response.status === 401) {
         invalidate();
         if (response.status === 401 || data.error === "scope_not_public")
@@ -541,11 +586,20 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       )
         throw new Error("記録を確認できませんでした。");
       remember(data);
+      // A read begun yesterday may finish after midnight with yesterday's
+      // observation. Do not count that flight as today's verification.
+      verified.set(data.milestone, { at: Date.now(), day: attempt.day });
+      attempted.set(data.milestone, attempt);
       if (requested === null) defaultMilestone = data.milestone;
       selected = data.milestone;
       render(data);
     } catch (e) {
-      if (session !== generation || e.name === "AbortError") return;
+      if (
+        source !== sourceGeneration ||
+        session !== generation ||
+        e.name === "AbortError"
+      )
+        return;
       notice.replaceChildren(
         node("span", currentData ? e.message : "記録を取得できませんでした。"),
       );
@@ -563,7 +617,12 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       loading = false;
       if (refreshQueued && dialog.open) {
         refreshQueued = false;
+        wakeQueued = null;
         void load();
+      } else if (wakeQueued) {
+        const queued = wakeQueued;
+        wakeQueued = null;
+        wake(queued.boardMilestone);
       }
     }
   }
@@ -602,6 +661,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       return;
     }
     const target = currentData.milestone,
+      source = sourceGeneration,
       targetScope = scope,
       submittedData = currentData;
     generation++;
@@ -622,6 +682,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
           },
         ),
         data = await response.json();
+      if (source !== sourceGeneration) return;
       if (response.status === 403 || response.status === 401) {
         invalidate();
         if (response.status === 401 || data.error === "scope_not_public")
@@ -663,7 +724,8 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         scheduleDrafts.get(target) === draft
       )
         renderSettings(currentData);
-      if (dialog.open) {
+      if (dialog.open && source === sourceGeneration) {
+        wakeQueued = null;
         refreshQueued = true;
         if (!loading) {
           refreshQueued = false;
@@ -680,6 +742,36 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     showPrevious();
     void load();
   };
+  function wake(boardMilestone) {
+    if (
+      !dialog.open ||
+      document.visibilityState === "hidden" ||
+      !navigator.onLine
+    )
+      return;
+    const target = key(),
+      checked = verified.get(target),
+      attempt = attempted.get(target),
+      now = Date.now(),
+      day = todayJst(now),
+      outsideBoard = boardMilestone !== "" && Number(boardMilestone) !== target;
+    if (
+      checked &&
+      checked.day === day &&
+      (!outsideBoard || now - checked.at < 45000)
+    )
+      return;
+    // Repeated focus/online wakes neither invalidate a fresh flight nor turn a
+    // failed read into a 5-second poll. A new JST day remains an immediate wake.
+    if (attempt?.day === day && now - attempt.at < 45000) return;
+    if (loading || scheduleDrafts.get(target)?.saving) {
+      // Passive wakes do not invalidate a complete read already in flight.
+      // Recheck freshness and visibility after it settles; keep at most one.
+      wakeQueued = { boardMilestone };
+      return;
+    }
+    void load();
+  }
   return {
     open(milestone) {
       origin = document.activeElement;
@@ -697,6 +789,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     refresh() {
       if (dialog.open) void load();
     },
+    wake,
     close: hide,
     invalidate,
   };
