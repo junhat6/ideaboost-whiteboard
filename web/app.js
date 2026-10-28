@@ -43,6 +43,7 @@ const esc = (s) =>
 let state = clone(initial),
   stale = false,
   loading = false,
+  scopeSwitchPending = false,
   selectedMilestone = "",
   editorBaseline = null,
   adapter = null,
@@ -55,6 +56,7 @@ let state = clone(initial),
   editing = null,
   returnFocus = null,
   dragged = null,
+  boardRenderQueued = false,
   pending = false,
   storageFailed = false,
   toastTimer,
@@ -699,8 +701,11 @@ function clearUnestimatedHighlights() {
 function card(t) {
   const { kind } = issueTypeStyle(t.type);
   const label = typeof t.type === "string" && t.type ? t.type : "未設定";
-  const estimate = cardEstimate(t);
-  return `<article class="task type-${kind}" data-issue-type="${esc(label)}" aria-label="Issue type: ${esc(label)}" draggable="${!pending && !snapshotPending && !(adapter && t.projectItemId === null)}" data-task="${esc(t.id)}"><div class="task-top"><span class="task-issue-number">${esc(issueLabel(t))}</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}" aria-label="担当者: ${esc(person(t))}">${assigneeAvatars(t)}</span><span class="task-estimate" data-state="${estimate.state}" title="${esc(estimate.label)}" aria-label="${esc(estimate.label)}"><span class="estimate-value">${esc(estimate.text)}</span></span></div></article>`;
+  const estimate = cardEstimate(t),
+    job = issueSaves.get(t.id),
+    saving = job?.phase === "posting",
+    saveMessage = saving ? "保存中…" : job ? "保存結果の確認が必要です" : "";
+  return `<article class="task type-${kind}" data-issue-type="${esc(label)}" aria-label="Issue type: ${esc(label)}${saveMessage ? ` / ${esc(saveMessage)}` : ""}" aria-busy="${saving}" data-save-state="${job ? (saving ? "posting" : "failed") : "idle"}" ${saveMessage ? `data-tooltip="${esc(saveMessage)}"` : ""} draggable="${canDragTask(t)}" data-task="${esc(t.id)}"><div class="task-top"><span class="task-issue-number">${esc(issueLabel(t))}</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}" aria-label="担当者: ${esc(person(t))}">${assigneeAvatars(t)}</span><span class="task-estimate" data-state="${estimate.state}" title="${esc(estimate.label)}" aria-label="${esc(estimate.label)}"><span class="estimate-value">${esc(estimate.text)}</span></span></div></article>`;
 }
 // Fit only the presentation, never the Issue title. If the available area is
 // genuinely too small at 10.5px, expose whole scrollable lines (and the drawer).
@@ -993,7 +998,15 @@ function revealCard(target) {
   rememberCell(port, true);
   updateCellRange(port);
 }
+function renderAfterAsyncChange() {
+  if (dragged) {
+    boardRenderQueued = true;
+    return;
+  }
+  render();
+}
 function render() {
+  boardRenderQueued = false;
   if (dragged) clearDrag();
   syncUnestimatedToggle();
   renderTypeLegend();
@@ -1135,134 +1148,43 @@ function render() {
 // -> canonical issue (with revision). Reject with code CONFLICT on stale revisions.
 // A real adapter owns authentication/server validation; this demo never stores tokens.
 let saveBlocked = false,
-  confirmedSaveEpoch = 0;
-async function updateIssue(kind, id, patch, baseline = null) {
-  if (
-    pending ||
-    snapshotPending ||
-    saveBlocked ||
-    !adapter ||
-    issueSaves.has(id)
-  )
-    return false;
-  $("#detail-error").hidden = true;
-  const t = issue(kind, id),
-    before = clone(state);
-  if (adapter && t.projectItemId === null && Object.hasOwn(patch, "status")) {
-    announce("Project外の参照PBIのStatusはここでは変更できません。");
-    return false;
-  }
-  pending = true;
-  let savedRemotely = false;
-  const optimistic = clone(patch);
-  if (adapter && optimistic.assignees)
-    optimistic.assignees = optimistic.assignees.map(
-      (login) =>
-        (state.assigneeOptions || []).find((a) => a.login === login) ||
-        (t.assignees || []).find((a) => a.login === login) || { login },
-    );
-  Object.assign(t, optimistic);
-  render();
-  try {
-    if (adapter) {
-      const result = await adapter.saveIssue({
-        kind,
-        id,
-        patch: clone(patch),
-        expectedRevision: (baseline || issueFrom(before, kind, id)).revision,
-        expectedStatus:
-          (baseline || issueFrom(before, kind, id)).status ?? null,
-      });
-      if (!result || result.id !== id)
-        throw new Error("接続先の応答を確認できません");
-      Object.assign(issue(kind, id) || t, result);
-      confirmedSaveEpoch++;
-      savedRemotely = true;
-      if (Object.hasOwn(patch, "status")) burnPanel?.refresh();
-    }
-    announce(
-      adapter
-        ? "接続先の保存結果を確認しました"
-        : storageFailed
-          ? "このページ内だけに変更しました。GitHub未連携です。"
-          : "このブラウザーに保存しました。GitHub未連携です。",
-    );
-    return true;
-  } catch (error) {
-    saveBlocked = true;
-    $("#detail-error").hidden = false;
-    $("#detail-error").textContent =
-      error.message +
-      " 最新を取得するまで追加の保存を停止します。入力内容はコピーできます。";
-    if (savedRemotely) {
-      stale = true;
-      announce(
-        "GitHubへの保存は確認済みですが、再取得できませんでした。「最新を取得」で確認してください。",
-      );
-      return true;
-    }
-    const original = issueFrom(before, kind, id);
-    if (patch.status === "完了") {
-      const draft = Object.fromEntries(
-        editorFields.map((key) => [key, fieldValue(original, key)]),
-      );
-      Object.assign(draft, patch);
-      issueSaves.set(id, {
-        target: { kind, id },
-        baseline: clone(original),
-        draft,
-        patch: clone(patch),
-        phase: "failed",
-        closeIntent: true,
-        outcome: {
-          durable: error.serverError === "mutation_outcome_unresolved",
-          uncertain: !!error.ambiguous,
-          code: error.serverError || error.code,
-        },
-        error:
-          error.message + " 完了処理を確認してください。自動再送はしません。",
-      });
-      showSaveProblems();
-    }
-    const current = issue(kind, id);
-    if (current && original) {
-      for (const key of Object.keys(optimistic))
-        if (equalField(current[key], optimistic[key]))
-          current[key] = clone(original[key]);
-    }
-    if (error.code === "scope_not_public") stopPrivateScope(error.message);
-    if (
-      error.serverError === "estimate_hours_not_public" ||
-      error.code === "estimate_hours_not_public"
-    )
-      invalidateHours();
-    stale = !!adapter;
-    announce(
-      error.partial || error.ambiguous
-        ? `表示は保存前の内容です。GitHubの変更は取り消していません。最新を取得してください。${error.message}`
-        : error.code === "CONFLICT"
-          ? "他の更新と競合しました。変更を戻しました。再読み込みして確認してください。"
-          : `保存結果を確認できません。画面を変更前に戻しました。「最新を取得」で確認してください：${error.message}`,
-    );
-    return false;
-  } finally {
-    pending = false;
-    render();
-    if (savedRemotely)
-      void refreshBoard(undefined, { silent: true, pointsConfirmed: true });
-    resumeAutoRefresh();
-  }
-}
-function issueFrom(snapshot, kind, id) {
-  return (kind === "PBI" ? snapshot.lanes : snapshot.tasks).find(
-    (t) => t.id === id,
+  confirmedSaveEpoch = 0,
+  mutationEpoch = 0;
+function canDragTask(t) {
+  return !!(
+    adapter &&
+    t &&
+    !pending &&
+    !scopeSwitchPending &&
+    !snapshotPending &&
+    !saveBlocked &&
+    t.projectItemId !== null &&
+    !issueSaves.has(t.id)
   );
 }
 async function move(id, column) {
   const t = issue("Task", id);
-  if (!t || !columns.includes(column) || statusColumn(t.status) === column)
+  if (
+    !canDragTask(t) ||
+    !columns.includes(column) ||
+    statusColumn(t.status) === column
+  )
     return;
-  await updateIssue("Task", id, { status: targetStatus[column] });
+  const baseline = clone(t),
+    patch = { status: targetStatus[column] },
+    draft = Object.fromEntries(
+      editorFields.map((key) => [key, fieldValue(baseline, key)]),
+    );
+  Object.assign(draft, patch);
+  await startIssueSave(
+    { kind: "Task", id },
+    baseline,
+    draft,
+    patch,
+    adapter,
+    false,
+    true,
+  );
 }
 let composer = null,
   composerModule = null,
@@ -1283,6 +1205,11 @@ let pendingEditorRemote = undefined,
   refreshFlight = null;
 // 保存はdrawerではなくIssue IDに所属する。送信後の下書きは別に扱う。
 const issueSaves = new Map();
+function hasOptimisticDragSave() {
+  return [...issueSaves.values()].some(
+    (job) => job.phase === "posting" && Object.hasOwn(job, "optimisticStatus"),
+  );
+}
 function activeSave() {
   return editing && issueSaves.get(editing.id);
 }
@@ -2471,6 +2398,7 @@ function stopPrivateScope(message) {
   saveBlocked = true;
   pending = false;
   loading = false;
+  scopeSwitchPending = false;
   $("#refresh").disabled = false;
   $("#milestone-filter").disabled = false;
   editorSession++;
@@ -2843,12 +2771,7 @@ $("#issue-list").addEventListener("click", (e) => {
 });
 $("#board").addEventListener("dragstart", (e) => {
   const c = e.target.closest("[data-task]");
-  if (
-    !c ||
-    pending ||
-    snapshotPending ||
-    (adapter && issue("Task", c.dataset.task)?.projectItemId === null)
-  ) {
+  if (!c || !canDragTask(issue("Task", c.dataset.task))) {
     e.preventDefault();
     return;
   }
@@ -2899,6 +2822,10 @@ $("#board").addEventListener("dragover", (e) => {
 function clearDrag() {
   stopDragScroll();
   dragged = null;
+  if (boardRenderQueued)
+    queueMicrotask(() => {
+      if (!dragged && boardRenderQueued) render();
+    });
   resumeAutoRefresh();
   document
     .querySelectorAll(".drag-over,.dragging")
@@ -2915,8 +2842,12 @@ $("#board").addEventListener("drop", (e) => {
   e.preventDefault();
   const c = e.target.closest("[data-status]"),
     t = issue("Task", dragged);
-  if (c && t && c.dataset.lane === t.lane) move(t.id, c.dataset.status);
+  const target =
+    c && t && c.dataset.lane === t.lane
+      ? { id: t.id, column: c.dataset.status }
+      : null;
   clearDrag();
+  if (target) void move(target.id, target.column);
 });
 window.addEventListener("dragend", clearDrag);
 window.addEventListener("blur", () => {
@@ -3127,6 +3058,7 @@ async function startIssueSave(
   patch,
   source,
   automatic = false,
+  dragOrigin = false,
 ) {
   const job = {
     target,
@@ -3134,6 +3066,7 @@ async function startIssueSave(
     draft,
     patch,
     automatic,
+    ...(dragOrigin ? { optimisticStatus: patch.status } : {}),
     viewBaseline: clone(
       editing?.id === target.id && $("#details").open
         ? editorBaseline
@@ -3143,13 +3076,20 @@ async function startIssueSave(
     closeIntent: patch.status === "完了",
     requestId: crypto.randomUUID(),
   };
+  mutationEpoch++;
   issueSaves.set(target.id, job);
+  if (dragOrigin) {
+    const current = issue(target.kind, target.id);
+    if (current) current.status = job.optimisticStatus;
+  }
   if (editing?.id === target.id && $("#details").open) {
     editorPosting = true;
     editorBusy = true;
     updateDirty();
   }
+  renderAfterAsyncChange();
   const isCurrent = () =>
+    adapter === source &&
     $("#details").open &&
     !$("#details").classList.contains("closing") &&
     editing?.id === target.id;
@@ -3213,6 +3153,7 @@ async function startIssueSave(
       );
     const current = issue(target.kind, target.id);
     if (current) Object.assign(current, result);
+    if (dragOrigin) announce("接続先の保存結果を確認しました");
     if (Object.hasOwn(patch, "estimateHours") || Object.hasOwn(patch, "status"))
       burnPanel?.refresh();
     if (
@@ -3294,6 +3235,11 @@ async function startIssueSave(
     }
   } catch (error) {
     if (issueSaves.get(target.id) !== job || adapter !== source) return;
+    if (Object.hasOwn(job, "optimisticStatus")) {
+      const current = issue(target.kind, target.id);
+      if (current && current.status === job.optimisticStatus)
+        current.status = baseline.status;
+    }
     job.phase = "failed";
     job.draft = clone(job.viewDraft || draft);
     Object.assign(job.draft, job.queued || {});
@@ -3324,15 +3270,21 @@ async function startIssueSave(
       error.code === "estimate_hours_not_public"
     )
       invalidateHours();
+    if (dragOrigin && source === adapter)
+      announce(
+        `${issueLabel(baseline)} の保存結果を確認してください。自動再送はしません。`,
+      );
   } finally {
-    if (isCurrent() && issueSaves.get(target.id)?.phase !== "posting") {
-      editorPosting = false;
-      editorBusy = false;
-      syncEditorControls();
+    if (source === adapter) {
+      if (isCurrent() && issueSaves.get(target.id)?.phase !== "posting") {
+        editorPosting = false;
+        editorBusy = false;
+        syncEditorControls();
+      }
+      showSaveProblems();
+      renderAfterAsyncChange();
+      resumeAutoRefresh();
     }
-    showSaveProblems();
-    render();
-    resumeAutoRefresh();
   }
 }
 $("#search").oninput = () => {
@@ -3376,6 +3328,7 @@ function refreshBoard(options, flags = {}) {
   if (refreshFlight) return refreshFlight;
   refreshFlight = performRefresh(options, flags).finally(() => {
     refreshFlight = null;
+    resumeAutoRefresh();
   });
   return refreshFlight;
 }
@@ -3384,9 +3337,13 @@ async function performRefresh(
   { silent = false, pointsConfirmed = false, forceCurrentSprint = false } = {},
 ) {
   if (!adapter || pending || pickerDraft) return false;
+  if (dragged || hasOptimisticDragSave()) {
+    autoRefreshRequested = true;
+    return false;
+  }
   const source = adapter;
   autoRefreshRequested = false;
-  pending = true;
+  scopeSwitchPending = !!(options && Object.hasOwn(options, "milestone"));
   loading = true;
   $("#refresh").disabled = true;
   $("#milestone-filter").disabled = true;
@@ -3395,8 +3352,10 @@ async function performRefresh(
   render();
   try {
     const readEpoch = confirmedSaveEpoch;
+    const writeEpoch = mutationEpoch;
     const hoursReadEpoch = hoursEpoch;
-    const next = await source.load(options);
+    // A discarded scope-switch response must not change the next default read.
+    const next = await source.load(options || { milestone: selectedMilestone });
     if (source !== adapter) return false;
     if (!valid(next)) throw new Error("無効なIssueデータです");
     if (next.scope?.estimateHoursField === false) invalidateHours();
@@ -3404,7 +3363,12 @@ async function performRefresh(
       for (const task of next.tasks || []) delete task.estimateHours;
       if (next.scope) next.scope.estimateHoursField = false;
     }
-    if (readEpoch !== confirmedSaveEpoch) {
+    if (
+      readEpoch !== confirmedSaveEpoch ||
+      writeEpoch !== mutationEpoch ||
+      hasOptimisticDragSave() ||
+      dragged
+    ) {
       const points = next.storyPoints?.values;
       if (
         next.scope?.storyPointsField === false ||
@@ -3453,13 +3417,13 @@ async function performRefresh(
     return false;
   } finally {
     if (source === adapter) {
-      pending = false;
       loading = false;
+      scopeSwitchPending = false;
       $("#refresh").disabled = false;
       $("#milestone-filter").disabled = false;
       syncEditorControls();
       updateDetailSync();
-      render();
+      renderAfterAsyncChange();
       resumeAutoRefresh();
     }
   }
@@ -3512,6 +3476,7 @@ $("#recover-edit").onclick = async () => {
       editorOutcome = null;
       issueSaves.delete(editing.id);
       showSaveProblems();
+      renderAfterAsyncChange();
       $("#detail-error").hidden = true;
       editorSaved = same;
     }
@@ -3797,7 +3762,13 @@ window.Whiteboard = {
     render();
   },
   async setAdapter(next) {
-    if (pending || pickerDraft || ($("#details").open && editMode))
+    if (
+      pending ||
+      loading ||
+      hasOptimisticDragSave() ||
+      pickerDraft ||
+      ($("#details").open && editMode)
+    )
       throw new Error(
         "操作中です。保存またはキャンセル後に再接続してください。",
       );
@@ -3839,7 +3810,13 @@ window.Whiteboard = {
     if (snapshotPending) autoRefresh();
   },
   applySnapshot(snapshot) {
-    if (pending || pickerDraft || ($("#details").open && editMode))
+    if (
+      pending ||
+      loading ||
+      hasOptimisticDragSave() ||
+      pickerDraft ||
+      ($("#details").open && editMode)
+    )
       return false;
     if (!valid(snapshot)) throw new Error("無効なIssueデータです");
     state = clone(snapshot);
@@ -3877,7 +3854,9 @@ async function drainAutoRefresh() {
     !navigator.onLine ||
     pending ||
     loading ||
+    refreshFlight ||
     dragged ||
+    hasOptimisticDragSave() ||
     pickerDraft ||
     bootstrapAttempt
   ) {

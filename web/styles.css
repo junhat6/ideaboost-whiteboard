@@ -919,6 +919,10 @@ dialog dd {
 .task-grid[data-count="4"] .task-top {
   display: none;
 }
+.task[data-save-state="posting"],
+.task[data-save-state="posting"] .task-title {
+  cursor: progress;
+}
 .task-grid > .task {
   container-type: size;
   min-width: 0;
