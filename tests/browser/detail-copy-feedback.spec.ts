@@ -65,6 +65,13 @@ test("keyboard copy confirms beside the number only after success, stays in the 
   await clipboard(page);
   const f = await setup(page);
   await open(page);
+  // Compare the feedback layout, not two different frames of drawer entrance.
+  await page.locator("#details").evaluate(async (dialog) => {
+    await Promise.all(
+      dialog.getAnimations().map((animation) => animation.finished),
+    );
+  });
+  await expect(page.locator("#details")).toHaveCSS("transform", "none");
   await page.clock.install();
   const number = page.locator("#detail-meta");
   await expect(feedback(page)).toBeEmpty();

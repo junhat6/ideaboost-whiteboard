@@ -85,7 +85,10 @@ for (const theme of ["light", "dark"])
       expect(style.textContrast).toBeGreaterThanOrEqual(4.5);
       expect(style.borderContrast).toBeGreaterThanOrEqual(3);
       expect(style.height).toBeGreaterThanOrEqual(36);
+      // Programmatic focus after a mouse click is not keyboard focus-visible.
       await button.focus();
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Shift+Tab");
       await expect(button).toBeFocused();
       await expect(button).toHaveCSS("outline-style", "solid");
       const capture = async (state: string) => {
