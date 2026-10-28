@@ -16,7 +16,9 @@ async function ready(page: Page) {
     name: "追加担当者",
     avatarUrl: "https://avatars.githubusercontent.com/u/999",
   };
-  f.board.assigneeOptions.push(extra);
+  // snapshot shares the original assignee array with existing Issues.
+  // Adding filter candidates must not assign those people to every task.
+  f.board.assigneeOptions = [...f.board.assigneeOptions, extra];
   f.board.tasks[0].assignees = [extra];
   f.board.assigneeOptions.push({
     login: "unused-choice",
@@ -152,7 +154,7 @@ test("同時popupは1つ、外clickでtoolbarも閉じ、公開失効で候補/�
   await expect(page.locator(".toolbar-select-panel:visible")).toHaveCount(0);
   await expect(page.locator("#chrome")).not.toHaveClass(/controls-open/);
   await page.route("**/api/board", (r) =>
-    r.fulfill({ status: 403, json: { error: "project_not_public" } }),
+    r.fulfill({ status: 403, json: { error: "scope_not_public" } }),
   );
   await page.locator("#operations").click();
   await page.locator("#refresh").click();

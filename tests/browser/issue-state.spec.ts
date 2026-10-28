@@ -48,6 +48,7 @@ test("Issue状態は詳細だけに表示し、Project Statusから推測せず�
   await expect(page.locator("#close-issue")).toBeHidden();
   await page.screenshot({
     path: `test-results/issue-state-${page.viewportSize()!.width}.png`,
+    animations: "disabled", // Static state evidence, not the drawer entrance midpoint.
   });
   await page.locator("#close-detail").click();
   await page.locator('[data-open="t0-0-2"]').click();

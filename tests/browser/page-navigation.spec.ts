@@ -27,8 +27,10 @@ async function pages(page: Page) {
   return f;
 }
 async function taskPointer(page: Page) {
-  const rect = (await page.locator(".task-title").first().boundingBox())!;
-  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  // Native vertical/diagonal wheel may have scrolled the first card out of its
+  // cell. hover() scrolls it into view and verifies the hit target; a raw bounding
+  // box still has coordinates for clipped cards and can move outside the board.
+  await page.locator(".task-title").first().hover();
 }
 const quiet = (page: Page) => page.waitForTimeout(330);
 

@@ -18,6 +18,19 @@ if (!productionCsp)
 const dialog = (page: Page) => page.locator("#highlight-demo");
 const choice = (page: Page, value: string) =>
   page.locator(`[data-demo-choice="${value}"]`);
+async function showToolbar(page: Page) {
+  // #operations lives outside #chrome: focusing it does not open the toolbar.
+  const operations = page.locator("#operations");
+  if ((await operations.getAttribute("aria-expanded")) !== "true")
+    await operations.click();
+  await expect(operations).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#chrome")).toHaveClass(/controls-open/);
+  await expect(page.locator("#highlight-demo-open")).toBeInViewport();
+}
+async function openDemo(page: Page) {
+  await showToolbar(page);
+  await page.locator("#highlight-demo-open").click();
+}
 async function ready(page: Page, theme = "light", open = true) {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.route("**/", async (route) => {
@@ -59,13 +72,13 @@ async function ready(page: Page, theme = "light", open = true) {
   await expect.poll(f.sprintReads).toBe(2);
   await expect(page.locator(".pbi-title")).toHaveCount(6);
   await page.evaluate(() => document.fonts.ready);
-  await page.locator("#operations").focus();
+  await showToolbar(page);
   if (theme === "dark") await page.locator("#theme").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   expect(assets).toHaveLength(0);
   const baseline = api.length;
   if (!open) return { ...f, api, assets, baseline };
-  await page.locator("#highlight-demo-open").click();
+  await openDemo(page);
   await expect(dialog(page)).toBeVisible();
   await expect(page.locator("#highlight-demo-close")).toBeFocused();
   await expect(
@@ -324,7 +337,7 @@ test("demo内Uのみ切替、入力・IME・修飾・repeatを除外しEscapeと
     "none",
   );
   for (let i = 0; i < 3; i++) {
-    await page.locator("#highlight-demo-open").click();
+    await openDemo(page);
     await expect(dialog(page)).toHaveCount(1);
     await expect(dialog(page)).toBeVisible();
     await expect(choice(page, "focus")).toHaveAttribute("aria-pressed", "true");
@@ -399,7 +412,7 @@ for (const extension of ["js", "css"])
       await route.continue();
     });
     try {
-      await page.locator("#highlight-demo-open").click();
+      await openDemo(page);
       await seen;
       await page.locator("#choose-pbis").focus();
       await page.keyboard.press("Enter");
