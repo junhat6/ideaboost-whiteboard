@@ -36,6 +36,10 @@ for (const theme of ["light", "dark"] as const)
     if (theme === "dark") await page.locator("#theme").click();
     await page.locator("#operations").click();
     await page.mouse.move(10, page.viewportSize()!.height - 10);
+    await page.screenshot({
+      path: `test-results/task-title-readable-${page.viewportSize()!.width}-${theme}.png`,
+      animations: "disabled",
+    });
     const metrics = [];
     for (let index = 0; index < 4; index++) {
       const m = await card(page, index).evaluate((element) => {
@@ -56,11 +60,13 @@ for (const theme of ["light", "dark"] as const)
           right: number;
           bottom: number;
         }[];
+        const glyphs = [];
         for (let i = 0; i < node.textContent!.length; i++) {
           const range = document.createRange();
           range.setStart(node, i);
           range.setEnd(node, i + 1);
           const r = range.getBoundingClientRect();
+          if (r.width) glyphs.push({char: node.textContent![i], top: r.top, bottom: r.bottom, left: r.left, right: r.right});
           if (
             r.width &&
             r.top >= area.top - 1 &&
@@ -83,6 +89,10 @@ for (const theme of ["light", "dark"] as const)
           r.bottom > box.top;
         return {
           title: node.textContent,
+          glyphs,
+          textArea: area.toJSON(),
+          buttonArea: buttonBox.toJSON(),
+          cardArea: element.getBoundingClientRect().toJSON(),
           font: parseFloat(css.fontSize),
           fontWeight: css.fontWeight,
           fontFamily: css.fontFamily,
@@ -103,6 +113,7 @@ for (const theme of ["light", "dark"] as const)
           scrollable: text.scrollHeight > text.clientHeight + 1,
         };
       });
+      console.log(JSON.stringify({metric: "compact-title-card", width: page.viewportSize()!.width, theme, index, ...m}));
       expect(m.title).toBe(titles[index]);
       expect(m.font).toBeGreaterThanOrEqual(11);
       expect(m.visibleLines).toBeGreaterThanOrEqual(3);
