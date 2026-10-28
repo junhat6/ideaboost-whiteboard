@@ -4,6 +4,9 @@ permissions:
   contents: read
 jobs:
   check:
+    # Temporary focused A/B profile. Deploy is hard-disabled below until accepted.
+    env:
+      UI_MOTION_PROFILE_ONLY: "true"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -28,16 +31,22 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
       - name: Verify calendar access and existing schedule contracts
+        if: env.UI_MOTION_PROFILE_ONLY != 'true'
         run: npx playwright test tests/browser/burndown.spec.ts tests/browser/burndown-layout.spec.ts --workers=1
       - name: Verify native edge-scroll cancellation repeatedly
+        if: env.UI_MOTION_PROFILE_ONLY != 'true'
         run: npx playwright test tests/browser/drag-lifecycle.spec.ts --grep=auto-scroll --repeat-each=3 --workers=1
       - name: Verify native card dragging and interrupted gestures before the full browser suite
+        if: env.UI_MOTION_PROFILE_ONLY != 'true'
         run: npx playwright test tests/browser/drag-continuity.spec.ts tests/browser/drag-races.spec.ts tests/browser/drag-lifecycle.spec.ts --workers=1
       - name: Verify clipped-card visibility before the full browser suite
+        if: env.UI_MOTION_PROFILE_ONLY != 'true'
         run: npx playwright test tests/browser/unestimated-highlight.spec.ts --project=desktop --grep=overflow --repeat-each=3 --workers=1
       - name: Verify card metadata, U and current Sprint before the full browser suite
+        if: env.UI_MOTION_PROFILE_ONLY != 'true'
         run: npx playwright test tests/browser/task-metadata.spec.ts tests/browser/current-sprint.spec.ts tests/browser/unestimated-highlight.spec.ts --project=desktop --workers=1
       - run: npm run test:e2e
+        if: env.UI_MOTION_PROFILE_ONLY != 'true'
       - name: Keep synthetic UI screenshots for review
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -115,9 +124,10 @@ jobs:
           JS
 
   deploy:
+    # A/B measurement only: never publish until performance is accepted and full CI restored.
     # 承認済みproduction環境はmain branchだけ許可。PRには配信secretを渡さない。
     if: >-
-      ${{ github.event_name == 'push' &&
+      ${{ false && github.event_name == 'push' &&
           github.ref == 'refs/heads/main' &&
           github.repository == 'junhat6/ideaboost-whiteboard' }}
     needs: [check, auth-check]

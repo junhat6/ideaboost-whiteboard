@@ -508,6 +508,160 @@ for (const appearance of ["light", "dark"])
     expect(f.posts()).toBe(0);
   });
 
+test("一時CSSのmask・shadow対照診断は同じ94光で紙面を保つ", async ({
+  page,
+}) => {
+  // Diagnostic only: five configurations × two real 60-rAF windows, no FPS gate.
+  // These candidate styles never enter the runtime stylesheet or persisted state.
+  test.setTimeout(60_000);
+  const f = await ready(page),
+    stem = `test-results/unestimated-motion-${page.viewportSize()!.width}-ab`,
+    requests = f.requests.length,
+    before = await geometry(page),
+    ring = `polygon(evenodd,
+      0px 0px, 100% 0px, 100% 100%, 0px 100%, 0px 0px,
+      2px 2px, calc(100% - 2px) 2px,
+      calc(100% - 2px) calc(100% - 2px), 2px calc(100% - 2px),
+      2px 2px, 0px 0px)`;
+  expect(
+    await page.evaluate((value) => CSS.supports("clip-path", value), ring),
+    "This diagnostic requires the evenodd clip-path ring; never silently skip it",
+  ).toBe(true);
+  await expect(toggle(page)).toHaveAttribute("aria-pressed", "false");
+  const baseline = summarizeFrameWindows([
+    await sampleFrameTime(page),
+    await sampleFrameTime(page),
+  ]);
+  for (const sample of baseline.samples) {
+    expect(sample.activeAnimations).toBe(0);
+    expect(sample.visibleCards).toBe(0);
+  }
+  await enable(page);
+  await expect(
+    page.locator(".unestimated-highlight.unestimated-visible"),
+  ).toHaveCount(94);
+  const target = card(page),
+    readStyles = () =>
+      target.evaluate((element) => {
+        const wrapper = element.querySelector(".unestimated-motion")!,
+          style = getComputedStyle(wrapper),
+          beam = getComputedStyle(wrapper, "::after");
+        return {
+          maskImage: style.maskImage,
+          clipPath: style.clipPath,
+          shadow: beam.boxShadow,
+          invariant: {
+            padding: style.padding,
+            borderRadius: style.borderRadius,
+            containerType: style.containerType,
+            width: beam.width,
+            height: beam.height,
+            origin: beam.transformOrigin,
+            name: beam.animationName,
+            duration: beam.animationDuration,
+            timing: beam.animationTimingFunction,
+            delay: beam.animationDelay,
+          },
+        };
+      }),
+    originalStyle = await readStyles(),
+    candidates = [
+      { name: "mask-shadow", clip: false, shadow: true },
+      { name: "mask-no-shadow", clip: false, shadow: false },
+      { name: "clip-shadow", clip: true, shadow: true },
+      { name: "clip-no-shadow", clip: true, shadow: false },
+    ],
+    stages: {
+      name: string;
+      styles: Awaited<ReturnType<typeof readStyles>>;
+      frames: Awaited<ReturnType<typeof motion>>[];
+      frameTime: ReturnType<typeof summarizeFrameWindows>;
+      overOff: Record<string, number>;
+      overCurrent: Record<string, number>;
+      pixelDiff: { boundary: number; center: number };
+    }[] = [],
+    saveMetrics = () =>
+      writeFile(
+        `${stem}-metrics.json`,
+        JSON.stringify(
+          { viewport: page.viewportSize(), baseline, stages },
+          null,
+          2,
+        ),
+      );
+  await saveMetrics();
+  for (const candidate of candidates) {
+    const css = [
+      candidate.clip
+        ? `.unestimated-motion { mask: none !important; clip-path: ${ring} !important; }`
+        : "",
+      candidate.shadow
+        ? ""
+        : ".unestimated-motion::after { box-shadow: none !important; }",
+    ].join("\n");
+    const injected = css ? await page.addStyleTag({ content: css }) : null;
+    try {
+      await twoFrames(page);
+      const styles = await readStyles();
+      expect(styles.invariant).toEqual(originalStyle.invariant);
+      expect(styles.shadow).toBe(
+        candidate.shadow ? originalStyle.shadow : "none",
+      );
+      if (candidate.clip) {
+        expect(styles.maskImage).toBe("none");
+        expect(styles.clipPath).toContain("polygon(evenodd,");
+      } else {
+        expect(styles.maskImage).toBe(originalStyle.maskImage);
+        expect(styles.maskImage).not.toBe("none");
+        expect(styles.clipPath).toBe("none");
+      }
+      const performance = summarizeFrameWindows([
+        await sampleFrameTime(page),
+        await sampleFrameTime(page),
+      ]);
+      for (const sample of performance.samples) {
+        expect(sample.activeAnimations).toBe(94);
+        expect(sample.visibleCards).toBe(94);
+      }
+      const start = await motion(target),
+        first = await frame(target, `${stem}-${candidate.name}-frame-0.png`);
+      await page.waitForTimeout(350);
+      const end = await motion(target),
+        second = await frame(target, `${stem}-${candidate.name}-frame-1.png`),
+        diff = diffPng(first, second),
+        reference = stages[0]?.frameTime ?? performance,
+        ratio = (denominator: ReturnType<typeof summarizeFrameWindows>) =>
+          Object.fromEntries(
+            (["mean", "p50", "p95", "max"] as const).map((key) => [
+              key,
+              performance[key] / denominator[key],
+            ]),
+          );
+      stages.push({
+        name: candidate.name,
+        styles,
+        frames: [start, end],
+        frameTime: performance,
+        overOff: ratio(baseline),
+        overCurrent: ratio(reference),
+        pixelDiff: { boundary: diff.boundary, center: diff.center },
+      });
+      await saveMetrics();
+      await writeFile(`${stem}-${candidate.name}-diff.png`, diff.image);
+      expect(end.currentTime!).toBeGreaterThan(start.currentTime!);
+      expect(end.transform).not.toBe(start.transform);
+      expect(diff.boundary).toBeGreaterThan(0);
+      expect(diff.center).toBe(0);
+      expect(await geometry(page)).toEqual(before);
+      expect(f.requests).toHaveLength(requests);
+      expect(f.posts()).toBe(0);
+    } finally {
+      if (injected) await injected.evaluate((element) => element.remove());
+    }
+  }
+  expect(await readStyles()).toEqual(originalStyle);
+});
+
 test("境界の光が実時間で一周して全角を連続移動し、resize後も紙面へ入らない", async ({
   page,
 }) => {
