@@ -1456,6 +1456,9 @@ function renderIssueState() {
     button = $("#close-issue"),
     item = editorLatest,
     job = activeSave();
+  if (!button.querySelector(".issue-close-label"))
+    button.innerHTML = `${iconMarkup("issue-closed")}<span class="issue-close-label"></span>`;
+  const buttonLabel = button.querySelector(".issue-close-label");
   if (!item) {
     badge.replaceChildren();
     delete badge.dataset.stateKey;
@@ -1463,7 +1466,7 @@ function renderIssueState() {
     badge.setAttribute("aria-label", "GitHub Issueの状態");
     button.hidden = true;
     button.disabled = true;
-    button.textContent = "Issueをクローズ";
+    buttonLabel.textContent = "Issueをクローズ";
     button.setAttribute("aria-busy", "false");
     return;
   }
@@ -1490,7 +1493,7 @@ function renderIssueState() {
   }
   button.hidden = !open;
   button.disabled = !canCloseIssue();
-  button.textContent =
+  buttonLabel.textContent =
     job?.patch.close && job.phase === "posting"
       ? "クローズ中…"
       : job?.patch.close && job.retryReady
@@ -1574,18 +1577,47 @@ function renderDetailIssueNumber() {
       : `${label}（リンク未確認のためコピーできません）`,
   );
 }
-let detailCopySequence = 0;
+let detailCopySequence = 0,
+  detailCopyTimer;
+function clearDetailCopyFeedback() {
+  detailCopySequence++;
+  clearTimeout(detailCopyTimer);
+  detailCopyTimer = undefined;
+  const feedback = $("#detail-copy-feedback");
+  feedback.replaceChildren();
+  delete feedback.dataset.state;
+}
+function showDetailCopyFeedback(success) {
+  const feedback = $("#detail-copy-feedback"),
+    text = document.createElement("span"),
+    sequence = detailCopySequence;
+  feedback.replaceChildren();
+  feedback.dataset.state = success ? "success" : "failure";
+  if (success) {
+    const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    check.setAttribute("viewBox", "0 0 16 16");
+    check.setAttribute("aria-hidden", "true");
+    check.setAttribute("focusable", "false");
+    check.innerHTML = '<path d="M3 8.5 6.5 12 13 4"/>';
+    feedback.append(check);
+  }
+  text.textContent = success ? "コピーしました" : "コピーできませんでした";
+  feedback.append(text);
+  detailCopyTimer = setTimeout(() => {
+    if (sequence === detailCopySequence) clearDetailCopyFeedback();
+  }, 2000);
+}
 $("#detail-meta").onclick = async () => {
   if (!$("#details").open || $("#details").classList.contains("closing")) return;
   const url = detailIssueCopyUrl();
+  clearDetailCopyFeedback();
   if (!url) {
-    announce("IssueのURLを確認できないためコピーできません。");
+    showDetailCopyFeedback(false);
     return;
   }
   const source = adapter,
     session = editorSession,
-    sequence = ++detailCopySequence,
-    number = editorLatest.number;
+    sequence = detailCopySequence;
   const current = () =>
     source === adapter &&
     session === editorSession &&
@@ -1595,9 +1627,9 @@ $("#detail-meta").onclick = async () => {
     detailIssueCopyUrl() === url;
   try {
     await navigator.clipboard.writeText(url);
-    if (current()) announce(`#${number} のリンクをコピーしました。`);
+    if (current()) showDetailCopyFeedback(true);
   } catch {
-    if (current()) announce("リンクをコピーできませんでした。");
+    if (current()) showDetailCopyFeedback(false);
   }
 };
 const statusPalette = {
@@ -2599,6 +2631,7 @@ function renderComments() {
     }
 }
 function stopPrivateScope(message) {
+  clearDetailCopyFeedback();
   burnPanel?.close();
   invalidateHours();
   cellPositions.clear();
@@ -2888,6 +2921,7 @@ function openIssue(kind, id) {
   )
     return;
   if ($("#details").open) discardUnsubmittedComment();
+  clearDetailCopyFeedback();
   editorSession++;
   composer?.destroy();
   composer = null;
@@ -2931,6 +2965,7 @@ function closeDetail() {
     return;
   const d = $("#details");
   if (d.classList.contains("closing")) return;
+  clearDetailCopyFeedback();
   discardUnsubmittedComment();
   const job = activeSave();
   if (job?.phase === "posting" && job.viewDraft) {
@@ -4128,6 +4163,7 @@ window.Whiteboard = {
     connectionError = "";
     initialLoading = false;
     clearTimeout(initialTimer);
+    clearDetailCopyFeedback();
     adapter = next;
     clearComments();
     state = clone(snapshot);

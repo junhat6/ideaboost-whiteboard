@@ -1436,7 +1436,15 @@ dialog dt,
 .detail-dialog .dialog-top {
   margin-bottom: 8px;
 }
+.detail-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
 .detail-dialog #detail-meta {
+  flex: 0 0 auto;
   min-height: 32px;
   padding: 4px 0;
   border: 0;
@@ -1449,6 +1457,34 @@ dialog dt,
 }
 .detail-dialog #detail-meta:disabled {
   opacity: 1;
+}
+.detail-copy-feedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.detail-copy-feedback > span:last-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.detail-copy-feedback svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.detail-copy-feedback[data-state="failure"] {
+  color: var(--error);
 }
 .issue-heading-row {
   display: flex;
@@ -3342,9 +3378,33 @@ input[type="checkbox"] {
   color: var(--status-gray);
 }
 .issue-state-close {
-  min-height: 32px;
-  padding: 5px 10px;
+  --issue-close-ink: #6940b3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 12px;
   font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--issue-close-ink);
+  background: color-mix(in srgb, var(--status-purple) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--issue-close-ink) 70%, var(--surface));
+  box-shadow: 0 1px 1px rgb(0 0 0 / 4%);
+}
+.issue-state-close svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: currentColor;
+}
+.issue-state-close:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-purple) 16%, var(--surface));
+  border-color: var(--issue-close-ink);
+}
+[data-theme="dark"] .issue-state-close {
+  --issue-close-ink: #d9c4ff;
 }
 .detail-footer {
   display: flex;
@@ -3353,10 +3413,6 @@ input[type="checkbox"] {
 }
 .detail-footer:has(#close-issue[hidden]) {
   display: none;
-}
-.detail-footer .issue-state-close {
-  color: var(--muted);
-  background: transparent;
 }
 
 /* Toolbar selectors: rich presentation, unchanged native value/change contract. */

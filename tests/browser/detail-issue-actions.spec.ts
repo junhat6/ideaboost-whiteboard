@@ -84,8 +84,8 @@ test("the larger plain Issue number copies its canonical URL by click, Enter and
   };
   page.on("request", watch);
   await number.click();
-  await expect(page.locator("#announcement")).toHaveText(
-    "#100 のリンクをコピーしました。",
+  await expect(page.locator("#detail-copy-feedback")).toHaveText(
+    "コピーしました",
   );
   await number.focus();
   await page.keyboard.press("Enter");
@@ -116,8 +116,8 @@ test("clipboard rejection and unavailable API never announce copied", async ({
     (window as any).__issueClipboard.mode = "reject";
   });
   await page.locator("#detail-meta").click();
-  await expect(page.locator("#announcement")).toHaveText(
-    "リンクをコピーできませんでした。",
+  await expect(page.locator("#detail-copy-feedback")).toHaveText(
+    "コピーできませんでした",
   );
   expect(await copied(page)).toEqual([issueUrl(100)]);
   await page.evaluate(() =>
@@ -128,10 +128,10 @@ test("clipboard rejection and unavailable API never announce copied", async ({
   );
   await page.locator("#detail-meta").click();
   await frames(page);
-  await expect(page.locator("#announcement")).toHaveText(
-    "リンクをコピーできませんでした。",
+  await expect(page.locator("#detail-copy-feedback")).toHaveText(
+    "コピーできませんでした",
   );
-  await expect(page.locator("#announcement")).not.toContainText(
+  await expect(page.locator("#detail-copy-feedback")).not.toContainText(
     "コピーしました",
   );
   expect(await copied(page)).toHaveLength(1);
@@ -190,16 +190,16 @@ test("a late clipboard acknowledgement from A cannot replace B feedback or copy 
     (window as any).__issueClipboard.mode = "success";
   });
   await page.locator("#detail-meta").click();
-  await expect(page.locator("#announcement")).toHaveText(
-    "#101 のリンクをコピーしました。",
+  await expect(page.locator("#detail-copy-feedback")).toHaveText(
+    "コピーしました",
   );
   await page.evaluate(() =>
     (window as any).__issueClipboard.pending.shift().resolve(),
   );
   await frames(page);
   await expect(page.locator("#detail-meta")).toHaveText("#101");
-  await expect(page.locator("#announcement")).toHaveText(
-    "#101 のリンクをコピーしました。",
+  await expect(page.locator("#detail-copy-feedback")).toHaveText(
+    "コピーしました",
   );
   expect(await copied(page)).toEqual([issueUrl(100), issueUrl(101)]);
   expect(f.posts()).toBe(0);
@@ -306,7 +306,17 @@ test("Close stays separate at the bottom left while the canonical state remains 
   expect(bounds.y - (postBounds.y + postBounds.height)).toBeGreaterThanOrEqual(
     24,
   );
-  await expect(closeButton).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(closeButton).toHaveText("Issueをクローズ");
+  await expect(closeButton.locator("svg.octicon-issue-closed")).toHaveCount(1);
+  expect(
+    await closeButton.evaluate(
+      (button) => getComputedStyle(button).backgroundColor,
+    ),
+  ).not.toBe(
+    await page
+      .locator("#post-comment")
+      .evaluate((button) => getComputedStyle(button).backgroundColor),
+  );
   await page.screenshot({
     path: `test-results/detail-issue-footer-${page.viewportSize()!.width}.png`,
     animations: "disabled",

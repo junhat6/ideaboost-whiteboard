@@ -169,14 +169,22 @@
     <dialog id="details" class="detail-dialog" aria-labelledby="detail-heading">
       <form id="detail-form">
         <div class="dialog-top">
+          <div class="detail-identity">
+            <button
+              type="button"
+              class="section-kicker"
+              id="detail-meta"
+              aria-label="Issueのリンクをコピー"
+              disabled
+            ></button>
+            <span
+              id="detail-copy-feedback"
+              class="detail-copy-feedback"
+              role="status"
+              aria-atomic="true"
+            ></span>
+          </div>
           <button
-            type="button"
-            class="section-kicker"
-            id="detail-meta"
-            aria-label="Issueのリンクをコピー"
-            disabled
-          ></button
-          ><button
             type="button"
             id="close-detail"
             class="icon-button"
