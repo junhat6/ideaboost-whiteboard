@@ -1218,7 +1218,7 @@ let editorSession = 0;
 let editorBody = "",
   fillingDetail = false;
 let titleEditing = false,
-  titleBeforeEdit = "";
+  titleCancelAnchor = null;
 let pendingEditorRemote = undefined,
   editorSaved = false,
   refreshFlight = null;
@@ -2298,6 +2298,7 @@ async function loadLinkedPrs(more = false) {
   if (!adapter?.loadPullRequests || !$("#details").open || linkedPrFlight)
     return;
   const session = editorSession,
+    source = adapter,
     root = $("#linked-prs"),
     token = {};
   linkedPrFlight = token;
@@ -2306,11 +2307,16 @@ async function loadLinkedPrs(more = false) {
     root.textContent = "PR…";
   }
   try {
-    const data = await adapter.loadPullRequests(
+    const data = await source.loadPullRequests(
       editorLatest.number,
       more ? linkedPrCursor : null,
     );
-    if (session !== editorSession || linkedPrFlight !== token) return;
+    if (
+      source !== adapter ||
+      session !== editorSession ||
+      linkedPrFlight !== token
+    )
+      return;
     if (!Array.isArray(data.prs)) throw Error("invalid_pr_response");
     const safe = data.prs.filter(
       (p) =>
@@ -2371,11 +2377,13 @@ async function loadLinkedPrs(more = false) {
     }
     root.hidden = !linkedPrItems.length && !linkedPrCursor;
   } catch (error) {
-    if (session !== editorSession || linkedPrFlight !== token) return;
+    if (source !== adapter) return;
+    // Revocation belongs to the connection, not to the drawer that requested it.
     if (error.code === "scope_not_public") {
       stopPrivateScope(error.message);
       return;
     }
+    if (session !== editorSession || linkedPrFlight !== token) return;
     root.hidden = false;
     root.replaceChildren();
     const text = document.createElement("span"),
@@ -2631,6 +2639,7 @@ function renderComments() {
     }
 }
 function stopPrivateScope(message) {
+  clearTitleEdit();
   clearDetailCopyFeedback();
   burnPanel?.close();
   invalidateHours();
@@ -2965,6 +2974,7 @@ function closeDetail() {
     return;
   const d = $("#details");
   if (d.classList.contains("closing")) return;
+  clearTitleEdit();
   clearDetailCopyFeedback();
   discardUnsubmittedComment();
   const job = activeSave();
@@ -3183,9 +3193,34 @@ function sizeTitle() {
   input.style.height = "auto";
   input.style.height = `${input.scrollHeight}px`;
 }
-function finishTitle(cancel = false, focus = false) {
-  if (cancel && titleEditing) $("#detail-title").value = titleBeforeEdit;
+function clearTitleEdit() {
   titleEditing = false;
+  titleCancelAnchor = null;
+}
+function finishTitle(cancel = false, focus = false) {
+  const anchor = titleCancelAnchor;
+  if (
+    cancel &&
+    titleEditing &&
+    anchor?.source === adapter &&
+    anchor.session === editorSession &&
+    anchor.id === editing?.id &&
+    anchor.kind === editing?.kind &&
+    editorLatest &&
+    editorBaseline
+  ) {
+    const remote = fieldValue(editorLatest, "title");
+    const value = anchor.canonical ? remote : anchor.value;
+    writeField("title", value);
+    if (equalField(value, remote)) {
+      setBaseField("title", remote);
+      delete editorConflicts.title;
+    } else if (!equalField(remote, fieldValue(editorBaseline, "title"))) {
+      editorConflicts.title = { remote };
+    } else delete editorConflicts.title;
+    renderConflicts();
+  }
+  clearTitleEdit();
   $("#title-editor").hidden = true;
   $("#detail-heading").closest("h2").hidden = false;
   $("#rename-issue").hidden = false;
@@ -3195,7 +3230,15 @@ function finishTitle(cancel = false, focus = false) {
   if (focus) $("#rename-issue").focus();
 }
 $("#rename-issue").onclick = () => {
-  titleBeforeEdit = $("#detail-title").value;
+  const value = $("#detail-title").value;
+  titleCancelAnchor = {
+    value,
+    canonical: equalField(value, fieldValue(editorLatest, "title")),
+    source: adapter,
+    session: editorSession,
+    id: editing.id,
+    kind: editing.kind,
+  };
   titleEditing = true;
   $("#title-editor").hidden = false;
   $("#detail-heading").closest("h2").hidden = true;
@@ -4165,6 +4208,7 @@ window.Whiteboard = {
     clearTimeout(initialTimer);
     clearDetailCopyFeedback();
     burnPanel?.invalidate();
+    clearTitleEdit();
     adapter = next;
     clearComments();
     state = clone(snapshot);

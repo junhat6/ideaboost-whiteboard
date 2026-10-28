@@ -221,7 +221,7 @@ mermaid fenceは近傍でWorker描画し、通常は図、選択/鉛筆では原
 
 入力境界はtoolbar/detail-dialogの高詳細度ルールにもinput-borderを適用する。小avatarの画像失敗時はavatar-fallback-bg/ink（selected面とink）で頭文字を表示し、旧緑＋白文字は使わない。
 
-タイトルのインライン入力は三辺透明＋下線の構成を維持し、その下線にinput-borderを適用する。focus outlineは青で表示する。
+タイトルのインライン入力は三辺透明＋下線の構成を維持し、その下線にinput-borderを適用する。focus outlineは青で表示する。 鉛筆編集のEscapeは今回の編集だけを取り消す。開始時がcanonicalタイトルなら、編集中の同期で得た同Issueの最新タイトルへ戻す。開始前に受け入れた未保存タイトルがあればその下書きを戻し、タイトルの競合だけを最新値と再評価する。本文・Status等の下書き/競合には触れず、取消で保存しない。取消anchorは接続元・Issue・詳細sessionに所属し、閉じる/切替/公開失効で破棄する。
 
 GitHubの既知の視覚表現で認知負荷を下げ、操作はチーム向けに改善する。全面コピーはしない。担当者は現在の候補一覧＋avatarタイルを維持し、不特定ユーザー検索に戻さない。候補外の既存担当者や未編集値は勝手に削除しない。
 
@@ -229,7 +229,7 @@ GitHubの既知の視覚表現で認知負荷を下げ、操作はチーム向�
 
 通常のclean/syncing/savedは文章・バッジ・toast・live regionで通知しない。正常な入力・選択は背景GETや保存POST中にも続けられ、送信後の下書きを保持する。明示保存ボタンの有効状態・処理中の短い表示、変更破棄とdirty-close確認は残す。エラー/競合/結果不明/オフライン等の対処が必要な時だけ理由と回復操作を示す。初回空画面や媒体のskeletonは別用途として維持。本文・タイトル・コメントの送信意図は維持し、離散項目だけは選択時に自動保存する。
 
-関連PRはタイトル下・本文上の文脈欄に、状態アイコン＋#番号＋タイトルの丸いリンクで置く。GitHubの正式なclosing/manual linkのみ、固定repoの公開PRのみを扱い、新しいタブで開く。本文とは独立して取得し、空は欄を隠し、取得不可には再試行を示す。open/draft/merged/closed-unmergedを区別し、StatusやIssue完了判定へ混入させない。
+関連PRはタイトル下・本文上の文脈欄に、状態アイコン＋#番号＋タイトルの丸いリンクで置く。GitHubの正式なclosing/manual linkのみ、固定repoの公開PRのみを扱い、新しいタブで開く。本文とは独立して取得し、空は欄を隠し、取得不可には再試行を示す。 同じ接続元の公開失効は、要求元の詳細を閉じた/別Issueへ移った後でも全体を即時消去する。別接続元の古い失効は無効とし、古い成功/通常失敗も新しい詳細へ混ぜない。open/draft/merged/closed-unmergedを区別し、StatusやIssue完了判定へ混入させない。
 
 アイコンは[GitHub Octicons](https://primer.style/octicons/) 19.42.0（MIT）をビルド時に必要16個だけ抽出する。Lucideのvanilla/tree-shakingも比較したが、今回のGitHub慣例とPR状態表現に合うOcticonsを選ぶ。人気を無欠陥の保証とはしない。runtime CDN/React移行/全icon bundleは不要。共通Iconは16px viewBox・fill currentColor、IconButtonは32px以上、Kbdは22px四方・同一line-height。Macは⌘/Return、その他はCtrl/Enter。更新時もSVGを文字に置換せず、button-local busyと回転（reduced-motionで停止）、disabled、accessible nameを保つ。
 

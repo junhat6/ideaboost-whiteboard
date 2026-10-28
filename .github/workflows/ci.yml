@@ -14,6 +14,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
+      - name: Verify title cancellation and delayed linked-PR revocation ownership
+        run: npx playwright test tests/browser/title-cancel-sync.spec.ts tests/browser/linked-pr-revocation.spec.ts --workers=1 --max-failures=0
       - name: Verify canonical Issue state contrast in both themes
         run: npx playwright test tests/browser/issue-state-contrast.spec.ts --workers=1 --max-failures=0
       - name: Keep focused synthetic Issue state contrast evidence
