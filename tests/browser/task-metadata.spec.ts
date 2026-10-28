@@ -245,7 +245,9 @@ test("色凡例は操作バー内だけ、未知・未設定を同じ中立色�
   await page.mouse.move(500, 300);
   await page.mouse.move(500, 2);
   await expect(page.locator("#chrome")).toHaveClass(/controls-open/);
-  await card(page).locator(".task-title").click();
+  // The toolbar is an overlay; click an actually exposed card, not the first
+  // row title covered by the open contextual toolbar. No force/focus bypass.
+  await card(page, "t1-0-0").locator(".task-title").click();
   await expect(page.locator("#chrome")).not.toHaveClass(/controls-open/);
   await page.keyboard.press("Escape");
   expect(f.posts()).toBe(0);
