@@ -309,8 +309,10 @@ for (const theme of ["light", "dark"] as const)
         expect(unaffected.statuses).toEqual(statusColors);
         expect(unaffected.headerToken).toBe("");
         expect(unaffected.colors).toEqual(unaffected.expectedColors);
+        // flex itemはblockifyされるため、宣言inline-flexのcomputed値はflex。
+        // https://www.w3.org/TR/css-display-3/#transformations
         expect(unaffected.style).toEqual([
-          "inline-flex",
+          "flex",
           "center",
           "center",
           "8px",
