@@ -310,7 +310,54 @@ test("close送信中のscope失効はhidden DOMも消去し、遅いACKで復活
 });
 
 test("closeの遅いACKは失効した時間fieldを復活させない", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
   const f = await setup(page);
+  // Passive evidence only: preserve the original immediate click timing.
+  await page.addInitScript(() => {
+    const trace: unknown[] = [];
+    (window as any).__closeClickTrace = trace;
+    for (const type of [
+      "pointerdown",
+      "mousedown",
+      "pointerup",
+      "mouseup",
+      "click",
+    ])
+      document.addEventListener(
+        type,
+        (event) => {
+          const target = event.target as Element;
+          if (!target?.closest?.("#details") || trace.length >= 60) return;
+          const button = document.querySelector(
+            "#close-issue",
+          ) as HTMLButtonElement;
+          const drawer = document.querySelector(
+            "#details",
+          ) as HTMLDialogElement;
+          trace.push({
+            type,
+            at: performance.now(),
+            target: target.tagName,
+            targetId: target.id,
+            closeTarget: !!target.closest("#close-issue"),
+            clientX: (event as MouseEvent).clientX,
+            clientY: (event as MouseEvent).clientY,
+            trusted: event.isTrusted,
+            disabled: button.disabled,
+            text: button.textContent,
+            open: drawer.open,
+            closing: drawer.classList.contains("closing"),
+            composer: !!document.querySelector(".cm-content"),
+            hoursVisible: !(
+              document.querySelector("#estimate-hours-editor") as HTMLElement
+            ).hidden,
+            rect: button.getBoundingClientRect().toJSON(),
+          });
+        },
+        true,
+      );
+  });
   (f.board.scope as any).estimateHoursField = true;
   (f.board.tasks[0] as any).estimateHours = 4;
   let release!: () => void,
@@ -331,19 +378,44 @@ test("closeの遅いACKは失効した時間fieldを復活させない", async (
     return r.fulfill({ json: { ok: true, issue: result } });
   });
   await page.reload();
-  await page.locator('[data-open="t0-0-0"]').click();
-  await page.locator("#close-issue").click();
-  await expect.poll(() => posted).toBe(true);
-  (f.board.scope as any).estimateHoursField = false;
-  delete (f.board.tasks[0] as any).estimateHours;
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.locator("#estimate-hours-editor")).toBeHidden();
-  release();
-  await expect(page.locator("#issue-state")).toHaveText("Closed · 完了");
-  await expect(page.locator("#estimate-hours-editor")).toBeHidden();
-  expect(
-    await page.evaluate(
-      () => (window as any).Whiteboard.getSnapshot().tasks[0].estimateHours,
-    ),
-  ).toBeUndefined();
+  try {
+    await page.locator('[data-open="t0-0-0"]').click();
+    await page.locator("#close-issue").click();
+    await expect.poll(() => posted).toBe(true);
+    (f.board.scope as any).estimateHoursField = false;
+    delete (f.board.tasks[0] as any).estimateHours;
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(page.locator("#estimate-hours-editor")).toBeHidden();
+    release();
+    await expect(page.locator("#issue-state")).toHaveText("Closed · 完了");
+    await expect(page.locator("#estimate-hours-editor")).toBeHidden();
+    expect(
+      await page.evaluate(
+        () => (window as any).Whiteboard.getSnapshot().tasks[0].estimateHours,
+      ),
+    ).toBeUndefined();
+  } finally {
+    console.log(
+      "close-click-diagnostic",
+      JSON.stringify({
+        viewport: page.viewportSize(),
+        posted,
+        errors,
+        state: await page
+          .evaluate(() => ({
+            events: (window as any).__closeClickTrace,
+            open: (document.querySelector("#details") as HTMLDialogElement)
+              .open,
+            disabled: (
+              document.querySelector("#close-issue") as HTMLButtonElement
+            ).disabled,
+            badge: document.querySelector("#issue-state")?.textContent,
+            error: document.querySelector("#detail-error")?.textContent,
+            composer: !!document.querySelector(".cm-content"),
+          }))
+          .catch(() => null),
+      }),
+    );
+    release();
+  }
 });
