@@ -230,6 +230,41 @@ test("native drag端auto-scrollはdragendで途中停止し、次の別付箋dra
 }) => {
   const f = await overflowFixture(page, 20),
     port = cell(page, "ToDo").locator(".cell-viewport");
+  await port.evaluate((element) => {
+    const trace = { writes: [] as object[], events: [] as object[] };
+    (window as any).__dragScrollTrace = trace;
+    const descriptor = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      "scrollTop",
+    )!;
+    Object.defineProperty(element, "scrollTop", {
+      configurable: true,
+      get() {
+        return descriptor.get!.call(this);
+      },
+      set(value) {
+        trace.writes.push({
+          at: performance.now(),
+          value,
+          dragging: !!document.querySelector(".dragging"),
+          caller: new Error().stack?.split("\n").slice(1, 4),
+        });
+        descriptor.set!.call(this, value);
+      },
+    });
+    for (const type of ["dragend", "drop", "blur", "scroll", "scrollend"])
+      window.addEventListener(
+        type,
+        () =>
+          trace.events.push({
+            type,
+            at: performance.now(),
+            top: element.scrollTop,
+            connected: element.isConnected,
+          }),
+        true,
+      );
+  });
   try {
     await beginDrag(page, card(page, "t0-1-0"));
     const box = (await port.boundingBox())!;
@@ -263,6 +298,14 @@ test("native drag端auto-scrollはdragendで途中停止し、次の別付箋dra
           };
           requestAnimationFrame(sample);
         }),
+    );
+    console.log(
+      JSON.stringify({
+        metric: "native-scroll-cancellation",
+        width: page.viewportSize()!.width,
+        positions,
+        trace: await page.evaluate(() => (window as any).__dragScrollTrace),
+      }),
     );
     expect(new Set(positions).size).toBe(1);
     await move(page, "t0-1-1", "Wait");
