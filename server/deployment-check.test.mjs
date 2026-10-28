@@ -6,6 +6,7 @@ import {
   currentMain,
   verifyDeployment,
   inspectSprintRollover,
+  inspectCurrentSprint,
 } from "../scripts/deployment-check.mjs";
 
 const base = `https://ideaboost-whiteboard.ideaboost-whiteboard.workers.dev/b/${"a".repeat(48)}/`;
@@ -166,4 +167,264 @@ test("rollover smoke does not bypass denied reads or accept a post-cutoff point"
       ),
     /display contract/,
   );
+});
+
+const currentSprintBody = () => ({
+  ok: true,
+  status: "current",
+  checkedAt: "2026-10-28T00:00:00.000Z",
+  currentSprint: {
+    number: 10,
+    title: "Sprint 10",
+    policy: "sprint-v2-exclusive-jst",
+    startAt: "2026-10-27T15:00:00.000Z",
+    endAt: "2026-11-03T15:00:00.000Z",
+    privateExtra: "not-logged",
+  },
+  issueData: "not-logged",
+});
+test("current sprint smoke performs one credential-free guarded GET and emits only metadata", async () => {
+  const calls = [],
+    body = currentSprintBody();
+  const result = await inspectCurrentSprint(base, async (url, options) => {
+    calls.push([String(url), options]);
+    return Response.json(body);
+  });
+  assert.deepEqual(result, {
+    status: "current",
+    milestone: 10,
+    startAt: body.currentSprint.startAt,
+    endAt: body.currentSprint.endAt,
+    policy: body.currentSprint.policy,
+    checkedAt: body.checkedAt,
+  });
+  assert.equal(JSON.stringify(result).includes("not-logged"), false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], base + "api/current-sprint");
+  assert.equal(calls[0][1].method, "GET");
+  assert.equal(calls[0][1].cache, "no-store");
+  assert.equal(calls[0][1].redirect, "error");
+  assert.equal(calls[0][1].headers, undefined);
+  assert.equal(calls[0][1].body, undefined);
+  assert.ok(calls[0][1].signal instanceof AbortSignal);
+});
+test("current sprint smoke follows metadata, not a fixed Sprint 10, and preserves open ends", async () => {
+  const body = currentSprintBody();
+  body.currentSprint.number = 11;
+  body.currentSprint.title = "Sprint 11";
+  body.currentSprint.endAt = null;
+  const result = await inspectCurrentSprint(base, async () =>
+    Response.json(body),
+  );
+  assert.equal(result.milestone, 11);
+  assert.equal(result.endAt, null);
+  assert.equal(result.status, "current");
+});
+for (const status of ["none", "unavailable"])
+  test(`current sprint smoke reports valid ${status} without inventing current metadata`, async () => {
+    const body = {
+      ok: true,
+      status,
+      currentSprint: null,
+      checkedAt: "2026-10-28T00:00:00.000Z",
+      details: "not-logged",
+    };
+    const result = await inspectCurrentSprint(base, async () =>
+      Response.json(body),
+    );
+    assert.deepEqual(result, {
+      status,
+      milestone: null,
+      startAt: null,
+      endAt: null,
+      policy: null,
+      checkedAt: body.checkedAt,
+    });
+  });
+for (const [name, change] of [
+  [
+    "missing ok",
+    (v) => {
+      delete v.ok;
+    },
+  ],
+  [
+    "failed read",
+    (v) => {
+      v.ok = false;
+    },
+  ],
+  [
+    "unknown status",
+    (v) => {
+      v.status = "future";
+    },
+  ],
+  [
+    "missing checkedAt",
+    (v) => {
+      delete v.checkedAt;
+    },
+  ],
+  [
+    "invalid checkedAt",
+    (v) => {
+      v.checkedAt = "2026-02-30T00:00:00.000Z";
+    },
+  ],
+  [
+    "missing current",
+    (v) => {
+      v.currentSprint = null;
+    },
+  ],
+  [
+    "zero number",
+    (v) => {
+      v.currentSprint.number = 0;
+    },
+  ],
+  [
+    "fractional number",
+    (v) => {
+      v.currentSprint.number = 1.5;
+    },
+  ],
+  [
+    "wrong title",
+    (v) => {
+      v.currentSprint.title = "Sprint 11";
+    },
+  ],
+  [
+    "unknown policy",
+    (v) => {
+      v.currentSprint.policy = "sprint-v3";
+    },
+  ],
+  [
+    "invalid start",
+    (v) => {
+      v.currentSprint.startAt = "2026-02-30T15:00:00.000Z";
+    },
+  ],
+  [
+    "nonmidnight start",
+    (v) => {
+      v.currentSprint.startAt = "2026-10-27T16:00:00.000Z";
+    },
+  ],
+  [
+    "future start",
+    (v) => {
+      v.currentSprint.startAt = "2026-10-28T15:00:00.000Z";
+    },
+  ],
+  [
+    "missing end",
+    (v) => {
+      delete v.currentSprint.endAt;
+    },
+  ],
+  [
+    "invalid end",
+    (v) => {
+      v.currentSprint.endAt = "2026-02-30T15:00:00.000Z";
+    },
+  ],
+  [
+    "nonmidnight end",
+    (v) => {
+      v.currentSprint.endAt = "2026-11-03T16:00:00.000Z";
+    },
+  ],
+  [
+    "reversed interval",
+    (v) => {
+      v.currentSprint.endAt = "2026-10-26T15:00:00.000Z";
+    },
+  ],
+  [
+    "exclusive end reached",
+    (v) => {
+      v.checkedAt = v.currentSprint.endAt;
+    },
+  ],
+  [
+    "noncurrent with metadata",
+    (v) => {
+      v.status = "none";
+    },
+  ],
+])
+  test(`current sprint smoke rejects invalid contract: ${name}`, async () => {
+    const body = currentSprintBody();
+    change(body);
+    await assert.rejects(
+      () => inspectCurrentSprint(base, async () => Response.json(body)),
+      /response contract/,
+    );
+  });
+test("current sprint smoke never retries or hides denied, failed, redirected, or invalid reads", async () => {
+  for (const status of [301, 403, 429, 503]) {
+    let calls = 0;
+    await assert.rejects(
+      () =>
+        inspectCurrentSprint(base, async () => {
+          calls++;
+          return Response.json(
+            {
+              ok: false,
+              status: "unavailable",
+              currentSprint: null,
+              checkedAt: "2026-10-28T00:00:00.000Z",
+              error: "not-logged",
+            },
+            { status },
+          );
+        }),
+      new RegExp(`HTTP ${status}`),
+    );
+    assert.equal(calls, 1);
+  }
+  let networkCalls = 0;
+  await assert.rejects(
+    () =>
+      inspectCurrentSprint(base, async () => {
+        networkCalls++;
+        throw Error("sensitive-details-not-logged");
+      }),
+    /^Error: Current sprint read failed$/,
+  );
+  assert.equal(networkCalls, 1);
+  await assert.rejects(
+    () =>
+      inspectCurrentSprint(
+        base,
+        async () => new Response("sensitive-details-not-logged"),
+      ),
+    /^Error: Current sprint response was not valid JSON$/,
+  );
+  await assert.rejects(
+    () => inspectCurrentSprint(base, async () => Response.json(null)),
+    /response contract/,
+  );
+});
+test("current sprint smoke refuses an unapproved destination before issuing a request", async () => {
+  let calls = 0;
+  const fetcher = async () => {
+    calls++;
+    return Response.json(currentSprintBody());
+  };
+  for (const invalid of [
+    base.replace("workers.dev", "example.com"),
+    base + "?token=not-logged",
+    base.replace("/b/", "/other/"),
+    "https://user:secret@example.com/",
+  ])
+    await assert.rejects(
+      () => inspectCurrentSprint(invalid, fetcher),
+      /Production URL/,
+    );
+  assert.equal(calls, 0);
 });

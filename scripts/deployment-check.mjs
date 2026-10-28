@@ -150,6 +150,64 @@ export async function inspectSprintRollover(base, fetcher = fetch) {
     retainedPoints: data.observations.length,
   };
 }
+export async function inspectCurrentSprint(base, fetcher = fetch) {
+  const url = new URL("api/current-sprint", productionBase(base));
+  let response;
+  try {
+    response = await fetcher(url, {
+      method: "GET",
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch {
+    throw new Error("Current sprint read failed");
+  }
+  if (response.status !== 200)
+    throw new Error(`Current sprint read failed (HTTP ${response.status})`);
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Current sprint response was not valid JSON");
+  }
+  const timestamp = (value) =>
+      typeof value === "string" &&
+      Number.isFinite(Date.parse(value)) &&
+      new Date(value).toISOString() === value,
+    midnightJst = (value) =>
+      timestamp(value) && (Date.parse(value) + 9 * 3600000) % 86400000 === 0,
+    current = data?.currentSprint,
+    validStatus =
+      data?.ok === true &&
+      ["current", "none", "unavailable"].includes(data.status);
+  if (
+    !validStatus ||
+    !timestamp(data.checkedAt) ||
+    (data.status === "current"
+      ? !Number.isSafeInteger(current?.number) ||
+        current.number <= 0 ||
+        current.title !== `Sprint ${current.number}` ||
+        current.policy !== "sprint-v2-exclusive-jst" ||
+        !midnightJst(current.startAt) ||
+        Date.parse(current.startAt) > Date.parse(data.checkedAt) ||
+        (current.endAt !== null &&
+          (!midnightJst(current.endAt) ||
+            Date.parse(current.endAt) <= Date.parse(current.startAt) ||
+            Date.parse(current.endAt) <= Date.parse(data.checkedAt)))
+      : current !== null)
+  )
+    throw new Error("Current sprint response contract did not match");
+  // No raw response, error text, title, Issue data, URLs or credentials in output.
+  return {
+    status: data.status,
+    milestone: current?.number ?? null,
+    startAt: current?.startAt ?? null,
+    endAt: current?.endAt ?? null,
+    policy: current?.policy ?? null,
+    checkedAt: data.checkedAt,
+  };
+}
 async function main() {
   if (process.argv[2] === "guard") {
     trustedPush(
@@ -170,8 +228,16 @@ async function main() {
     );
     return;
   }
+  if (process.argv[2] === "current-sprint-smoke") {
+    console.log(
+      JSON.stringify(
+        await inspectCurrentSprint(process.env.PRODUCTION_BASE_URL),
+      ),
+    );
+    return;
+  }
   if (process.argv[2] !== "smoke")
-    throw new Error("Use guard, smoke or rollover-smoke");
+    throw new Error("Use guard, smoke, rollover-smoke or current-sprint-smoke");
   const base = productionBase(process.env.PRODUCTION_BASE_URL).href;
   const expected = await Promise.all(
     assets.map(async (name) => [

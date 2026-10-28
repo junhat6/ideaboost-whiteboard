@@ -63,6 +63,7 @@ export async function setup(
     conflict = false,
     prefix = "",
     longPbi = false,
+    customCurrentSprint = false,
   } = {},
 ) {
   const board = snapshot();
@@ -71,6 +72,7 @@ export async function setup(
       "日本語の非常に長いPBIタイトルを読みながら進捗も確認する".repeat(8);
   let posts = 0;
   let reads = 0;
+  let sprintReads = 0;
   await page.route("**/api/**", async (route) => {
     const p = new URL(route.request().url()).pathname.slice(prefix.length);
     if (p === "/api/health")
@@ -83,6 +85,18 @@ export async function setup(
     if (p === "/api/board") {
       reads++;
       return route.fulfill({ json: board });
+    }
+    if (p === "/api/current-sprint") {
+      if (customCurrentSprint) return route.fallback();
+      sprintReads++;
+      return route.fulfill({
+        json: {
+          ok: true,
+          status: "none",
+          currentSprint: null,
+          checkedAt: new Date().toISOString(),
+        },
+      });
     }
     if (p.endsWith("/comments") && route.request().method() === "GET")
       return route.fulfill({ json: { comments: [], nextPage: null } });
@@ -123,7 +137,12 @@ export async function setup(
   });
   await page.goto(prefix + "/");
   await expect(page.locator(".pbi-title")).toHaveCount(6);
-  return { board, posts: () => posts, reads: () => reads };
+  return {
+    board,
+    posts: () => posts,
+    reads: () => reads,
+    sprintReads: () => sprintReads,
+  };
 }
 
 export async function fillEditor(page: Page, value: string) {

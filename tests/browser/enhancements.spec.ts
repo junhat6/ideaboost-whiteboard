@@ -623,17 +623,18 @@ test("type colors are stable across Status moves and update for actual type chan
   const color = await card.evaluate((e) => getComputedStyle(e).backgroundColor);
   s.board.tasks[0].status = "作業中";
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(card.locator(".raw-status")).toHaveText("作業中");
+  await expect(
+    page.locator('[data-lane="p0"][data-status="Doing"] [data-task="t0-0-0"]'),
+  ).toHaveCount(1);
+  await expect(card.locator(".raw-status, .type-cue")).toHaveCount(0);
   expect(await card.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe(
     color,
   );
   s.board.tasks[0].type = "競合調査";
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(card).toHaveClass(/type-research/, { timeout: 8000 });
-  await expect(card.locator(".type-cue")).toHaveAttribute(
-    "aria-label",
-    "Issue type: 競合調査",
-  );
+  await expect(card).toHaveAttribute("data-issue-type", "競合調査");
+  await expect(card.locator(".type-cue")).toHaveCount(0);
   await page.screenshot({
     path: `.wrangler/enhancement-board-${page.viewportSize()!.width}.png`,
     animations: "disabled",

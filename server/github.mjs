@@ -20,6 +20,8 @@ import {
 import { normalizeLinkedPrs } from "./linked-prs.mjs";
 import { createComments, validateComment } from "./comments.mjs";
 import {
+  currentSprintAssignmentWindow,
+  currentSprintSelection,
   sprintAssignmentWindow,
   validCatalogMilestone,
 } from "./sprint-boundary.mjs";
@@ -390,7 +392,7 @@ export function createHandler({
       return gql(env, base, variables);
     }
   }
-  async function observationMilestones(env) {
+  async function observationMilestones(env, { assignmentState = false } = {}) {
     const milestones = new Map(),
       cursors = new Set();
     let after = null,
@@ -431,12 +433,22 @@ export function createHandler({
           milestones.has(milestone.number)
         )
           throw new ApiError(503, "observation_incomplete");
-        const assignmentWindow = sprintAssignmentWindow(milestone);
+        const assignmentWindow = assignmentState
+          ? currentSprintAssignmentWindow(milestone)
+          : sprintAssignmentWindow(milestone);
         milestones.set(milestone.number, {
           number: milestone.number,
           title: milestone.title,
           dueOn: milestone.dueOn,
           ...(assignmentWindow ? { assignmentWindow } : {}),
+          ...(assignmentState
+            ? {
+                state: milestone.state,
+                hasAssignmentMetadata:
+                  milestone.description?.includes("idea-boost-sprint:") ??
+                  false,
+              }
+            : {}),
         });
       }
       if (milestones.size > total)
@@ -1703,6 +1715,22 @@ export function createHandler({
             env.AUTH_MODE === "public-temporary" ? "public-temporary" : "team",
         });
       if (!configured) throw new ApiError(503, "github_not_configured");
+      if (url.pathname === "/api/current-sprint") {
+        if (request.method !== "GET")
+          throw new ApiError(405, "method_not_allowed");
+        if (url.search) throw new ApiError(400, "invalid_query");
+        await assertPublic(env);
+        const milestones = await observationMilestones(env, {
+          assignmentState: true,
+        });
+        await assertPublic(env);
+        const checked = now();
+        return reply({
+          ok: true,
+          ...currentSprintSelection(milestones, checked),
+          checkedAt: new Date(checked).toISOString(),
+        });
+      }
       if (
         request.method === "GET" &&
         url.pathname === "/api/scope" &&
@@ -2112,6 +2140,21 @@ export function createHandler({
       }
       return reply(record.result.data, record.result.status);
     } catch (e) {
+      if (
+        url.pathname === "/api/current-sprint" &&
+        request.method === "GET" &&
+        (e.status ?? 502) >= 500
+      )
+        return reply(
+          {
+            ok: false,
+            error: e.code ?? "github_unavailable",
+            currentSprint: null,
+            status: "unavailable",
+            checkedAt: new Date(now()).toISOString(),
+          },
+          503,
+        );
       return reply(
         { ok: false, error: e.code ?? "github_unavailable", ...e.extra },
         e.status ?? 502,

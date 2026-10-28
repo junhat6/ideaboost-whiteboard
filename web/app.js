@@ -341,6 +341,238 @@ function handleAvatarError(event) {
 function issueLabel(t) {
   return adapter ? (t.number ? `#${t.number}` : "Issue") : `DEMO-${t.id}`;
 }
+const issueTypeStyles = [
+  { type: "Task", kind: "task", label: "Task" },
+  { type: "競合調査", kind: "research", label: "競合調査" },
+  { type: null, kind: "unknown", label: "その他・未設定" },
+];
+function issueTypeStyle(type) {
+  return (
+    issueTypeStyles.find(
+      (style) => style.type !== null && style.type === type,
+    ) || issueTypeStyles.at(-1)
+  );
+}
+function renderTypeLegend() {
+  const unknown = [
+    ...new Set(
+      state.tasks
+        .filter((task) => issueTypeStyle(task.type).kind === "unknown")
+        .map((task) =>
+          typeof task.type === "string" && task.type ? task.type : "未設定",
+        ),
+    ),
+  ];
+  const root = $("#type-legend"),
+    key = JSON.stringify(unknown);
+  if (root.dataset.types === key) return;
+  root.dataset.types = key;
+  root.innerHTML =
+    '<span class="type-legend-heading">付箋の色</span>' +
+    issueTypeStyles
+      .map((style) => {
+        const description =
+          style.kind === "unknown"
+            ? `Task・競合調査以外とIssue type未設定${unknown.length ? `（${unknown.join("・")}）` : ""}`
+            : style.label;
+        return `<span class="type-legend-item" role="listitem" data-type-kind="${style.kind}" data-tooltip="${esc(description)}" title="${esc(description)}" aria-label="${esc(description)}"><i class="type-legend-swatch type-${style.kind}" aria-hidden="true"></i><span>${esc(style.label)}</span></span>`;
+      })
+      .join("");
+}
+function cardEstimate(t) {
+  const ready =
+    adapter &&
+    !snapshotPending &&
+    state.scope?.estimateHoursField === true &&
+    estimateTarget(t) === true;
+  if (ready && t.estimateHours === null)
+    return { state: "unset", text: "未設定", label: "見積時間: 未設定" };
+  if (
+    ready &&
+    typeof t.estimateHours === "number" &&
+    Number.isFinite(t.estimateHours) &&
+    t.estimateHours >= 0 &&
+    t.estimateHours <= 1000
+  )
+    return {
+      state: "set",
+      text: `${t.estimateHours}h`,
+      label: `見積時間: ${t.estimateHours}時間`,
+    };
+  return { state: "unavailable", text: "—", label: "見積時間を確認できません" };
+}
+function paintCardEstimates() {
+  const tasks = new Map(state.tasks.map((task) => [task.id, task]));
+  for (const card of $("#board").querySelectorAll("[data-task]")) {
+    const estimate = card.querySelector(".task-estimate");
+    if (!estimate) continue;
+    const value = cardEstimate(tasks.get(card.dataset.task));
+    estimate.dataset.state = value.state;
+    estimate.title = value.label;
+    estimate.setAttribute("aria-label", value.label);
+    estimate.querySelector(".estimate-value").textContent = value.text;
+  }
+}
+let currentSprintAdapter = null,
+  currentSprintKey = null,
+  currentSprintEpoch = 0,
+  currentSprintFlight = null,
+  currentSprintQueued = false,
+  currentSprintResult = null,
+  currentSprintUntil = 0;
+const sprintDateFormat = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+function currentSprintContext() {
+  return JSON.stringify([
+    unestimatedScopeKey(),
+    new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10),
+  ]);
+}
+function clearCurrentSprint() {
+  currentSprintEpoch++;
+  currentSprintAdapter = null;
+  currentSprintKey = null;
+  currentSprintFlight = null;
+  currentSprintQueued = false;
+  currentSprintResult = null;
+  currentSprintUntil = 0;
+  paintCurrentSprint();
+}
+function paintCurrentSprint() {
+  const root = $("#current-sprint");
+  root.hidden = !adapter?.loadCurrentSprint;
+  if (root.hidden) {
+    root.removeAttribute("data-state");
+    root.removeAttribute("aria-busy");
+    $("#current-sprint-label").textContent = "";
+    $("#current-sprint-label").removeAttribute("title");
+    $("#current-sprint-dates").textContent = "";
+    return;
+  }
+  const data =
+    currentSprintAdapter === adapter &&
+    currentSprintKey === currentSprintContext()
+      ? currentSprintResult
+      : null;
+  const current = data?.currentSprint;
+  const status =
+    current &&
+    (Date.now() < Date.parse(current.startAt) ||
+      (current.endAt !== null && Date.now() >= Date.parse(current.endAt)))
+      ? "loading"
+      : data?.status || "loading";
+  root.dataset.state = status;
+  root.setAttribute("aria-busy", String(status === "loading"));
+  const label =
+    status === "current"
+      ? `現在：${current.title}`
+      : status === "none"
+        ? "現在のSprintなし"
+        : status === "unavailable"
+          ? "現在のSprintを確認できません"
+          : "現在のSprintを確認中…";
+  const dates =
+    status === "current"
+      ? `${sprintDateFormat.format(new Date(current.startAt))}–${current.endAt === null ? "終了未定" : `${sprintDateFormat.format(new Date(current.endAt))}未満`} JST`
+      : "";
+  $("#current-sprint-label").title = label;
+  if ($("#current-sprint-label").textContent !== label)
+    $("#current-sprint-label").textContent = label;
+  if ($("#current-sprint-dates").textContent !== dates)
+    $("#current-sprint-dates").textContent = dates;
+}
+async function refreshCurrentSprint(force = false) {
+  const source = adapter;
+  if (!source?.loadCurrentSprint || snapshotPending) return;
+  if (currentSprintAdapter !== source) {
+    clearCurrentSprint();
+    currentSprintAdapter = source;
+  }
+  const key = currentSprintContext();
+  if (currentSprintKey !== key) {
+    currentSprintEpoch++;
+    currentSprintKey = key;
+    currentSprintResult = null;
+    currentSprintUntil = 0;
+  }
+  if (currentSprintFlight) {
+    if (currentSprintFlight.key !== key) currentSprintQueued = true;
+    paintCurrentSprint();
+    return;
+  }
+  if (!force && currentSprintResult && Date.now() < currentSprintUntil) return;
+  const token = { key, epoch: currentSprintEpoch };
+  currentSprintFlight = token;
+  paintCurrentSprint();
+  try {
+    const data = await source.loadCurrentSprint();
+    if (source !== adapter || token.epoch !== currentSprintEpoch) return;
+    if (key !== currentSprintContext()) {
+      currentSprintQueued = true;
+      return;
+    }
+    if (
+      data?.ok !== true ||
+      !["current", "none", "unavailable"].includes(data.status) ||
+      !Number.isFinite(Date.parse(data.checkedAt))
+    )
+      throw Error("invalid_current_sprint");
+    if (data.status === "current") {
+      const sprint = data.currentSprint,
+        start = Date.parse(sprint?.startAt),
+        end = sprint?.endAt === null ? null : Date.parse(sprint?.endAt),
+        now = Date.now();
+      if (
+        !Number.isSafeInteger(sprint?.number) ||
+        sprint.number < 1 ||
+        typeof sprint.title !== "string" ||
+        !sprint.title.trim() ||
+        sprint.policy !== "sprint-v2-exclusive-jst" ||
+        !Number.isFinite(start) ||
+        (start + 9 * 3600000) % 86400000 !== 0 ||
+        (end !== null &&
+          (!Number.isFinite(end) ||
+            start >= end ||
+            (end + 9 * 3600000) % 86400000 !== 0)) ||
+        now < start ||
+        (end !== null && now >= end)
+      )
+        throw Error("invalid_current_sprint");
+    } else if (data.currentSprint !== null)
+      throw Error("invalid_current_sprint");
+    currentSprintResult = data;
+    currentSprintUntil = Date.now() + 5 * 60000;
+  } catch (error) {
+    if (source !== adapter) return;
+    if (
+      error.code === "scope_not_public" ||
+      error.httpStatus === 401 ||
+      error.httpStatus === 403
+    ) {
+      stopPrivateScope(error.message);
+      return;
+    }
+    if (token.epoch !== currentSprintEpoch) return;
+    currentSprintResult = { status: "unavailable", currentSprint: null };
+    currentSprintUntil = Date.now() + 60000;
+  } finally {
+    if (currentSprintFlight === token) {
+      currentSprintFlight = null;
+      paintCurrentSprint();
+      if (currentSprintQueued) {
+        currentSprintQueued = false;
+        void refreshCurrentSprint(true);
+      }
+    }
+  }
+}
 function unestimatedScopeKey() {
   const s = state.scope || {};
   return JSON.stringify([
@@ -423,19 +655,21 @@ function syncUnestimatedToggle() {
 }
 function paintUnestimatedHighlights() {
   syncUnestimatedToggle();
+  paintCardEstimates();
   unestimatedObserver?.disconnect();
   const tasks = new Map(state.tasks.map((t) => [t.id, t]));
   for (const card of $("#board").querySelectorAll("[data-task]")) {
     const active = !!unestimatedEligible(tasks.get(card.dataset.task));
     card.classList.toggle("unestimated-highlight", active);
     card.classList.remove("unestimated-visible");
+    card.querySelector(".estimate-value").hidden = active;
     let cue = card.querySelector(".unestimated-cue");
     if (active) {
       if (!cue) {
         cue = document.createElement("span");
         cue.className = "unestimated-cue";
         cue.textContent = "未見積";
-        card.querySelector(".task-top").append(cue);
+        card.querySelector(".task-estimate").append(cue);
       }
       if (typeof IntersectionObserver === "function") {
         unestimatedObserver ||= new IntersectionObserver(
@@ -463,11 +697,10 @@ function clearUnestimatedHighlights() {
   paintUnestimatedHighlights();
 }
 function card(t) {
-  const kind =
-    t.type === "Task" ? "task" : t.type === "競合調査" ? "research" : "unknown";
+  const { kind } = issueTypeStyle(t.type);
   const label = typeof t.type === "string" && t.type ? t.type : "未設定";
-  const cue = kind === "task" ? "T" : kind === "research" ? "調" : "?";
-  return `<article class="task type-${kind}" data-issue-type="${esc(label)}" draggable="${!pending && !snapshotPending && !(adapter && t.projectItemId === null)}" data-task="${esc(t.id)}"><div class="task-top"><span>${esc(issueLabel(t))}</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}">${assigneeAvatars(t)}<span class="person-name">${esc(person(t))}</span></span><span class="type-cue" role="img" aria-label="Issue type: ${esc(label)}" title="Issue type: ${esc(label)}">${cue}</span><span class="raw-status">${esc(t.status || "Status未設定")}</span></div></article>`;
+  const estimate = cardEstimate(t);
+  return `<article class="task type-${kind}" data-issue-type="${esc(label)}" aria-label="Issue type: ${esc(label)}" draggable="${!pending && !snapshotPending && !(adapter && t.projectItemId === null)}" data-task="${esc(t.id)}"><div class="task-top"><span class="task-issue-number">${esc(issueLabel(t))}</span></div><button class="task-title" data-open="${esc(t.id)}" title="${esc(t.title)}"><span class="task-title-text">${esc(t.title)}</span></button><div class="task-bottom"><span class="person" title="${esc(person(t))}" aria-label="担当者: ${esc(person(t))}">${assigneeAvatars(t)}</span><span class="task-estimate" data-state="${estimate.state}" title="${esc(estimate.label)}" aria-label="${esc(estimate.label)}"><span class="estimate-value">${esc(estimate.text)}</span></span></div></article>`;
 }
 // Fit only the presentation, never the Issue title. If the available area is
 // genuinely too small at 10.5px, expose whole scrollable lines (and the drawer).
@@ -763,6 +996,8 @@ function revealCard(target) {
 function render() {
   if (dragged) clearDrag();
   syncUnestimatedToggle();
+  renderTypeLegend();
+  paintCurrentSprint();
   if (!adapter) {
     renderInitial();
     return;
@@ -1381,7 +1616,7 @@ function renderHoursInput() {
   const ready = hoursAvailable();
   $("#estimate-hours-editor").hidden = !ready;
   if (!ready) return;
-  const values = [0.5, 1, 2, 3, 4, 5, 6, 8];
+  const values = [0.5, 1, 2, 3, 4, 5, 6, 8, 12];
   // Preserve canonical arbitrary values without rounding or expanding the field schema.
   if (
     typeof editorHours === "number" &&
@@ -2230,11 +2465,14 @@ function stopPrivateScope(message) {
   pointsValues = {};
   paintStoryPoints();
   adapter = null;
+  clearCurrentSprint();
   connectionError = message;
   initialLoading = false;
   saveBlocked = true;
   pending = false;
   loading = false;
+  $("#refresh").disabled = false;
+  $("#milestone-filter").disabled = false;
   editorSession++;
   clearLinkedPrs();
   composerModule?.clearPreview($("#detail-body-view"));
@@ -3143,9 +3381,10 @@ function refreshBoard(options, flags = {}) {
 }
 async function performRefresh(
   options,
-  { silent = false, pointsConfirmed = false } = {},
+  { silent = false, pointsConfirmed = false, forceCurrentSprint = false } = {},
 ) {
   if (!adapter || pending || pickerDraft) return false;
+  const source = adapter;
   autoRefreshRequested = false;
   pending = true;
   loading = true;
@@ -3157,7 +3396,8 @@ async function performRefresh(
   try {
     const readEpoch = confirmedSaveEpoch;
     const hoursReadEpoch = hoursEpoch;
-    const next = await adapter.load(options);
+    const next = await source.load(options);
+    if (source !== adapter) return false;
     if (!valid(next)) throw new Error("無効なIssueデータです");
     if (next.scope?.estimateHoursField === false) invalidateHours();
     if (hoursReadEpoch !== hoursEpoch) {
@@ -3196,10 +3436,12 @@ async function performRefresh(
     if (options && Object.hasOwn(options, "milestone"))
       selectedMilestone = String(options.milestone ?? "");
     markFresh();
+    queueMicrotask(() => void refreshCurrentSprint(forceCurrentSprint));
     reconcileDetail();
     if ($("#details").open) loadLinkedPrs();
     return true;
   } catch (e) {
+    if (source !== adapter) return false;
     lastReadError = e.message;
     stale = true;
     if (e.code === "scope_not_public") {
@@ -3210,19 +3452,21 @@ async function performRefresh(
     if (!silent) announce(`取得できませんでした：${e.message}`);
     return false;
   } finally {
-    pending = false;
-    loading = false;
-    $("#refresh").disabled = false;
-    $("#milestone-filter").disabled = false;
-    syncEditorControls();
-    updateDetailSync();
-    render();
-    resumeAutoRefresh();
+    if (source === adapter) {
+      pending = false;
+      loading = false;
+      $("#refresh").disabled = false;
+      $("#milestone-filter").disabled = false;
+      syncEditorControls();
+      updateDetailSync();
+      render();
+      resumeAutoRefresh();
+    }
   }
 }
 $("#refresh").onclick = () =>
   adapter
-    ? refreshBoard()
+    ? refreshBoard(undefined, { forceCurrentSprint: true })
     : window.Whiteboard.connectApi().catch((e) => announce(e.message));
 $("#recover-edit").onclick = async () => {
   if (editorBusy || editorOutcome?.durable) return;
@@ -3591,6 +3835,7 @@ window.Whiteboard = {
     if ($("#details").open) $("#details").close();
     $("#refresh").hidden = false;
     render();
+    void refreshCurrentSprint();
     if (snapshotPending) autoRefresh();
   },
   applySnapshot(snapshot) {
@@ -3600,6 +3845,7 @@ window.Whiteboard = {
     state = clone(snapshot);
     markFresh();
     render();
+    void refreshCurrentSprint();
     if ($("#details").open) {
       if (issue(editing.kind, editing.id)) fillDetail();
       else closeDetail();

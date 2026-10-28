@@ -122,6 +122,9 @@
           latest = loaded;
           return latest;
         },
+        async loadCurrentSprint() {
+          return request("/api/current-sprint");
+        },
         ...(health.storyPoints === true
           ? {
               async loadStoryPoints(pbis) {

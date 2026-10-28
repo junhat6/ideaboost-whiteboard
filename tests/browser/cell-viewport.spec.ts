@@ -46,11 +46,16 @@ test("native wheel continues cards, fifth card can drag to Doing, same-column is
   const left = await cell.locator('[data-task="t0-0-0"]').boundingBox();
   const right = await cell.locator('[data-task="t0-0-1"]').boundingBox();
   // Use the actual card gutter, not the platform-dependent native scrollbar.
-  const point = { x: (left!.x + left!.width + right!.x) / 2, y: left!.y + left!.height / 2 };
-  expect(await page.evaluate(({x,y}) => {
-    const hit = document.elementFromPoint(x,y);
-    return !!hit?.closest(".cell-viewport") && !hit?.closest(".task");
-  }, point)).toBe(true);
+  const point = {
+    x: (left!.x + left!.width + right!.x) / 2,
+    y: left!.y + left!.height / 2,
+  };
+  expect(
+    await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return !!hit?.closest(".cell-viewport") && !hit?.closest(".task");
+    }, point),
+  ).toBe(true);
   await page.mouse.move(point.x, point.y);
   await page.mouse.wheel(0, 500);
   await expect(cell.locator(".cell-range")).toHaveText("5–5 / 5");
@@ -94,7 +99,7 @@ test("PBI assignees are canonical and independent from task assignees", async ({
   await expect(pbi.locator(".pbi-assignees")).toContainText("PBI専任担当者");
   await expect(
     page.locator(firstCell).locator(".person").first(),
-  ).toContainText("検証担当者");
+  ).toHaveAttribute("aria-label", "担当者: 検証担当者");
   const layout = await pbi.evaluate((el) => {
     const b = el.getBoundingClientRect();
     return [

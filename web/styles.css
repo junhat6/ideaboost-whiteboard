@@ -291,13 +291,6 @@ main {
 .avatar.none {
   background: var(--soft);
 }
-.raw-status {
-  font-size: 9px;
-  border-radius: 4px;
-  padding: 2px 5px;
-  background: #ffffff65;
-  color: #80775e;
-}
 .overflow-button {
   font-size: 10px;
   padding: 5px 8px;
@@ -954,9 +947,33 @@ dialog dd {
 }
 .task-grid .task-bottom {
   min-width: 0;
-  flex-shrink: 0;
-  gap: 3px;
+  flex: 0 0 20px;
+  min-height: 20px;
+  gap: 4px;
   padding-top: 2px;
+}
+.task-estimate {
+  flex: 0 1 auto;
+  min-width: 44px;
+  margin-left: auto;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.task-estimate .estimate-value {
+  display: inline-block;
+}
+.task-estimate .estimate-value[hidden] {
+  display: none;
+}
+.task-estimate .unestimated-cue {
+  display: inline-block;
+  margin: 0;
+  font-size: 10px;
+  line-height: 16px;
 }
 .task-grid .person,
 .pbi-assignees {
@@ -964,7 +981,6 @@ dialog dd {
   overflow: hidden;
   gap: 3px;
 }
-.task-grid .person-name,
 .pbi-assignees .person-name {
   min-width: 0;
   overflow: hidden;
@@ -1008,15 +1024,6 @@ dialog dd {
   background: var(--soft);
   color: var(--muted);
 }
-.task-grid .raw-status {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 0;
-  max-width: 45%;
-  padding: 1px 3px;
-  font-size: 8px;
-}
 #board .task-cell > .overflow-button {
   flex: 0 0 13px;
   min-height: 0;
@@ -1041,12 +1048,6 @@ dialog dd {
   .person {
     font-size: 10px;
     line-height: 12px;
-  }
-  .raw-status {
-    line-height: 10px;
-  }
-  .task-cell:not([data-status="Doing"]) .raw-status {
-    display: none;
   }
 }
 @container (max-height:45px) {
@@ -1189,7 +1190,6 @@ a:focus-visible {
   line-height: 1.35;
 }
 .person,
-.raw-status,
 .task-top,
 .lane-progress,
 .help,
@@ -1309,10 +1309,6 @@ dialog dt,
 [data-theme="dark"] .primary,
 [data-theme="dark"] .brand b {
   color: #181b21;
-}
-[data-theme="dark"] .raw-status {
-  background: #ffffff0b;
-  color: var(--muted);
 }
 [data-theme="dark"] .error {
   background: #42252b;
@@ -1827,60 +1823,48 @@ dialog dt,
 .top-edge {
   pointer-events: none;
 }
-.task.type-task {
-  background: #fbdf7f;
-  border-color: #8a7130;
+:root {
+  --type-task-fill: #fbdf7f;
+  --type-task-border: #8a7130;
+  --type-research-fill: #9eccfa;
+  --type-research-border: #456b91;
+  --type-unknown-fill: #e7e9ee;
+  --type-unknown-border: #7b8290;
 }
-.task.type-research {
-  background: #9eccfa;
-  border-color: #456b91;
+.type-task {
+  --issue-type-fill: var(--type-task-fill);
+  --issue-type-border: var(--type-task-border);
 }
-.task.type-unknown {
-  background: #e7e9ee;
-  border-color: #7b8290;
+.type-research {
+  --issue-type-fill: var(--type-research-fill);
+  --issue-type-border: var(--type-research-border);
+}
+.type-unknown {
+  --issue-type-fill: var(--type-unknown-fill);
+  --issue-type-border: var(--type-unknown-border);
 }
 .task.type-task,
 .task.type-research,
 .task.type-unknown {
+  background: var(--issue-type-fill);
+  border-color: var(--issue-type-border);
   color: #24292f;
 }
 .task .person,
-.task .task-top,
-.task .raw-status {
+.task .task-top {
   color: #374151;
 }
-.type-cue {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  font-size: 10px;
-  line-height: 1;
-  font-weight: 700;
-  margin-left: auto;
-  color: #24292f;
-}
-[data-theme="dark"] .task.type-task {
-  background: #554722;
-  border-color: #ae975b;
-}
-[data-theme="dark"] .task.type-research {
-  background: #243e59;
-  border-color: #719dc7;
-}
-[data-theme="dark"] .task.type-unknown {
-  background: #353b46;
-  border-color: #8892a3;
+[data-theme="dark"] {
+  --type-task-fill: #554722;
+  --type-task-border: #ae975b;
+  --type-research-fill: #243e59;
+  --type-research-border: #719dc7;
+  --type-unknown-fill: #353b46;
+  --type-unknown-border: #8892a3;
 }
 [data-theme="dark"] .task,
 [data-theme="dark"] .task .person,
-[data-theme="dark"] .task .task-top,
-[data-theme="dark"] .task .raw-status,
-[data-theme="dark"] .type-cue {
+[data-theme="dark"] .task .task-top {
   color: #f3f4f6;
 }
 
@@ -1912,6 +1896,63 @@ dialog dt,
 }
 .toolbar #visible-count {
   display: none;
+}
+.toolbar-context {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  min-width: 0;
+}
+.current-sprint {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 16px;
+}
+.current-sprint[hidden] {
+  display: none;
+}
+.current-sprint-label {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.current-sprint-period {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.type-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-left: auto;
+  gap: 6px 14px;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 16px;
+}
+.type-legend-heading {
+  color: var(--muted);
+}
+.type-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.type-legend-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--issue-type-border);
+  border-radius: 3px;
+  background: var(--issue-type-fill);
 }
 .compact-icon {
   display: inline-flex;
@@ -2595,7 +2636,7 @@ input[type="checkbox"] {
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
-  flex: 0 0 24px;
+  flex: 0 0 20px;
   color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -2604,9 +2645,10 @@ input[type="checkbox"] {
   margin-right: auto;
 }
 .cell-navigation button {
-  width: 28px;
-  height: 24px;
-  min-height: 24px;
+  width: 40px;
+  height: 20px;
+  min-height: 20px;
+  line-height: 18px;
   padding: 0;
   border: 1px solid var(--input-border);
   border-radius: 4px;
@@ -3106,7 +3148,8 @@ input[type="checkbox"] {
   white-space: nowrap;
 }
 @keyframes unestimated-breathe {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.18;
   }
   50% {

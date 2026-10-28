@@ -691,19 +691,20 @@ test("多数の小さい付箋でも固定枠とlabelはtitle・担当者の領�
           cue = element
             .querySelector(".unestimated-cue")!
             .getBoundingClientRect(),
-          issue = element
-            .querySelector(".task-top > span")!
+          person = element.querySelector(".person")!.getBoundingClientRect(),
+          estimate = element
+            .querySelector(".task-estimate")!
             .getBoundingClientRect(),
           style = getComputedStyle(element);
         return (
-          ((cue.width === 0 &&
-            cue.height === 0 &&
-            getComputedStyle(element.querySelector(".task-top")!).display ===
-              "none") ||
-            (cue.left >= issue.right &&
-              cue.top >= card.top &&
-              cue.right <= card.right &&
-              cue.bottom <= card.bottom)) &&
+          cue.width > 0 &&
+          cue.height > 0 &&
+          cue.left >= person.right &&
+          cue.top >= card.top &&
+          cue.right <= card.right &&
+          cue.bottom <= card.bottom &&
+          cue.left >= estimate.left &&
+          cue.right <= estimate.right &&
           parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth) <= 0
         );
       }),

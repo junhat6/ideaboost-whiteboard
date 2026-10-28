@@ -27,12 +27,19 @@ export function validCatalogMilestone(value) {
 // Mirror the repository's explicit v2 assignment policy, not a calendar guess.
 // Unknown metadata, a missing due date, or a title mismatch cannot establish an end.
 export function sprintAssignmentWindow(milestone) {
+  const window = currentSprintAssignmentWindow(milestone);
+  return window?.endAt === null ? undefined : window;
+}
+
+// Current assignment also allows the bot's explicit unbounded end (due=null).
+// History still needs a finite cutoff, so it uses sprintAssignmentWindow above.
+export function currentSprintAssignmentWindow(milestone) {
   const description = milestone.description;
   if (
     milestone.title !== `Sprint ${milestone.number}` ||
     typeof description !== "string" ||
     description.split("idea-boost-sprint:").length !== 2 ||
-    !validTimestamp(milestone.dueOn)
+    (milestone.dueOn !== null && !validTimestamp(milestone.dueOn))
   )
     return undefined;
   const matches = [
@@ -51,15 +58,46 @@ export function sprintAssignmentWindow(milestone) {
     !validDate(period.assignment_start_date)
   )
     return undefined;
-  const start = Date.parse(`${period.assignment_start_date}T00:00:00+09:00`),
-    dueDate = new Date(Date.parse(milestone.dueOn) + 9 * 3600000)
+  const start = Date.parse(`${period.assignment_start_date}T00:00:00+09:00`);
+  let end = Infinity;
+  if (milestone.dueOn !== null) {
+    const dueDate = new Date(Date.parse(milestone.dueOn) + 9 * 3600000)
       .toISOString()
-      .slice(0, 10),
+      .slice(0, 10);
     end = Date.parse(`${dueDate}T00:00:00+09:00`);
+  }
   if (!(start < end)) return undefined;
   return {
     policy: "sprint-v2-exclusive-jst",
     startAt: new Date(start).toISOString(),
-    endAt: new Date(end).toISOString(),
+    endAt: end === Infinity ? null : new Date(end).toISOString(),
+  };
+}
+
+// The catalog reader supplies validated rows and marks only explicit assignment
+// metadata. Legacy/plain milestones do not claim a period; malformed marked
+// metadata does, so it cannot safely be ignored when choosing a current sprint.
+export function currentSprintSelection(milestones, now = Date.now()) {
+  const unavailable = { currentSprint: null, status: "unavailable" };
+  if (!Number.isFinite(now)) return unavailable;
+  const managed = milestones.filter((m) => m.hasAssignmentMetadata);
+  if (managed.some((m) => !m.assignmentWindow)) return unavailable;
+  const active = managed.filter(
+    (m) =>
+      Date.parse(m.assignmentWindow.startAt) <= now &&
+      (m.assignmentWindow.endAt === null ||
+        now < Date.parse(m.assignmentWindow.endAt)),
+  );
+  if (active.length > 1) return unavailable;
+  if (!active.length || active[0].state !== "OPEN")
+    return { currentSprint: null, status: "none" };
+  const current = active[0];
+  return {
+    currentSprint: {
+      number: current.number,
+      title: current.title,
+      ...current.assignmentWindow,
+    },
+    status: "current",
   };
 }
