@@ -107,11 +107,15 @@ function announce(text) {
 }
 // Display preferences only: never included in Issue save payloads.
 const DISPLAY_KEY = "idea-boost-whiteboard-display-v1",
-  MAX_PBIS = 6;
-const displaySelections = new Map();
+  DISPLAY_V2_KEY = "idea-boost-whiteboard-display-v2",
+  ROWS_KEY = "idea-boost-whiteboard-rows-v1",
+  DEFAULT_ROWS = 6;
+const displaySelections = new Map(),
+  displayLayouts = new Map();
 let pickerDraft = null,
   pickerScope = null,
-  pickerLanes = [];
+  pickerLanes = [],
+  pickerMode = "manual";
 function displayScope() {
   const s = state.scope || {};
   return JSON.stringify([
@@ -125,40 +129,209 @@ function displayScope() {
     ),
   ]);
 }
-function saveDisplay(key, ids) {
-  displaySelections.set(key, [...ids]);
+function readDisplayPreference(key) {
   try {
-    localStorage.setItem(DISPLAY_KEY + ":" + key, JSON.stringify(ids));
+    return JSON.parse(localStorage.getItem(key));
+  } catch {
+    storageFailed = true;
+    return null;
+  }
+}
+function writeDisplayPreference(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {
     storageFailed = true;
   }
 }
-function selectedIds() {
+function validTopCount(value) {
+  const n = Number(value);
+  return (
+    ["string", "number"].includes(typeof value) &&
+    String(value).trim() !== "" &&
+    Number.isSafeInteger(n) &&
+    n >= 1
+  );
+}
+function saveDisplay(key, preference) {
+  const value = {
+    mode: preference.mode,
+    ids: [...preference.ids],
+    topN: preference.topN,
+  };
+  displaySelections.set(key, value);
+  // Never rewrite the legacy array: older bundles can still restore manual membership.
+  writeDisplayPreference(DISPLAY_V2_KEY + ":" + key, value);
+}
+function displaySelection() {
   const key = displayScope();
   if (!displaySelections.has(key)) {
-    let saved = null;
-    try {
-      saved = JSON.parse(localStorage.getItem(DISPLAY_KEY + ":" + key));
-    } catch {
-      storageFailed = true;
+    const saved = readDisplayPreference(DISPLAY_V2_KEY + ":" + key);
+    if (
+      saved &&
+      ["manual", "top"].includes(saved.mode) &&
+      Array.isArray(saved.ids) &&
+      saved.ids.every((id) => typeof id === "string") &&
+      validTopCount(saved.topN)
+    ) {
+      displaySelections.set(key, {
+        mode: saved.mode,
+        ids: [...new Set(saved.ids)],
+        topN: Number(saved.topN),
+      });
+    } else {
+      const legacy = readDisplayPreference(DISPLAY_KEY + ":" + key);
+      const ids =
+        Array.isArray(legacy) && legacy.every((id) => typeof id === "string")
+          ? [...new Set(legacy)]
+          : state.lanes.slice(0, DEFAULT_ROWS).map((l) => l.id);
+      saveDisplay(key, { mode: "manual", ids, topN: DEFAULT_ROWS });
     }
-    const ids =
-      Array.isArray(saved) && saved.every((id) => typeof id === "string")
-        ? [...new Set(saved)].slice(0, MAX_PBIS)
-        : state.lanes.slice(0, MAX_PBIS).map((l) => l.id);
-    saveDisplay(key, ids);
   }
   return displaySelections.get(key);
+}
+function selectedIds() {
+  const selection = displaySelection();
+  return selection.mode === "top"
+    ? state.lanes.slice(0, selection.topN).map((l) => l.id)
+    : selection.ids;
 }
 function selectedLanes() {
   const ids = new Set(selectedIds());
   return state.lanes.filter((l) => ids.has(l.id));
 }
+function displayLayout() {
+  const key = displayScope();
+  if (!displayLayouts.has(key)) {
+    const saved = readDisplayPreference(ROWS_KEY + ":" + key);
+    const numeric = (n) => Number.isInteger(n) && n >= 1 && n <= DEFAULT_ROWS;
+    const value =
+      saved?.value === "all" || numeric(saved?.value)
+        ? saved.value
+        : DEFAULT_ROWS;
+    displayLayouts.set(key, {
+      value,
+      lastRows: numeric(saved?.lastRows)
+        ? saved.lastRows
+        : value === "all"
+          ? DEFAULT_ROWS
+          : value,
+      anchorId: null,
+      anchorIndex: 0,
+    });
+  }
+  return displayLayouts.get(key);
+}
+function saveBoardRows(layout) {
+  writeDisplayPreference(ROWS_KEY + ":" + displayScope(), {
+    value: layout.value,
+    lastRows: layout.lastRows,
+  });
+}
+function resetBoardPage() {
+  const layout = displayLayout();
+  layout.anchorId = null;
+  layout.anchorIndex = 0;
+  page = 0;
+}
+function rememberBoardAnchor(preferFocus = false) {
+  const root = $("#board");
+  if (root.dataset.displayScope !== displayScope()) return;
+  const layout = displayLayout(),
+    lanes = selectedLanes();
+  const focused =
+    preferFocus && root.contains(document.activeElement)
+      ? document.activeElement
+          .closest(".board-row")
+          ?.querySelector("[data-pbi-row]")?.dataset.pbiRow
+      : null;
+  const scroll = $("#board-scroll");
+  let scrolled = null;
+  if (layout.value === "all" && scroll.scrollTop > 0) {
+    const top = scroll.getBoundingClientRect().top + 44;
+    scrolled = [...root.querySelectorAll("[data-pbi-row]")].find(
+      (row) => row.getBoundingClientRect().bottom > top + 1,
+    )?.dataset.pbiRow;
+  }
+  const id =
+    focused ||
+    scrolled ||
+    layout.anchorId ||
+    root.querySelector("[data-pbi-row]")?.dataset.pbiRow;
+  const index = lanes.findIndex((l) => l.id === id);
+  if (index >= 0) {
+    layout.anchorId = id;
+    layout.anchorIndex = index;
+  }
+}
+function boardPage(lanes, layout) {
+  const found = lanes.findIndex((l) => l.id === layout.anchorId);
+  const index = Math.min(
+    Math.max(0, found >= 0 ? found : layout.anchorIndex),
+    Math.max(0, lanes.length - 1),
+  );
+  const rows =
+    layout.value === "all" ? Math.max(1, lanes.length) : layout.value;
+  const currentPage = layout.value === "all" ? 0 : Math.floor(index / rows);
+  // Density changes never round the anchor back to a page boundary. In
+  // particular, 6 -> 5 -> 6 keeps the same PBI rather than jumping to page 1.
+  layout.anchorId = lanes[index]?.id || null;
+  layout.anchorIndex = index;
+  return { rows, currentPage };
+}
+function syncRowsControl(layout) {
+  const select = $("#fit-mode");
+  select.value = String(layout.value);
+  const hint =
+    layout.value === "all" ? "N/P：ページ表示に戻る" : "N：減らす / P：増やす";
+  select.dataset.tooltip = hint;
+  const trigger = $("#fit-mode-trigger");
+  if (trigger) trigger.dataset.tooltip = hint;
+  toolbarSelects?.sync();
+}
+function setBoardRows(value) {
+  const next = value === "all" ? "all" : Number(value);
+  if (
+    next !== "all" &&
+    (!Number.isInteger(next) || next < 1 || next > DEFAULT_ROWS)
+  )
+    return false;
+  rememberBoardAnchor(true);
+  const layout = displayLayout();
+  if (layout.value === next) return false;
+  const root = $("#board"),
+    hadBoardFocus = root.contains(document.activeElement);
+  layout.value = next;
+  if (next !== "all") layout.lastRows = next;
+  saveBoardRows(layout);
+  render();
+  if (hadBoardFocus && !root.contains(document.activeElement))
+    root.focus({ preventScroll: true });
+  return true;
+}
 function renderPicker() {
   const q = $("#pbi-search").value.trim().toLocaleLowerCase(),
-    ids = new Set(pickerDraft),
-    missing = pickerDraft.filter((id) => !pickerLanes.some((l) => l.id === id));
-  $("#pbi-selection-count").textContent = `${pickerDraft.length} / ${MAX_PBIS}`;
+    top = pickerMode === "top",
+    validCount = validTopCount($("#pbi-top-count").value),
+    topCount = validCount ? Number($("#pbi-top-count").value) : 0,
+    selected = top
+      ? pickerLanes.slice(0, topCount).map((l) => l.id)
+      : pickerDraft,
+    ids = new Set(selected),
+    missing = top
+      ? []
+      : pickerDraft.filter((id) => !pickerLanes.some((l) => l.id === id));
+  $("#pbi-mode-manual").checked = !top;
+  $("#pbi-mode-top").checked = top;
+  $("#pbi-top-controls").hidden = !top;
+  $("#pbi-top-count").disabled = !top;
+  $("#pbi-top-count").setAttribute("aria-invalid", String(top && !validCount));
+  $("#pbi-clear").disabled = top;
+  $("#pbi-selection-count").textContent = `${selected.length} PBI`;
+  $("#pbi-selection-error").hidden = !top || validCount;
+  $("#pbi-selection-error").textContent =
+    top && !validCount ? "1以上の整数を入力してください。" : "";
+  $("#pbi-apply").disabled = top && !validCount;
   $("#pbi-options").innerHTML =
     pickerLanes
       .filter(
@@ -170,7 +343,7 @@ function renderPicker() {
       )
       .map(
         (l) =>
-          `<label class="pbi-option"><input type="checkbox" data-select-pbi="${esc(l.id)}" ${ids.has(l.id) ? "checked" : ""} ${!ids.has(l.id) && ids.size >= MAX_PBIS ? "disabled" : ""}><span><small>${esc(issueLabel(l))}</small> ${esc(l.title)}</span></label>`,
+          `<label class="pbi-option"><input type="checkbox" data-select-pbi="${esc(l.id)}" ${ids.has(l.id) ? "checked" : ""} ${top ? "disabled" : ""}><span><small>${esc(issueLabel(l))}</small> ${esc(l.title)}</span></label>`,
       )
       .join("") || "<p>一致するPBIはありません。</p>";
   $("#pbi-missing").innerHTML = missing.length
@@ -187,45 +360,67 @@ function openPicker() {
   if (pending || loading || dragged || ($("#details").open && editMode))
     return false;
   pickerScope = displayScope();
-  pickerDraft = [...selectedIds()];
+  const selection = displaySelection();
+  pickerDraft = [...selection.ids];
+  pickerMode = selection.mode;
   pickerLanes = clone(state.lanes);
+  $("#pbi-top-count").value = String(selection.topN);
   $("#pbi-search").value = "";
   renderPicker();
   $("#pbi-picker").showModal();
-  $("#pbi-search").focus();
+  (pickerMode === "top" ? $("#pbi-top-count") : $("#pbi-search")).focus();
   return true;
 }
-function closePicker() {
+function clearPicker() {
   pickerDraft = null;
   pickerScope = null;
   pickerLanes = [];
+  $("#pbi-options").replaceChildren();
+  $("#pbi-missing").replaceChildren();
+  $("#pbi-selection-error").textContent = "";
+  $("#pbi-selection-error").hidden = true;
+  $("#pbi-selection-count").textContent = "0 PBI";
+  $("#pbi-search").value = "";
   $("#pbi-picker").close();
+}
+function closePicker() {
+  clearPicker();
   $("#choose-pbis").focus();
   resumeAutoRefresh();
 }
 function togglePbi(id, checked) {
   if (
     !pickerDraft ||
+    pickerMode !== "manual" ||
     (!pickerLanes.some((l) => l.id === id) && !pickerDraft.includes(id))
   )
     return false;
-  if (checked && !pickerDraft.includes(id)) {
-    if (pickerDraft.length >= MAX_PBIS) return false;
-    pickerDraft.push(id);
-  } else if (!checked) pickerDraft = pickerDraft.filter((x) => x !== id);
+  if (checked && !pickerDraft.includes(id)) pickerDraft.push(id);
+  else if (!checked) pickerDraft = pickerDraft.filter((x) => x !== id);
   renderPicker();
   return true;
 }
 function applyPicker() {
-  if (!pickerDraft || pickerScope !== displayScope()) return false;
-  saveDisplay(pickerScope, pickerDraft);
+  if (
+    !pickerDraft ||
+    pickerScope !== displayScope() ||
+    (pickerMode === "top" && !validTopCount($("#pbi-top-count").value))
+  )
+    return false;
+  rememberBoardAnchor();
+  saveDisplay(pickerScope, {
+    mode: pickerMode,
+    ids: pickerDraft,
+    topN: validTopCount($("#pbi-top-count").value)
+      ? Number($("#pbi-top-count").value)
+      : displaySelection().topN,
+  });
   closePicker();
-  page = 0;
   render();
   announce(
     storageFailed
-      ? "表示するPBIを変更しました。このページ内のみ保持します。"
-      : "表示するPBIをこのブラウザーに保存しました。Issueは変更していません。",
+      ? "管理するPBIを変更しました。このページ内のみ保持します。"
+      : "管理するPBIをこのブラウザーに保存しました。Issueは変更していません。",
   );
   return true;
 }
@@ -824,6 +1019,11 @@ function focusSelector(element) {
   return null;
 }
 function renderInitial() {
+  delete $("#board").dataset.displayScope;
+  $("#choose-pbis").textContent = "▦ PBI";
+  $("#board").classList.remove("overview");
+  $("#board").style.height = "100%";
+  $("#board-scroll").classList.remove("overview-scroll");
   $("#assignee-filter").innerHTML = '<option value="">担当者：全員</option>';
   $("#assignee-filter").disabled = true;
   $("#milestone-filter").replaceChildren();
@@ -942,7 +1142,9 @@ function rememberCell(port, explicit = false) {
 function updateCellRange(port) {
   const cell = port.closest(".task-cell"),
     total = Number(port.dataset.total);
-  const half = port.clientHeight / 2;
+  const columns = 2,
+    rows = Number(port.dataset.capacity || 4) / columns,
+    half = port.clientHeight / rows;
   const first = Math.min(
     total,
     Math.floor((port.scrollTop + 1) / half) * 2 + 1,
@@ -1062,22 +1264,33 @@ function render() {
     $("#milestone-filter").innerHTML = milestoneOptions;
   $("#milestone-filter").value = selectedMilestone;
   toolbarSelects?.sync();
-  const displayed = selectedLanes();
-  $("#choose-pbis").textContent = `▦ ${displayed.length} / ${MAX_PBIS}`;
+  const displayed = selectedLanes(),
+    layout = displayLayout();
+  $("#choose-pbis").textContent = `▦ ${displayed.length} PBI`;
   $("#choose-pbis").disabled = pending || loading || editMode;
+  syncRowsControl(layout);
   const tasks = matching(),
     height = $("#board-scroll").clientHeight,
-    maxRows =
-      $("#fit-mode").value === "pages" ? 3 : Math.max(1, displayed.length),
+    paging = boardPage(displayed, layout),
+    maxRows = paging.rows,
     pages = Math.max(1, Math.ceil(displayed.length / maxRows));
-  page = Math.min(page, pages - 1);
+  page = paging.currentPage;
   const lanes = displayed.slice(page * maxRows, (page + 1) * maxRows),
-    rowHeight = (height - 44) / Math.max(1, lanes.length),
-    capacity = 4;
-  $("#board").style.setProperty("--rows", Math.max(1, lanes.length));
-  $("#board").style.setProperty("--row-height", `${rowHeight}px`);
-  $("#board").classList.toggle("compact", rowHeight < 190);
-  $("#board").classList.toggle("dense", rowHeight < 80);
+    overview = layout.value === "all" && displayed.length > DEFAULT_ROWS,
+    boardHeight = overview ? Math.max(height, 44 + lanes.length * 80) : height,
+    rowHeight = (boardHeight - 44) / Math.max(1, lanes.length),
+    capacity = overview ? 2 : 4;
+  const board = $("#board"),
+    scroll = $("#board-scroll");
+  board.dataset.displayScope = displayScope();
+  board.style.height = overview ? `${boardHeight}px` : "100%";
+  board.classList.toggle("overview", overview);
+  scroll.classList.toggle("overview-scroll", overview && boardHeight > height);
+  if (!overview) scroll.scrollTop = 0;
+  board.style.setProperty("--rows", Math.max(1, lanes.length));
+  board.style.setProperty("--row-height", `${rowHeight}px`);
+  board.classList.toggle("compact", rowHeight < 190);
+  board.classList.toggle("dense", rowHeight < 80);
   $("#page-info").textContent =
     `PBI ${displayed.length ? page * maxRows + 1 : 0}–${Math.min((page + 1) * maxRows, displayed.length)} / ${displayed.length}`;
   $("#prev-page").disabled = page === 0;
@@ -1132,7 +1345,7 @@ function render() {
             for (let i = 0; i < list.length; i += capacity)
               pages.push(list.slice(i, i + capacity));
             const content = overflow
-              ? `<div class="cell-viewport" tabindex="0" aria-label="${esc(l.title)} / ${s} の付箋" data-cell-key="${esc(cellKey(l.id, s))}" data-total="${list.length}">${pages.map((items) => `<div class="task-grid cell-page" data-count="4">${items.map(card).join("")}</div>`).join("")}</div><div class="cell-navigation"><span class="cell-range"></span><button data-cell-step="-1" aria-label="前の4件" data-tooltip="前の4件 · Page Up">↑</button><button data-cell-step="1" aria-label="次の4件" data-tooltip="次の4件 · Page Down">↓</button></div>`
+              ? `<div class="cell-viewport" tabindex="0" aria-label="${esc(l.title)} / ${s} の付箋" data-cell-key="${esc(cellKey(l.id, s))}" data-total="${list.length}" data-capacity="${capacity}">${pages.map((items) => `<div class="task-grid cell-page" data-count="${capacity}">${items.map(card).join("")}</div>`).join("")}</div><div class="cell-navigation"><span class="cell-range"></span><button data-cell-step="-1" aria-label="前の${capacity}件" data-tooltip="前の${capacity}件 · Page Up">↑</button><button data-cell-step="1" aria-label="次の${capacity}件" data-tooltip="次の${capacity}件 · Page Down">↓</button></div>`
               : `<div class="task-grid" data-count="${list.length}">${list.map(card).join("")}</div>`;
             return `<div class="cell task-cell" role="cell" data-lane="${esc(l.id)}" data-status="${s}">${content}</div>`;
           })
@@ -1153,7 +1366,7 @@ function render() {
     connectionError ||
     (displayed.length
       ? "一致するタスクはありません。操作から検索条件を変更できます。"
-      : "表示するPBIがありません。操作 →「表示するPBI」で選択できます。");
+      : "表示するPBIがありません。操作 →「管理するPBI」で選択できます。");
   $("#deferred-count").textContent = tasks.filter(
     (t) => t.status === "見送り",
   ).length;
@@ -1820,6 +2033,77 @@ function reconcilePointValue() {
   renderConflicts();
   updateDirty();
 }
+// Keep the existing six-number endpoint contract. The per-source pool also
+// bounds stale requests after page/selection changes; no API is added for projection data.
+const pointsReadPools = new WeakMap();
+async function readStoryPointBatch(source, pbis, current) {
+  let pool = pointsReadPools.get(source);
+  if (!pool) pointsReadPools.set(source, (pool = new Set()));
+  while (current() && pool.size >= 2) await Promise.race(pool);
+  if (!current()) return null;
+  const pending = Promise.resolve().then(() =>
+    current() ? source.loadStoryPoints(pbis) : null,
+  );
+  const settled = pending.then(
+    () => {},
+    () => {},
+  );
+  pool.add(settled);
+  try {
+    return await pending;
+  } catch (error) {
+    // Public revocation belongs to this source, even if the old page disappeared.
+    if (adapter === source && error.code === "scope_not_public")
+      stopPrivateScope(error.message);
+    throw error;
+  } finally {
+    pool.delete(settled);
+  }
+}
+async function readStoryPointBatches(source, pbis, current) {
+  let offset = 0,
+    failed = false;
+  const values = {};
+  const worker = async () => {
+    while (current() && !failed && offset < pbis.length) {
+      const batch = pbis.slice(offset, offset + 6);
+      offset += 6;
+      let result;
+      try {
+        result = await readStoryPointBatch(
+          source,
+          batch,
+          () => current() && !failed,
+        );
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+      if (!current() || failed) return;
+      const data = result?.values;
+      if (
+        !data ||
+        typeof data !== "object" ||
+        Array.isArray(data) ||
+        !Object.keys(data).length
+      ) {
+        pointsValues = {};
+        pointsVerifiedAt.clear();
+        pointsEpoch++;
+        paintStoryPoints();
+        return;
+      }
+      for (const { number } of batch)
+        if (Object.hasOwn(data, number)) values[number] = data[number];
+    }
+  };
+  const results = await Promise.allSettled(
+    Array.from({ length: Math.min(2, Math.ceil(pbis.length / 6)) }, worker),
+  );
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure) throw failure.reason;
+  return { values };
+}
 function loadStoryPoints(lanes) {
   const source = adapter;
   const pbis = lanes
@@ -1923,7 +2207,7 @@ function loadStoryPoints(lanes) {
     pointsFlight = flight;
     // Keep verified values during an in-flight refresh, not after a failed result.
     Promise.resolve()
-      .then(() => source.loadStoryPoints(pbis))
+      .then(() => readStoryPointBatches(source, pbis, current))
       .then((result) => {
         if (!current()) return;
         const values = result?.values;
@@ -2639,6 +2923,7 @@ function renderComments() {
     }
 }
 function stopPrivateScope(message) {
+  clearPicker();
   clearTitleEdit();
   clearDetailCopyFeedback();
   burnPanel?.close();
@@ -3677,17 +3962,14 @@ async function startIssueSave(
   }
 }
 $("#search").oninput = () => {
-  page = 0;
+  resetBoardPage();
   render();
 };
 $("#assignee-filter").onchange = render;
-$("#fit-mode").onchange = () => {
-  page = 0;
-  render();
-};
+$("#fit-mode").onchange = () => setBoardRows($("#fit-mode").value);
 function handleFitModeShortcut(event) {
   if (
-    event.key?.toLowerCase() !== "p" ||
+    !["n", "p"].includes(event.key?.toLowerCase()) ||
     event.defaultPrevented ||
     event.repeat ||
     event.ctrlKey ||
@@ -3713,19 +3995,31 @@ function handleFitModeShortcut(event) {
     return;
   const select = $("#fit-mode");
   if (select.disabled) return;
-  const board = $("#board"),
-    hadBoardFocus = board.contains(document.activeElement);
+  const layout = displayLayout(),
+    next =
+      layout.value === "all"
+        ? layout.lastRows
+        : Math.max(
+            1,
+            Math.min(
+              DEFAULT_ROWS,
+              layout.value + (event.key.toLowerCase() === "n" ? -1 : 1),
+            ),
+          );
   event.preventDefault();
-  select.value = select.value === "pages" ? "fit" : "pages";
+  if (next === layout.value) return;
+  select.value = String(next);
   select.dispatchEvent(new Event("change", { bubbles: true }));
-  if (hadBoardFocus && !board.contains(document.activeElement))
-    board.focus({ preventScroll: true });
 }
 document.addEventListener("keydown", handleFitModeShortcut);
 function stepBoardPage(direction) {
-  const button = direction < 0 ? $("#prev-page") : $("#next-page");
-  if ($("#fit-mode").value !== "pages" || button.disabled) return false;
+  const button = direction < 0 ? $("#prev-page") : $("#next-page"),
+    layout = displayLayout();
+  if (layout.value === "all" || button.disabled) return false;
+  const displayed = selectedLanes();
   page += direction < 0 ? -1 : 1;
+  layout.anchorIndex = page * layout.value;
+  layout.anchorId = displayed[layout.anchorIndex]?.id || null;
   render();
   return true;
 }
@@ -3735,7 +4029,7 @@ void import("./page-navigation.js")
   .then(({ attachPageNavigation }) =>
     attachPageNavigation({
       board: $("#board"),
-      enabled: () => $("#fit-mode").value === "pages",
+      enabled: () => displayLayout().value !== "all",
       blocked: () =>
         !!(dragged || $("#details").open || pickerDraft || pending || loading),
       step: stepBoardPage,
@@ -3942,10 +4236,13 @@ $("#pbi-missing").addEventListener("change", (e) => {
   if (e.target.dataset.selectPbi)
     togglePbi(e.target.dataset.selectPbi, e.target.checked);
 });
-$("#pbi-top-six").onclick = () => {
-  pickerDraft = pickerLanes.slice(0, MAX_PBIS).map((l) => l.id);
-  renderPicker();
-};
+for (const mode of ["manual", "top"]) {
+  $("#pbi-mode-" + mode).onchange = () => {
+    pickerMode = mode;
+    renderPicker();
+  };
+}
+$("#pbi-top-count").oninput = renderPicker;
 $("#pbi-clear").onclick = () => {
   pickerDraft = [];
   renderPicker();
@@ -4246,6 +4543,7 @@ window.Whiteboard = {
     clearDetailCopyFeedback();
     burnPanel?.invalidate();
     clearTitleEdit();
+    clearPicker();
     adapter = next;
     clearComments();
     state = clone(snapshot);
@@ -4253,7 +4551,7 @@ window.Whiteboard = {
       snapshot.scope?.selectedMilestone ?? snapshot.scope?.milestone ?? "",
     );
     markFresh();
-    page = 0;
+    resetBoardPage();
     if ($("#details").open) $("#details").close();
     $("#refresh").hidden = false;
     render();
@@ -4421,5 +4719,5 @@ for (const [id, label, icon] of [
   b.setAttribute("aria-label", label);
   b.classList.add("compact-icon");
 }
-$("#choose-pbis").dataset.tooltip = "表示するPBIを選択（最大6件）";
-$("#choose-pbis").setAttribute("aria-label", "表示するPBIを選択");
+$("#choose-pbis").dataset.tooltip = "管理するPBI";
+$("#choose-pbis").setAttribute("aria-label", "管理するPBI");

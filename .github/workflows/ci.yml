@@ -14,14 +14,17 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
-      - name: Verify one-key fit and page-mode switching
-        run: npx playwright test tests/browser/fit-mode-shortcut.spec.ts --workers=1 --max-failures=0
-      - name: Keep focused synthetic display shortcut evidence
+      - name: Verify managed PBI scope and page density
+        run: npx playwright test tests/browser/fit-mode-shortcut.spec.ts tests/browser/managed-pbis.spec.ts tests/browser/managed-pbi-points.spec.ts tests/browser/page-navigation.spec.ts --workers=1 --max-failures=0
+      - name: Keep focused synthetic managed-board evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: synthetic-fit-mode-shortcut-focus
-          path: test-results/fit-mode-shortcut-*.png
+          name: synthetic-managed-pbi-focus
+          path: |
+            test-results/fit-mode-shortcut-*.png
+            test-results/managed-pbis-*.png
+            test-results/managed-pbis-*.json
           retention-days: 1
           if-no-files-found: ignore
       - name: Verify title cancellation and delayed linked-PR revocation ownership
@@ -133,6 +136,8 @@ jobs:
         with:
           name: synthetic-ui-screenshots
           path: |
+            test-results/managed-pbis-*.png
+            test-results/managed-pbis-*.json
             test-results/fit-mode-shortcut-*.png
             test-results/close-button-*.png
             test-results/detail-copy-feedback-*.png

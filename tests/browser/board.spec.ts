@@ -48,13 +48,14 @@ test("six rows, four cards per cell, whole title lines, no page scroll", async (
     path: `test-results/board-${page.viewportSize()!.width}.png`,
   });
 });
-test("picker max six, cancellation, source order and toolbar dismiss", async ({
+test("picker keeps manual membership, cancellation, source order and toolbar dismiss", async ({
   page,
 }) => {
   await setup(page);
   await page.locator("#operations").click();
   await page.locator("#choose-pbis").click();
-  await expect(page.locator("#pbi-options input:disabled")).toHaveCount(1);
+  await expect(page.locator("#pbi-options input:disabled")).toHaveCount(0);
+  await expect(page.locator("#pbi-options input:checked")).toHaveCount(6);
   await page.locator("#pbi-clear").click();
   await page.locator("#pbi-cancel").click();
   await expect(page.locator(".pbi-title")).toHaveCount(6);

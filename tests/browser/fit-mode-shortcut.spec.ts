@@ -3,32 +3,37 @@ import { setup, chooseToolbarOption } from "./fixtures";
 
 const board = (page: Page) => page.locator("#board");
 const mode = (page: Page) => page.locator("#fit-mode");
-const hint = "表示モードを切り替え（P）";
 async function ready(page: Page) {
   const fixture = await setup(page);
   await expect(board(page)).toHaveAttribute("tabindex", "0");
   await expect(page.locator("#fit-mode-trigger")).toHaveAttribute(
     "aria-keyshortcuts",
-    "P",
+    "N P",
   );
   await expect.poll(fixture.sprintReads).toBe(1);
   return fixture;
 }
-async function fit(page: Page) {
-  await expect(mode(page)).toHaveValue("fit");
-  await expect(page.locator(".pbi-title")).toHaveCount(6);
-  await expect(page.locator("#pagination")).toBeHidden();
+async function rows(
+  page: Page,
+  value: number | "all",
+  count = value === "all" ? 6 : value,
+  range?: string,
+) {
+  await expect(mode(page)).toHaveValue(String(value));
+  await expect(page.locator(".pbi-title")).toHaveCount(count);
+  if (range) await expect(page.locator("#page-info")).toHaveText(range);
 }
-async function pages(page: Page, last = false) {
-  await expect(mode(page)).toHaveValue("pages");
-  await expect(page.locator(".pbi-title")).toHaveCount(3);
-  await expect(page.locator("#page-info")).toHaveText(
-    last ? "PBI 4–6 / 6" : "PBI 1–3 / 6",
-  );
-}
-async function press(page: Page) {
+async function press(page: Page, key: "n" | "p") {
   await board(page).focus();
-  await page.keyboard.press("p");
+  await page.keyboard.press(key);
+}
+async function chooseRows(page: Page, value: number | "all") {
+  if (
+    (await page.locator("#operations").getAttribute("aria-expanded")) !== "true"
+  )
+    await page.locator("#operations").click();
+  await chooseToolbarOption(page, "fit-mode", String(value));
+  await board(page).focus();
 }
 async function beginDrag(page: Page, source: Locator) {
   await expect(source).toHaveAttribute("draggable", "true");
@@ -51,61 +56,67 @@ const storage = (page: Page) =>
     ),
   );
 
-test("Pひとつで全体と3PBIページを往復し、selectorと左右キーも同じ状態を使う", async ({
+// 旧fit/pages切替ではなく、Nは1件減、Pは1件増。6件は管理対象の上限ではない。
+test("Nは6から1まで1件ずつ減らしPは6まで増やす、境界でwrapせずselectorも同期する", async ({
   page,
 }) => {
   const fixture = await ready(page),
     reads = fixture.reads();
-  await fit(page);
-  await press(page);
-  await pages(page);
-  await expect(page.locator("#fit-mode-trigger")).toContainText("ページ表示");
+  await rows(page, 6);
+  await board(page).focus();
+  for (const count of [5, 4, 3, 2, 1]) {
+    await page.keyboard.press("n");
+    await rows(page, count, count, `PBI 1–${count} / 6`);
+  }
+  await page.keyboard.press("n");
+  await rows(page, 1);
+  for (const count of [2, 3, 4, 5, 6]) {
+    await page.keyboard.press("p");
+    await rows(page, count, count, `PBI 1–${count} / 6`);
+  }
+  await page.keyboard.press("p");
+  await rows(page, 6);
+  await expect(page.locator("#pagination")).toBeHidden();
+  await chooseRows(page, 3);
+  await rows(page, 3);
   await page.keyboard.press("ArrowRight");
-  await pages(page, true);
+  await rows(page, 3, 3, "PBI 4–6 / 6");
   await page.keyboard.press("p");
-  await fit(page);
-  await page.keyboard.press("p");
-  await pages(page); // モード変更は既存selectと同じpage 0へ戻す。
-  await page.keyboard.press("p");
-  await fit(page);
-  await page.locator("#operations").click();
-  await chooseToolbarOption(page, "fit-mode", "pages");
-  await pages(page);
-  await press(page);
-  await fit(page);
-  await expect(page.locator("#fit-mode-trigger")).toContainText("全体を収める");
+  await rows(page, 4, 4, "PBI 1–4 / 6"); // 先頭だったp3を含むページへ。
   expect(fixture.reads()).toBe(reads);
   expect(fixture.posts()).toBe(0);
 });
 
-test("切替で消える後半PBIの付箋をfocusしていてもboardへ戻り左右ページ操作を続けられる", async ({
+test("AllからN/Pの初回は前の件数へ戻るだけ、ページanchorと付箋focusを維持する", async ({
   page,
 }) => {
   const fixture = await ready(page);
-  const title = page.locator('[data-open="t4-0-0"]');
-  await title.focus();
-  await expect(title).toBeFocused();
-  await page.keyboard.press("p");
-  await pages(page);
-  await expect(title).toHaveCount(0);
-  await expect(board(page)).toBeFocused();
+  await chooseRows(page, 3);
   await page.keyboard.press("ArrowRight");
-  await pages(page, true);
-  await page.keyboard.press("p");
-  await fit(page);
-  await expect(board(page)).toBeFocused();
-  const remaining = page.locator('[data-open="t1-0-0"]');
-  await remaining.focus();
-  await page.keyboard.press("p");
-  await pages(page);
-  await expect(remaining).toBeFocused(); // 残る同一Issueのfocusは奪わない。
-  await page.keyboard.press("p");
-  await fit(page);
-  await expect(remaining).toBeFocused();
+  await rows(page, 3, 3, "PBI 4–6 / 6");
+  for (const key of ["n", "p"] as const) {
+    await chooseRows(page, "all");
+    await rows(page, "all");
+    await expect(page.locator("#pagination")).toBeHidden();
+    await press(page, key);
+    await rows(page, 3, 3, "PBI 4–6 / 6");
+  }
+  await chooseRows(page, 6);
+  const title = page.locator('[data-open="t5-0-0"]');
+  await title.focus();
+  await page.keyboard.press("n");
+  await rows(page, 5, 1, "PBI 6–6 / 6");
+  await expect(title).toBeFocused(); // focus中のlaneはページ先頭anchorより優先。
+  await page.keyboard.press("n");
+  await rows(page, 4, 2, "PBI 5–6 / 6");
+  await expect(title).toBeFocused();
+  await board(page).focus();
+  await page.keyboard.press("ArrowLeft");
+  await rows(page, 4, 4, "PBI 1–4 / 6");
   expect(fixture.posts()).toBe(0);
 });
 
-test("背景GET中もPは表示だけを切替え、応答・resizeで戻らず既存prefsとreload既定を保つ", async ({
+test("背景GET中も表示件数だけ変更でき応答・resize・reloadで保持、管理対象とthemeを変えない", async ({
   page,
 }) => {
   const fixture = await ready(page);
@@ -113,12 +124,11 @@ test("背景GET中もPは表示だけを切替え、応答・resizeで戻らず�
   await page.locator("#theme").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   const saved = await storage(page);
-  expect(
-    Object.keys(saved).some((key) =>
-      key.startsWith("idea-boost-whiteboard-display-v1:"),
+  const management = Object.fromEntries(
+    Object.entries(saved).filter(
+      ([key]) => !key.startsWith("idea-boost-whiteboard-rows-v1:"),
     ),
-  ).toBe(true);
-  expect(saved["ideaboost-theme"]).toBe("dark");
+  );
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
   let refreshing = false;
@@ -131,63 +141,78 @@ test("背景GET中もPは表示だけを切替え、応答・resizeで戻らず�
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect.poll(() => refreshing).toBe(true);
     await expect(board(page)).toHaveAttribute("aria-busy", "true");
-    await press(page);
-    await pages(page);
+    await press(page, "n");
+    await rows(page, 5);
     release();
     await expect(board(page)).toHaveAttribute("aria-busy", "false");
-    await pages(page);
+    await rows(page, 5);
     await page.setViewportSize({
       width: page.viewportSize()!.width,
       height: page.viewportSize()!.height - 100,
     });
-    await pages(page);
-    expect(await storage(page)).toEqual(saved);
+    await rows(page, 5);
+    const after = await storage(page);
+    expect(
+      Object.fromEntries(
+        Object.entries(after).filter(
+          ([key]) => !key.startsWith("idea-boost-whiteboard-rows-v1:"),
+        ),
+      ),
+    ).toEqual(management);
+    const rowValue = Object.entries(after).find(([key]) =>
+      key.startsWith("idea-boost-whiteboard-rows-v1:"),
+    )![1];
+    expect(JSON.parse(rowValue!)).toEqual({ value: 5, lastRows: 5 });
     await page.reload();
-    await fit(page); // 新しい永続化仕様を足さず、従来のreload既定を維持。
+    await rows(page, 5);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    expect(await storage(page)).toEqual(saved);
+    expect(await storage(page)).toEqual(after);
     expect(fixture.posts()).toBe(0);
   } finally {
     release();
   }
 });
 
-test("入力・native control・IME・修飾・repeat・処理済みkeyを奪わない", async ({
+test("N/Pは入力・native control・IME・修飾・repeat・処理済みkeyを奪わない", async ({
   page,
 }) => {
   const fixture = await ready(page);
-  const results = await board(page).evaluate((el) => {
-    const variants = [
-      { repeat: true },
-      { ctrlKey: true },
-      { metaKey: true },
-      { altKey: true },
-      { shiftKey: true },
-      { isComposing: true },
-    ];
-    return variants.map((props) => {
+  await chooseRows(page, 3);
+  for (const key of ["n", "p"]) {
+    const results = await board(page).evaluate(
+      (el, key) =>
+        [
+          { repeat: true },
+          { ctrlKey: true },
+          { metaKey: true },
+          { altKey: true },
+          { shiftKey: true },
+          { isComposing: true },
+        ].map((props) => {
+          const event = new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+            ...props,
+          });
+          el.dispatchEvent(event);
+          return event.defaultPrevented;
+        }),
+      key,
+    );
+    expect(results).toEqual([false, false, false, false, false, false]);
+    await rows(page, 3);
+    await board(page).evaluate((el, key) => {
       const event = new KeyboardEvent("keydown", {
-        key: "p",
+        key,
         bubbles: true,
         cancelable: true,
-        ...props,
       });
+      event.preventDefault();
       el.dispatchEvent(event);
-      return event.defaultPrevented;
-    });
-  });
-  expect(results).toEqual([false, false, false, false, false, false]);
-  await fit(page);
-  await board(page).evaluate((el) => {
-    const event = new KeyboardEvent("keydown", {
-      key: "p",
-      bubbles: true,
-      cancelable: true,
-    });
-    event.preventDefault();
-    el.dispatchEvent(event);
-  });
-  await fit(page);
+    }, key);
+    await rows(page, 3);
+  }
   for (const kind of [
     "input",
     "textarea",
@@ -211,42 +236,53 @@ test("入力・native control・IME・修飾・repeat・処理済みkeyを奪わ
       el.append(node);
     }, kind);
     await page.locator("#fit-shortcut-control").focus();
-    await page.keyboard.press("p");
-    await fit(page);
+    for (const key of ["n", "p"]) {
+      await page.keyboard.press(key);
+      await rows(page, 3);
+    }
     await page.locator("#fit-shortcut-control").evaluate((el) => el.remove());
   }
-  // compositionフラグの経路はDOMイベントで検証。実OSのIME操作同等とはしない。
+  // DOM composition経路。実OSのIME同等性とは区別する。
   await page.locator("#detail-title").dispatchEvent("compositionstart");
-  await press(page);
-  await fit(page);
+  for (const key of ["n", "p"] as const) {
+    await press(page, key);
+    await rows(page, 3);
+  }
   await page.locator("#detail-title").dispatchEvent("compositionend");
-  await press(page);
-  await pages(page);
+  await press(page, "n");
+  await rows(page, 2);
   expect(fixture.posts()).toBe(0);
 });
 
-test("Issue modal・toolbar dropdown・native popover中はPで背後を切替えない", async ({
+test("Issue modal・toolbar dropdown・native popover中はN/Pで背後を変更しない", async ({
   page,
 }) => {
   const fixture = await ready(page);
-  await page.locator('[data-open="t0-0-0"]').click();
+  await chooseRows(page, 3);
+  await page.locator('[data-open="t1-0-0"]').click();
   await expect(page.locator("#details")).toBeVisible();
-  await page.locator("#close-detail").focus(); // 入力guardではなくdialog自体のguardを通す。
-  await page.keyboard.press("p");
-  await board(page).dispatchEvent("keydown", { key: "p", bubbles: true });
-  await expect(mode(page)).toHaveValue("fit");
+  await page.locator("#close-detail").focus();
+  for (const key of ["n", "p"]) {
+    await page.keyboard.press(key);
+    await board(page).dispatchEvent("keydown", { key, bubbles: true });
+    await rows(page, 3);
+  }
   await page.locator("#close-detail").click();
   await expect(page.locator("#details")).toBeHidden();
-  await page.locator("#operations").click();
+  if (
+    (await page.locator("#operations").getAttribute("aria-expanded")) !== "true"
+  )
+    await page.locator("#operations").click();
   await page.locator("#fit-mode-trigger").focus();
-  await page.keyboard.press("p"); // 閉じたcomboboxは既存typeaheadとして扱う。
+  await page.keyboard.press("p"); // 閉comboboxでは既存typeahead。
   await expect(page.locator("#fit-mode-options")).toBeVisible();
-  await expect(page.locator("#fit-mode-trigger")).toBeFocused();
-  await fit(page);
-  await page.keyboard.press("p");
-  await board(page).dispatchEvent("keydown", { key: "p", bubbles: true });
-  await fit(page);
-  await page.keyboard.press("Escape");
+  for (const key of ["n", "p"]) {
+    await page.keyboard.press(key);
+    await board(page).dispatchEvent("keydown", { key, bubbles: true });
+    await rows(page, 3);
+  }
+  await page.locator("#fit-mode-trigger").click();
+  await expect(page.locator("#fit-mode-options")).toBeHidden();
   await page.evaluate(() => {
     const popup = document.createElement("div");
     popup.id = "fit-shortcut-popover";
@@ -258,85 +294,112 @@ test("Issue modal・toolbar dropdown・native popover中はPで背後を切替�
     popup.showPopover();
     button.focus();
   });
-  await page.keyboard.press("p");
-  await board(page).dispatchEvent("keydown", { key: "p", bubbles: true });
-  await fit(page);
+  for (const key of ["n", "p"]) {
+    await page.keyboard.press(key);
+    await board(page).dispatchEvent("keydown", { key, bubbles: true });
+    await rows(page, 3);
+  }
   await page.locator("#fit-shortcut-popover").evaluate((el: HTMLElement) => {
     el.hidePopover();
     el.remove();
   });
-  await press(page);
-  await pages(page);
+  await press(page, "n");
+  await rows(page, 2);
   expect(fixture.posts()).toBe(0);
 });
 
-test("native drag中のPはgesture/DOMを壊さず外側release後は通常toggleできる", async ({
+test("native drag中のN/Pはgesture/DOMを壊さず外側release後は通常操作できる", async ({
   page,
 }) => {
   const fixture = await ready(page),
     source = page.locator('[data-task="t1-0-0"]');
+  await chooseRows(page, 3);
   try {
     await beginDrag(page, source);
     await source.evaluate((el) => (el.dataset.retained = "native-drag"));
-    await page.keyboard.press("p");
-    // native browserがdrag中の文字keyを配送しない場合もapp側guardを直接通す。
-    await board(page).dispatchEvent("keydown", { key: "p", bubbles: true });
-    await fit(page);
-    await expect(source).toHaveClass(/dragging/);
-    await expect(source).toHaveAttribute("data-retained", "native-drag");
+    for (const key of ["n", "p"]) {
+      await page.keyboard.press(key);
+      // nativeがdrag中に文字を配送しない場合もapp guardを直接通す。
+      await board(page).dispatchEvent("keydown", { key, bubbles: true });
+      await rows(page, 3);
+      await expect(source).toHaveClass(/dragging/);
+      await expect(source).toHaveAttribute("data-retained", "native-drag");
+    }
     await page.mouse.move(2, page.viewportSize()!.height - 2, { steps: 8 });
     await page.mouse.up();
     await expect(page.locator(".dragging,.drag-over")).toHaveCount(0);
-    await press(page);
-    await pages(page);
+    await press(page, "n");
+    await rows(page, 2);
     expect(fixture.posts()).toBe(0);
   } finally {
     await page.mouse.up();
   }
 });
 
-test("disabled selectorと公開失効後の未接続状態ではPを実行しない", async ({
+test("disabled selectorと公開失効後の未接続ではN/Pを実行しない", async ({
   page,
 }) => {
   const fixture = await ready(page);
+  await chooseRows(page, 3);
   await mode(page).evaluate((el: HTMLSelectElement) => (el.disabled = true));
-  await press(page);
-  await fit(page);
+  for (const key of ["n", "p"] as const) {
+    await press(page, key);
+    await rows(page, 3);
+  }
   await mode(page).evaluate((el: HTMLSelectElement) => (el.disabled = false));
   await page.route("**/api/board", (route) =>
     route.fulfill({ status: 403, json: { error: "scope_not_public" } }),
   );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.locator(".pbi-title")).toHaveCount(0);
-  await press(page);
-  await expect(mode(page)).toHaveValue("fit");
+  const revokedValue = await mode(page).inputValue();
+  for (const key of ["n", "p"] as const) {
+    await press(page, key);
+    await expect(mode(page)).toHaveValue(revokedValue);
+  }
   await expect(page.locator(".pbi-title")).toHaveCount(0);
   expect(fixture.posts()).toBe(0);
 });
 
-test("既存表示密度triggerの即時tooltipだけにPを示し、新しいbuttonや常設説明を足さない", async ({
+test("既存selectorに件数とN/Pを示しAllではページ表示へ戻るhintへ切替える", async ({
   page,
 }) => {
   const fixture = await ready(page),
     reads = fixture.reads();
   await page.locator("#operations").click();
   const trigger = page.locator("#fit-mode-trigger");
-  await expect(trigger).toHaveAccessibleName("ボードの表示密度");
-  await expect(trigger).toHaveAttribute("data-tooltip", hint);
-  await expect(mode(page).locator("option")).toHaveText([
-    "全体を収める",
-    "ページ表示",
-  ]);
+  await expect(trigger).toHaveAccessibleName("1ページのPBI数");
+  await expect(mode(page).locator("option")).toHaveCount(7);
+  expect(
+    await mode(page)
+      .locator("option")
+      .evaluateAll((options) =>
+        options.map((option) => (option as HTMLOptionElement).value),
+      ),
+  ).toEqual(["6", "5", "4", "3", "2", "1", "all"]);
+  await expect(trigger).toHaveAttribute("data-tooltip", /N.*P/);
   await trigger.hover();
-  const tip = page.getByRole("tooltip");
-  await expect(tip).toBeVisible();
-  await expect(tip).toHaveText(hint);
-  const box = (await tip.boundingBox())!;
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await expect(page.getByRole("tooltip")).toHaveText(
+    (await trigger.getAttribute("data-tooltip")) || "",
+  );
+  await page.screenshot({
+    path: `test-results/fit-mode-shortcut-count-${page.viewportSize()!.width}.png`,
+    animations: "disabled",
+  });
+  await chooseToolbarOption(page, "fit-mode", "all");
+  await expect(trigger).toHaveAttribute(
+    "data-tooltip",
+    "N/P：ページ表示に戻る",
+  );
+  await page.mouse.move(0, page.viewportSize()!.height - 1);
+  await trigger.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("N/P：ページ表示に戻る");
+  const box = (await page.getByRole("tooltip").boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-  expect(box.y).toBeGreaterThanOrEqual(0);
   await page.screenshot({
-    path: `test-results/fit-mode-shortcut-hint-${page.viewportSize()!.width}.png`,
+    path: `test-results/fit-mode-shortcut-all-${page.viewportSize()!.width}.png`,
     animations: "disabled",
   });
   expect(fixture.reads()).toBe(reads);

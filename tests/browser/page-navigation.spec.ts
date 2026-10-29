@@ -1,23 +1,19 @@
 import { test, expect, type Page } from "@playwright/test";
-import { setup } from "./fixtures";
+import { setup, chooseToolbarOption } from "./fixtures";
 
 const board = (page: Page) => page.locator("#board");
 const firstPage = (page: Page) =>
   expect(page.locator("#page-info")).toHaveText("PBI 1–3 / 6");
 const secondPage = (page: Page) =>
   expect(page.locator("#page-info")).toHaveText("PBI 4–6 / 6");
-async function chooseMode(page: Page, name: string) {
+async function chooseMode(page: Page, value: string) {
   await page.locator("#operations").click();
-  await page.locator("#fit-mode-trigger").click();
-  await page
-    .locator("#fit-mode-options")
-    .getByRole("option", { name, exact: true })
-    .click();
+  await chooseToolbarOption(page, "fit-mode", value);
 }
 async function pages(page: Page) {
   const f = await setup(page);
   await expect(board(page)).toHaveAttribute("tabindex", "0");
-  await chooseMode(page, "ページ表示");
+  await chooseMode(page, "3");
   await expect(page.locator(".pbi-title")).toHaveCount(3);
   await firstPage(page);
   // A real background click dismisses the toolbar and scopes keyboard paging.
@@ -34,7 +30,7 @@ async function taskPointer(page: Page) {
 }
 const quiet = (page: Page) => page.waitForTimeout(330);
 
-test("page mode always shows three PBIs at every viewport, keeps six in fit and clamps without wrapping", async ({
+test("explicit 3-PBI rows stay three at every viewport, six-row mode fits the managed six and clamps without wrapping", async ({
   page,
 }) => {
   const f = await pages(page),
@@ -54,7 +50,7 @@ test("page mode always shows three PBIs at every viewport, keeps six in fit and 
   await expect(page.locator("#prev-page")).toBeDisabled();
   await page.keyboard.press("ArrowLeft");
   await firstPage(page);
-  await chooseMode(page, "全体を収める");
+  await chooseMode(page, "6");
   await expect(page.locator(".pbi-title")).toHaveCount(6);
   await expect(page.locator("#pagination")).toBeHidden();
   await board(page).focus();
