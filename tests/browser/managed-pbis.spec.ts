@@ -718,3 +718,54 @@ test("20PBIのAllはボード内の縦scrollを使い最後のPBI/付箋まで�
   );
   expect(fixture.writes).toEqual([]);
 });
+
+test("N/Pで6件の後半pageからAllへ往復しanchor維持、All再読込後もNは6へ戻る", async ({
+  page,
+}) => {
+  const fixture = await prepare(page, 12);
+  const before = await selection(page);
+  await page.locator("#next-page").click();
+  await expect(page.locator("#page-info")).toHaveText("PBI 7–12 / 12");
+  const reads = [...fixture.reads];
+  await page.locator("#board").focus();
+  await page.keyboard.press("p");
+  await expect(page.locator("#fit-mode")).toHaveValue("all");
+  await expect(page.locator(".pbi-title")).toHaveCount(12);
+  await expect(page.locator("#board")).toHaveClass(/overview/);
+  const card = await page.locator('[data-task="t6-0"]').elementHandle();
+  await page.keyboard.press("p");
+  await expect(page.locator("#fit-mode")).toHaveValue("all");
+  expect(await card!.evaluate((node) => node.isConnected)).toBe(true);
+  await page.keyboard.press("n");
+  await expect(page.locator("#fit-mode")).toHaveValue("6");
+  await expect(page.locator("#page-info")).toHaveText("PBI 7–12 / 12");
+  await expect(page.locator('[data-pbi="p6"].pbi-title')).toBeVisible();
+  expect(await selection(page)).toEqual(before);
+  expect(fixture.reads).toEqual(reads);
+
+  // Existing persisted lastRows=3 must not revive the superseded All shortcut rule.
+  await chooseRows(page, 3);
+  await chooseRows(page, "all");
+  expect(
+    await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key)!),
+      rowsKey,
+    ),
+  ).toEqual({ value: "all", lastRows: 3 });
+  await page.reload();
+  await expect(page.locator("#fit-mode")).toHaveValue("all");
+  await expect(page.locator(".pbi-title")).toHaveCount(12);
+  await page.locator("#board").focus();
+  await page.keyboard.press("p");
+  await expect(page.locator("#fit-mode")).toHaveValue("all");
+  await page.keyboard.press("n");
+  await expect(page.locator("#fit-mode")).toHaveValue("6");
+  expect(
+    await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key)!),
+      rowsKey,
+    ),
+  ).toEqual({ value: 6, lastRows: 6 });
+  expect(await selection(page)).toEqual(before);
+  expect(fixture.writes).toEqual([]);
+});

@@ -283,7 +283,11 @@ function syncRowsControl(layout) {
   const select = $("#fit-mode");
   select.value = String(layout.value);
   const hint =
-    layout.value === "all" ? "N/P：ページ表示に戻る" : "N：減らす / P：増やす";
+    layout.value === "all"
+      ? "N：6件 / P：上限"
+      : layout.value === DEFAULT_ROWS
+        ? "N：減らす / P：全体一覧"
+        : "N：減らす / P：増やす";
   select.dataset.tooltip = hint;
   const trigger = $("#fit-mode-trigger");
   if (trigger) trigger.dataset.tooltip = hint;
@@ -3996,16 +4000,17 @@ function handleFitModeShortcut(event) {
   const select = $("#fit-mode");
   if (select.disabled) return;
   const layout = displayLayout(),
-    next =
-      layout.value === "all"
-        ? layout.lastRows
-        : Math.max(
-            1,
-            Math.min(
-              DEFAULT_ROWS,
-              layout.value + (event.key.toLowerCase() === "n" ? -1 : 1),
-            ),
-          );
+    modes = [1, 2, 3, 4, 5, 6, "all"],
+    index = modes.indexOf(layout.value),
+    next = modes[
+      Math.max(
+        0,
+        Math.min(
+          modes.length - 1,
+          index + (event.key.toLowerCase() === "n" ? -1 : 1),
+        ),
+      )
+    ];
   event.preventDefault();
   if (next === layout.value) return;
   select.value = String(next);

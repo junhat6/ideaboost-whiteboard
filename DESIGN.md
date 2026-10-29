@@ -296,7 +296,7 @@ PBI配下の非PBI Issueに任意の見積時間（h）を持つ。種類名を�
 
 表示selectorは1〜6件/ページ（初期6）と明示的な「全体一覧」を選ぶ。通常は表示pageだけをDOMに置く。全体一覧で7件以上なら小型付箋2枚横並びを1組とし、残りも同じセルの上下送り/Page Up/Downで到達できる。リストには置換しない。avatar/hと最低1行のtitleを保ち、最低row80pxを下回る件数ではboard内だけ縦scrollとsticky列見出しを使う。9/12の全体表示は両基準viewportで実画素を確認する。通常6行以下の4枚2×2・title3行の契約は維持する。Story pointsの同梱projectionは追加通信なし、旧fallbackだけ6件ずつ・同source最大2通信で集約し、公開失効/古いepochから値を復活させない。
 
-修飾なしNキーで1ページのPBI数を1減らし、Pキーで1増やす。1/6で停止して循環・自動All移行しない。全体一覧からはN/Pどちらも最後の通常件数へ戻すだけとし、tooltipを「N/P：ページ表示に戻る」へ切り替える。旧Pのモード交互切替は利用者の最新指示で置換する。件数は管理membershipと別のscope別rows設定に保存する。行数変更時はfocus中のPBI/付箋のlane、次に旧先頭PBIをanchorとし、新pageでもそのPBIを画面内に残す（同じ先頭位置の保証ではない）。All往復もanchorを保持、消えた場合だけ旧index近傍へ。残るfocusを奪わず、消えた場合はboardへ戻す。
+修飾なしN/Pキーは1・2・3・4・5・6・全体一覧の順で切り替える。Nは1段減らし、Pは1段増やす。Pで6件から全体一覧へ、Nで全体一覧から6件へ戻り、Nの1件/Pの全体一覧は上限下限として何もしない（循環しない）。6件のtooltipは「N：減らす / P：全体一覧」、全体一覧は「N：6件 / P：上限」とする。旧Allから最後の通常件数へ戻る挙動は利用者の最新指示で置換する。件数は管理membershipと別のscope別rows設定に保存する。行数変更時はfocus中のPBI/付箋のlane、次に旧先頭PBIをanchorとし、新pageでもそのPBIを画面内に残す（同じ先頭位置の保証ではない）。All往復もanchorを保持、消えた場合だけ旧index近傍へ。残るfocusを奪わず、消えた場合はboardへ戻す。
 
 下部前/次に加えboard focusの左右キーと横優位wheelを維持。1つの慣性gestureは1ページだけ、端で循環しない。入力/IME・修飾キー・repeat・処理済みイベント・dialog/popover・ドラッグ中はN/Pを発火させない。縦scroll/native内側横scrollは奪わず、背景GET/resizeで選んだ件数を戻さない。実OS IME/Mac trackpadとsynthetic browser検証は区別し、前者は未実施。
 

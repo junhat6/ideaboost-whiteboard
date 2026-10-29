@@ -188,7 +188,7 @@ function harness(saved: Record<string, unknown> = {}, total = 12) {
   };
 }
 
-test("実関数: N/Pは6→1→6を一段ずつ変更、境界はwrapも余分renderもしない", () => {
+test("実関数: N/Pは1〜6〜Allを一段ずつ変更、両端はwrapも余分renderもしない", () => {
   const h = harness();
   h.document.activeElement = h.board;
   for (const n of [5, 4, 3, 2, 1]) {
@@ -202,11 +202,16 @@ test("実関数: N/Pは6→1→6を一段ずつ変更、境界はwrapも余分re
     h.press("p");
     assert.equal(h.select.value, String(n));
   }
+  h.press("p");
+  assert.equal(h.select.value, "all");
   const atMax = h.changes.length;
   h.press("p");
+  assert.equal(h.select.value, "all");
   assert.equal(h.changes.length, atMax);
-  assert.equal(h.changes.length, 10);
-  assert.equal(h.renders(), 10);
+  h.press("n");
+  assert.equal(h.select.value, "6");
+  assert.equal(h.changes.length, 12);
+  assert.equal(h.renders(), 12);
   assert.ok(
     h.changes.every((event) => event.type === "change" && event.bubbles),
   );
@@ -216,24 +221,33 @@ test("実関数: N/Pは6→1→6を一段ずつ変更、境界はwrapも余分re
   });
 });
 
-test("実関数: AllからNもPも最後の通常件数へ戻るだけ、anchorを含むページを保持", () => {
-  for (const key of ["n", "p"]) {
+test("実関数: Allは記憶した3/5件によらずNで6へ、Pはno-op、anchorと保存を保持", () => {
+  for (const lastRows of [3, 5]) {
     const h = harness({
       [legacyKey]: Array.from({ length: 12 }, (_, i) => `p${i}`),
+      [rowsKey]: { value: "all", lastRows },
     });
-    h.choose(3);
     h.run(
       'displayLayout().anchorId="p6"; displayLayout().anchorIndex=6; render()',
     );
-    assert.deepEqual(h.shown(), ["p6", "p7", "p8"]);
-    h.choose("all");
-    assert.equal(h.shown().length, 12);
-    h.press(key);
-    assert.equal(h.select.value, "3");
-    assert.deepEqual(h.shown(), ["p6", "p7", "p8"]);
+    const before = h.renders();
+    h.press("p");
+    assert.equal(h.select.value, "all");
+    assert.equal(h.renders(), before);
     assert.deepEqual(JSON.parse(h.storage.get(rowsKey)!), {
-      value: 3,
-      lastRows: 3,
+      value: "all",
+      lastRows,
+    });
+    h.press("n");
+    assert.equal(h.select.value, "6");
+    assert.deepEqual(h.shown(), ["p6", "p7", "p8", "p9", "p10", "p11"]);
+    h.press("p");
+    assert.equal(h.shown().length, 12);
+    h.press("n");
+    assert.deepEqual(h.shown(), ["p6", "p7", "p8", "p9", "p10", "p11"]);
+    assert.deepEqual(JSON.parse(h.storage.get(rowsKey)!), {
+      value: 6,
+      lastRows: 6,
     });
   }
 });
@@ -399,7 +413,9 @@ test("実model: milestone scopeごとに管理対象/auto意図/通常件数/All
     { value: "all", lastRows: 5 },
   );
   h.press("p");
-  assert.equal(h.select.value, "5");
+  assert.equal(h.select.value, "all");
+  h.press("n");
+  assert.equal(h.select.value, "6");
 });
 
 test("実model: storage拒否は例外を外へ漏らさずページ内state維持、壊れJSONは安全fallback", () => {

@@ -57,7 +57,7 @@ const storage = (page: Page) =>
   );
 
 // 旧fit/pages切替ではなく、Nは1件減、Pは1件増。6件は管理対象の上限ではない。
-test("Nは6から1まで1件ずつ減らしPは6まで増やす、境界でwrapせずselectorも同期する", async ({
+test("N/Pは1〜6〜Allを順に切替え、両端でwrapせずselectorも同期する", async ({
   page,
 }) => {
   const fixture = await ready(page),
@@ -75,6 +75,10 @@ test("Nは6から1まで1件ずつ減らしPは6まで増やす、境界でwrap�
     await rows(page, count, count, `PBI 1–${count} / 6`);
   }
   await page.keyboard.press("p");
+  await rows(page, "all");
+  await page.keyboard.press("p");
+  await rows(page, "all");
+  await page.keyboard.press("n");
   await rows(page, 6);
   await expect(page.locator("#pagination")).toBeHidden();
   await chooseRows(page, 3);
@@ -87,21 +91,18 @@ test("Nは6から1まで1件ずつ減らしPは6まで増やす、境界でwrap�
   expect(fixture.posts()).toBe(0);
 });
 
-test("AllからN/Pの初回は前の件数へ戻るだけ、ページanchorと付箋focusを維持する", async ({
-  page,
-}) => {
+test("AllからPは上限、Nは6件へ戻り付箋focusを維持する", async ({ page }) => {
   const fixture = await ready(page);
   await chooseRows(page, 3);
   await page.keyboard.press("ArrowRight");
   await rows(page, 3, 3, "PBI 4–6 / 6");
-  for (const key of ["n", "p"] as const) {
-    await chooseRows(page, "all");
-    await rows(page, "all");
-    await expect(page.locator("#pagination")).toBeHidden();
-    await press(page, key);
-    await rows(page, 3, 3, "PBI 4–6 / 6");
-  }
-  await chooseRows(page, 6);
+  await chooseRows(page, "all");
+  await rows(page, "all");
+  await expect(page.locator("#pagination")).toBeHidden();
+  await press(page, "p");
+  await rows(page, "all");
+  await press(page, "n");
+  await rows(page, 6);
   const title = page.locator('[data-open="t5-0-0"]');
   await title.focus();
   await page.keyboard.press("n");
@@ -361,9 +362,7 @@ test("disabled selectorと公開失効後の未接続ではN/Pを実行しない
   expect(fixture.posts()).toBe(0);
 });
 
-test("既存selectorに件数とN/Pを示しAllではページ表示へ戻るhintへ切替える", async ({
-  page,
-}) => {
+test("既存selectorのhintは6→AllとAll→6のN/P境界を示す", async ({ page }) => {
   const fixture = await ready(page),
     reads = fixture.reads();
   await page.locator("#operations").click();
@@ -377,7 +376,10 @@ test("既存selectorに件数とN/Pを示しAllではページ表示へ戻るhin
         options.map((option) => (option as HTMLOptionElement).value),
       ),
   ).toEqual(["6", "5", "4", "3", "2", "1", "all"]);
-  await expect(trigger).toHaveAttribute("data-tooltip", /N.*P/);
+  await expect(trigger).toHaveAttribute(
+    "data-tooltip",
+    "N：減らす / P：全体一覧",
+  );
   await trigger.hover();
   await expect(page.getByRole("tooltip")).toBeVisible();
   await expect(page.getByRole("tooltip")).toHaveText(
@@ -388,13 +390,10 @@ test("既存selectorに件数とN/Pを示しAllではページ表示へ戻るhin
     animations: "disabled",
   });
   await chooseToolbarOption(page, "fit-mode", "all");
-  await expect(trigger).toHaveAttribute(
-    "data-tooltip",
-    "N/P：ページ表示に戻る",
-  );
+  await expect(trigger).toHaveAttribute("data-tooltip", "N：6件 / P：上限");
   await page.mouse.move(0, page.viewportSize()!.height - 1);
   await trigger.hover();
-  await expect(page.getByRole("tooltip")).toHaveText("N/P：ページ表示に戻る");
+  await expect(page.getByRole("tooltip")).toHaveText("N：6件 / P：上限");
   const box = (await page.getByRole("tooltip").boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
