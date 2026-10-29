@@ -3685,6 +3685,43 @@ $("#fit-mode").onchange = () => {
   page = 0;
   render();
 };
+function handleFitModeShortcut(event) {
+  if (
+    event.key?.toLowerCase() !== "p" ||
+    event.defaultPrevented ||
+    event.repeat ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.shiftKey ||
+    event.isComposing ||
+    composing ||
+    commentComposing ||
+    dragged ||
+    !adapter
+  )
+    return;
+  const writing = (node) =>
+    node?.closest?.(
+      'input,textarea,select,option,[role="combobox"],[role="textbox"],[role="slider"],[role="spinbutton"],[contenteditable],.cm-editor',
+    );
+  if (writing(event.target) || writing(document.activeElement)) return;
+  const overlays = document.querySelectorAll(
+    'dialog[open],[popover]:popover-open,[data-toolbar-popover]:not([hidden]),[role="dialog"],[role="menu"],[role="listbox"]',
+  );
+  if ([...overlays].some((el) => !el.hidden && el.getClientRects().length))
+    return;
+  const select = $("#fit-mode");
+  if (select.disabled) return;
+  const board = $("#board"),
+    hadBoardFocus = board.contains(document.activeElement);
+  event.preventDefault();
+  select.value = select.value === "pages" ? "fit" : "pages";
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  if (hadBoardFocus && !board.contains(document.activeElement))
+    board.focus({ preventScroll: true });
+}
+document.addEventListener("keydown", handleFitModeShortcut);
 function stepBoardPage(direction) {
   const button = direction < 0 ? $("#prev-page") : $("#next-page");
   if ($("#fit-mode").value !== "pages" || button.disabled) return false;

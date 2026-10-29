@@ -59,6 +59,12 @@ export function enhanceToolbarSelects(selects) {
     button.setAttribute("aria-haspopup", "listbox");
     button.setAttribute("aria-expanded", "false");
     button.setAttribute("aria-label", select.getAttribute("aria-label"));
+    if (select.hasAttribute("aria-keyshortcuts"))
+      button.setAttribute(
+        "aria-keyshortcuts",
+        select.getAttribute("aria-keyshortcuts"),
+      );
+    if (select.dataset.tooltip) button.dataset.tooltip = select.dataset.tooltip;
     const panel = document.createElement("div");
     panel.className = "toolbar-select-panel";
     panel.dataset.toolbarPopover = "true";

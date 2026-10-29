@@ -296,6 +296,8 @@ PBI配下の非PBI Issueに任意の見積時間（h）を持つ。種類名を�
 
 ページ表示は1ページ3 PBI、全体表示・PBI選択上限は6のまま。下部の前/次ボタンに加え、boardへfocusした時の左右キーと横優位のwheelで移動する。1つの慣性gestureは1ページだけ、端で循環しない。縦scroll、修飾key/zoom、入力/IME、native選択、dialog/popover、ドラッグ、内側の横scrollは横取りしない。synthetic wheel/keyの回帰と実Mac trackpadの検証は別であり、後者は未実施。
 
+修飾なしPキーで「全体を収める」と「ページ表示」を交互に切り替える。モード別のキーや新ボタンは増やさず、既存表示密度selectorのtooltipとaria-keyshortcutsでPを伝える。selectorのchangeを同じ経路で実行し、ページは先頭へ戻す。入力/IME・修飾キー・repeat・処理済みイベント・dialog/popover・ドラッグ中は発火させない。背景の再取得で表示操作を止めず、同期/resizeでも選んだmodeを保つ。切替でfocus中の付箋が非表示になった場合だけboardへfocusを戻す。既存PBI選択/配色の保存や初回fit既定を変えず、新たなlocalStorage設定/API通信は追加しない。
+
 利用者がA「ふわっとハロー」を選択済みのため、比較デモの入口・遅延module/CSS・専用dialogは撤去する。本番の強調ON/OFFとUキーは維持し、選択用の恒久UIや保存データは増やさない。
 
 詳細上端のIssue番号は16pxの文字だけのnative buttonとし、追加アイコン・説明tooltipは置かない。表示番号と一致する固定repoのcanonical Issue URLだけをクリック/Enter/Spaceでコピーする。URL未確認は無効化してariaで伝え、clipboard成功後だけ番号の横に一時的なチェックと「コピーしました」をdialog内live statusで2秒表示し、拒否時も同じ場所で失敗を伝える。常設コピーアイコンは追加せず、番号・×・見出しの位置は変えない。再クリックで表示timerを更新し、Issue切替/close/公開失効/接続変更で通知と旧完了の所有権を即消去する。古い接続元・drawer sessionの完了通知は新しいIssueへ出さず、追加APIは呼ばない。

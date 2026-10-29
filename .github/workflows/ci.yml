@@ -14,6 +14,16 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
+      - name: Verify one-key fit and page-mode switching
+        run: npx playwright test tests/browser/fit-mode-shortcut.spec.ts --workers=1 --max-failures=0
+      - name: Keep focused synthetic display shortcut evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: synthetic-fit-mode-shortcut-focus
+          path: test-results/fit-mode-shortcut-*.png
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Verify title cancellation and delayed linked-PR revocation ownership
         run: npx playwright test tests/browser/title-cancel-sync.spec.ts tests/browser/linked-pr-revocation.spec.ts --workers=1 --max-failures=0
       - name: Verify canonical Issue state contrast in both themes
@@ -123,6 +133,7 @@ jobs:
         with:
           name: synthetic-ui-screenshots
           path: |
+            test-results/fit-mode-shortcut-*.png
             test-results/close-button-*.png
             test-results/detail-copy-feedback-*.png
             test-results/unestimated-highlight-*.png
