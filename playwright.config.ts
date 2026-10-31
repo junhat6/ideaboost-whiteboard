@@ -3,7 +3,11 @@ export default defineConfig({
   testDir: "tests/browser",
   fullyParallel: true,
   maxFailures: process.env.CI ? 2 : 0,
-  use: { baseURL: "http://127.0.0.1:4183", headless: true },
+  use: {
+    baseURL: "http://127.0.0.1:4183",
+    headless: true,
+    screenshot: "only-on-failure",
+  },
   webServer: {
     command: "node scripts/preview.mjs",
     url: "http://127.0.0.1:4183",

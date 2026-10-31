@@ -1,5 +1,11 @@
 # 検証
 
+## 現在の運用
+
+追加・削除の判断は [ADR 013](adr/013-sustainable-tests.md) に従う。CI は下記の各 suite を 1 回だけ実行し、focused / repeat は変更時の調査に限定する。以下の過去の日付付き記録は当時の証拠であり、毎回追加実行するチェックリストではない。
+
+失敗時は `test-results/` の合成 UI screenshot と CI ログを確認する。詳細な trace が必要な再現調査では `npx playwright test <対象> --trace on` を一時的に使う。自動 retry によって失敗を隠さない。
+
 ## 自動試験
 
 `npm run check`: ESLint、Worker TypeScript、Node unit/integration mock、Wrangler dry-run。

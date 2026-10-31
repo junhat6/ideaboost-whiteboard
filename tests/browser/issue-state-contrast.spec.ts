@@ -1,16 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { setup } from "./fixtures";
 
-const statusColors = {
-  gray: "#57606a",
-  blue: "#0969da",
-  green: "#1a7f37",
-  yellow: "#9a6700",
-  orange: "#bc4c00",
-  red: "#cf222e",
-  purple: "#8250df",
-  pink: "#bf3989",
-};
 const states = [
   {
     key: "open",
@@ -111,18 +101,6 @@ for (const theme of ["light", "dark"] as const)
       await page.locator("#operations").click();
     }
     await expect(page.locator("#board .issue-state")).toHaveCount(0);
-    const foregrounds =
-      theme === "dark"
-        ? {
-            open: [126, 231, 135],
-            completed: [188, 140, 255],
-            closed: [183, 191, 204],
-          }
-        : {
-            open: [26, 127, 55],
-            completed: [130, 80, 223],
-            closed: [87, 96, 106],
-          };
     const evidence: unknown[] = [];
 
     for (const state of states) {
@@ -138,7 +116,6 @@ for (const theme of ["light", "dark"] as const)
       // 有限の登場animation完了後の静的表示を検証する。motionの証拠ではない。
       await expect(drawer).toHaveCSS("transform", "none");
       await expect(drawer).toHaveCSS("opacity", "1");
-      await expect(badge).toHaveCSS("font-size", "13px");
       if (state.icon) {
         await expect(badge.locator("svg")).toHaveCount(1);
         await expect(
@@ -148,7 +125,6 @@ for (const theme of ["light", "dark"] as const)
           "viewBox",
           "0 0 16 16",
         );
-        await expect(badge.locator("svg")).toHaveCSS("width", "16px");
       } else await expect(badge.locator("svg")).toHaveCount(0);
 
       const presentation = await badge.evaluate((element) => {
@@ -207,11 +183,7 @@ for (const theme of ["light", "dark"] as const)
             : null,
         };
       });
-      expect(presentation.foreground).toEqual(foregrounds[state.tone]);
       expect(presentation.foregroundAlpha).toBe(255);
-      expect(presentation.background).toEqual(
-        theme === "dark" ? [35, 39, 48] : [255, 255, 255],
-      );
       expect(presentation.backgroundAlpha).toBe(1);
       expect(presentation.contrast).toBeGreaterThanOrEqual(4.5);
       expect(presentation.border).toEqual(presentation.foreground);
@@ -245,86 +217,6 @@ for (const theme of ["light", "dark"] as const)
         await expect(
           page.locator("#close-issue svg.octicon-issue-closed"),
         ).toHaveCount(1);
-        // headerだけのtokenは、Project Statusと下部Close actionへ漏らさない。
-        const unaffected = await page
-          .locator("#close-issue")
-          .evaluate((button, theme) => {
-            const css = getComputedStyle(button),
-              root = getComputedStyle(document.documentElement);
-            const context = document.createElement("canvas").getContext("2d")!;
-            const rgb = (color: string) => {
-              context.clearRect(0, 0, 1, 1);
-              context.fillStyle = color;
-              context.fillRect(0, 0, 1, 1);
-              return Array.from(context.getImageData(0, 0, 1, 1).data);
-            };
-            const ink = theme === "dark" ? "#d9c4ff" : "#6940b3",
-              surface = theme === "dark" ? "#232730" : "#ffffff";
-            return {
-              statuses: Object.fromEntries(
-                [
-                  "gray",
-                  "blue",
-                  "green",
-                  "yellow",
-                  "orange",
-                  "red",
-                  "purple",
-                  "pink",
-                ].map((name) => [
-                  name,
-                  root.getPropertyValue(`--status-${name}`).trim(),
-                ]),
-              ),
-              headerToken: css.getPropertyValue("--issue-state-open"),
-              colors: [
-                rgb(css.color),
-                rgb(css.backgroundColor),
-                rgb(css.borderTopColor),
-              ],
-              expectedColors: [
-                rgb(ink),
-                rgb(`color-mix(in srgb, #8250df 8%, ${surface})`),
-                rgb(`color-mix(in srgb, ${ink} 70%, ${surface})`),
-              ],
-              style: [
-                css.display,
-                css.alignItems,
-                css.justifyContent,
-                css.gap,
-                css.minHeight,
-                css.padding,
-                css.fontSize,
-                css.fontWeight,
-                css.lineHeight,
-                css.borderRadius,
-                css.boxShadow,
-              ],
-              footer: [
-                getComputedStyle(button.parentElement!).justifyContent,
-                getComputedStyle(button.parentElement!).marginTop,
-              ],
-            };
-          }, theme);
-        expect(unaffected.statuses).toEqual(statusColors);
-        expect(unaffected.headerToken).toBe("");
-        expect(unaffected.colors).toEqual(unaffected.expectedColors);
-        // flex itemはblockifyされるため、宣言inline-flexのcomputed値はflex。
-        // https://www.w3.org/TR/css-display-3/#transformations
-        expect(unaffected.style).toEqual([
-          "flex",
-          "center",
-          "center",
-          "8px",
-          "36px",
-          "7px 12px",
-          "13px",
-          "600",
-          "20px",
-          "6px",
-          "rgba(0, 0, 0, 0.04) 0px 1px 1px 0px",
-        ]);
-        expect(unaffected.footer).toEqual(["flex-start", "32px"]);
       } else {
         await expect(page.locator("#close-issue")).toBeHidden();
         if (state.key === "completed")

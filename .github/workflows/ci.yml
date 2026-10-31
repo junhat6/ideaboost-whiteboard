@@ -14,148 +14,15 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
-      - name: Verify managed PBI scope and page density
-        run: npx playwright test tests/browser/fit-mode-shortcut.spec.ts tests/browser/managed-pbis.spec.ts tests/browser/managed-pbi-points.spec.ts tests/browser/page-navigation.spec.ts --workers=1 --max-failures=0
-      - name: Keep focused synthetic managed-board evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: synthetic-managed-pbi-focus
-          path: |
-            test-results/fit-mode-shortcut-*.png
-            test-results/managed-pbis-*.png
-            test-results/managed-pbis-*.json
-          retention-days: 1
-          if-no-files-found: ignore
-      - name: Verify title cancellation and delayed linked-PR revocation ownership
-        run: npx playwright test tests/browser/title-cancel-sync.spec.ts tests/browser/linked-pr-revocation.spec.ts --workers=1 --max-failures=0
-      - name: Verify canonical Issue state contrast in both themes
-        run: npx playwright test tests/browser/issue-state-contrast.spec.ts --workers=1 --max-failures=0
-      - name: Keep focused synthetic Issue state contrast evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: synthetic-issue-state-contrast-focus
-          path: test-results/issue-state-contrast-*.png
-          retention-days: 1
-          if-no-files-found: ignore
-      - name: Verify saved observation dates and independent Sprint refresh
-        run: npx playwright test tests/browser/burndown-observation-visibility.spec.ts --workers=1 --max-failures=0
-      - name: Keep focused synthetic observation visibility evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: synthetic-burndown-observation-focus
-          path: test-results/burndown-observation-*.png
-          retention-days: 1
-          if-no-files-found: ignore
-      - name: Diagnose isolated halo neighbour pixels repeatedly
-        run: npx playwright test tests/browser/unestimated-motion.spec.ts --grep=同じ自然停止位相 --repeat-each=3 --workers=1 --max-failures=0
-      - name: Keep isolated halo neighbour evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: synthetic-halo-neighbour-diagnostic
-          path: |
-            test-results/unestimated-motion-*-strength-*.png
-            test-results/unestimated-motion-*-strength-*.json
-          retention-days: 1
-          if-no-files-found: ignore
-      - name: Verify Close affordance and visible Issue link copy feedback
-        run: npx playwright test tests/browser/close-button-design.spec.ts tests/browser/detail-copy-feedback.spec.ts --workers=1 --max-failures=0
-      - name: Keep focused synthetic Close and copy evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: synthetic-close-copy-focus
-          path: |
-            test-results/close-button-*.png
-            test-results/detail-copy-feedback-*.png
-          retention-days: 1
-          if-no-files-found: ignore
-      - name: Verify halo geometry through repeated viewport redraws
-        run: npx playwright test tests/browser/unestimated-motion.spec.ts --grep=resize --repeat-each=3 --workers=1
-      - name: Verify detail actions and consistent comment reading columns
-        run: npx playwright test tests/browser/detail-issue-actions.spec.ts tests/browser/comment-layout.spec.ts --workers=1 --max-failures=0
-      - name: Keep focused synthetic detail action evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: synthetic-detail-focus
-          path: |
-            test-results/detail-issue-number-*.png
-            test-results/detail-issue-footer-*.png
-            test-results/comment-columns-*.png
-          retention-days: 1
-          if-no-files-found: ignore
-      - name: Verify comment delivery and loaded-page continuity
-        run: npx playwright test tests/browser/comment-continuity.spec.ts tests/browser/enhancements.spec.ts --workers=1 --max-failures=0
-      - name: Diagnose immediate close delivery repeatedly
-        run: npx playwright test tests/browser/issue-state.spec.ts --grep=closeの遅いACK --repeat-each=10 --workers=1 --max-failures=0
-      - name: Verify toolbar, page navigation and canonical Issue state
-        run: npx playwright test tests/browser/toolbar-select.spec.ts tests/browser/page-navigation.spec.ts tests/browser/issue-state.spec.ts --workers=1 --max-failures=0
-      - name: Verify live Status colors across autosave redraws
-        run: npx playwright test tests/browser/rich.spec.ts --grep="author is distinct" --repeat-each=3 --workers=1
-      - name: Keep focused synthetic interaction evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: synthetic-interaction-focus
-          path: |
-            test-results/toolbar-rich-*.png
-            test-results/issue-state-*.png
-          retention-days: 1
-          if-no-files-found: ignore
-      - name: Verify motion and compact titles independently before the full browser suite
-        run: npx playwright test tests/browser/unestimated-motion.spec.ts tests/browser/task-title-readability.spec.ts --workers=1 --max-failures=0
-      - name: Keep focused synthetic motion and title evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: synthetic-ui-focus
-          path: |
-            test-results/unestimated-motion-*.png
-            test-results/unestimated-motion-*.json
-            test-results/task-title-readable-*.png
-          retention-days: 1
-          if-no-files-found: ignore
-      - name: Verify calendar access and existing schedule contracts
-        run: npx playwright test tests/browser/burndown.spec.ts tests/browser/burndown-layout.spec.ts --workers=1
-      - name: Verify native edge-scroll cancellation repeatedly
-        run: npx playwright test tests/browser/drag-lifecycle.spec.ts --grep=auto-scroll --repeat-each=3 --workers=1
-      - name: Verify native card dragging and interrupted gestures before the full browser suite
-        run: npx playwright test tests/browser/drag-continuity.spec.ts tests/browser/drag-races.spec.ts tests/browser/drag-lifecycle.spec.ts --workers=1
-      - name: Verify clipped-card visibility before the full browser suite
-        run: npx playwright test tests/browser/unestimated-highlight.spec.ts --project=desktop --grep=overflow --repeat-each=3 --workers=1
-      - name: Verify card metadata, U and current Sprint before the full browser suite
-        run: npx playwright test tests/browser/task-metadata.spec.ts tests/browser/current-sprint.spec.ts tests/browser/highlight-demo-removed.spec.ts tests/browser/unestimated-highlight.spec.ts --project=desktop --workers=1
+      # Run each enduring regression once; change-specific probes are not permanent gates.
       - run: npm run test:e2e
-      - name: Keep synthetic UI screenshots for review
-        if: always()
+      - name: Keep synthetic browser failure evidence
+        if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: synthetic-ui-screenshots
-          path: |
-            test-results/managed-pbis-*.png
-            test-results/managed-pbis-*.json
-            test-results/fit-mode-shortcut-*.png
-            test-results/close-button-*.png
-            test-results/detail-copy-feedback-*.png
-            test-results/unestimated-highlight-*.png
-            test-results/burndown-rollover-*.png
-            test-results/burndown-observation-*.png
-            test-results/task-metadata-*.png
-            test-results/unestimated-motion-*.png
-            test-results/unestimated-motion-*.json
-            test-results/task-title-readable-*.png
-            test-results/burndown-layout-*.png
-            test-results/burndown-enter-*.png
-            test-results/toolbar-rich-*.png
-            test-results/issue-state-*.png
-            test-results/detail-issue-number-*.png
-            test-results/detail-issue-footer-*.png
-            test-results/comment-columns-*.png
-          retention-days: 1
+          name: browser-failure-evidence
+          path: test-results/
+          retention-days: 7
           if-no-files-found: ignore
 
   auth-check:
@@ -262,15 +129,7 @@ jobs:
         run: node scripts/deployment-check.mjs smoke
         env:
           PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
-      - name: Read-only Sprint 9 saved-history verification
-        run: node scripts/deployment-check.mjs rollover-smoke
-        env:
-          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
-      - name: Read-only current Sprint metadata verification
+      - name: Read-only current Sprint metadata and history verification
         run: node scripts/deployment-check.mjs current-sprint-smoke
-        env:
-          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
-      - name: Read-only Sprint 10 aggregate diagnostic
-        run: node scripts/burndown-audit.mjs
         env:
           PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}

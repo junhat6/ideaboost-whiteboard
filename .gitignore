@@ -20,3 +20,6 @@ web/diagram-worker.js
 web/icons.js
 
 web/ui-tools.js
+
+# Change-specific validation is local evidence, not a second permanent suite.
+.validation/

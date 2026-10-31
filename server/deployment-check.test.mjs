@@ -5,8 +5,8 @@ import {
   trustedPush,
   currentMain,
   verifyDeployment,
-  inspectSprintRollover,
   inspectCurrentSprint,
+  inspectCurrentHistory,
 } from "../scripts/deployment-check.mjs";
 
 const base = `https://ideaboost-whiteboard.ideaboost-whiteboard.workers.dev/b/${"a".repeat(48)}/`;
@@ -84,88 +84,6 @@ test("配信smokeはGETだけでhealthとasset完全一致を確認し旧版や�
   await assert.rejects(
     () => verifyDeployment(base, [], fetcher),
     /runtime settings/,
-  );
-});
-
-test("rollover smoke performs one guarded public GET and reports only minimal summary metadata", async () => {
-  const body = {
-    ok: true,
-    milestone: 9,
-    scope: "not-logged",
-    current: { remainingHours: 0 },
-    display: {
-      mode: "historical",
-      policy: "sprint-v2-exclusive-jst",
-      cutoff: "2026-10-27T15:00:00.000Z",
-      observedAt: "2026-10-27T08:00:00Z",
-      summary: { remainingHours: 5, scopeIds: ["not-logged"] },
-    },
-    observations: [{ at: "2026-10-27T08:00:00Z", scopeIds: ["not-logged"] }],
-  };
-  const calls = [];
-  const fetcher = async (url, options) => {
-    calls.push([String(url), options]);
-    return Response.json(body);
-  };
-  const result = await inspectSprintRollover(base, fetcher);
-  assert.deepEqual(result, {
-    milestone: 9,
-    displayMode: "historical",
-    cutoff: body.display.cutoff,
-    finalRecordedAt: body.display.observedAt,
-    recordedRemainingHours: 5,
-    currentScopeRemainingHours: 0,
-    retainedPoints: 1,
-  });
-  assert.equal(JSON.stringify(result).includes("not-logged"), false);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], base + "api/burndown?milestone=9");
-  assert.equal(calls[0][1].method, "GET");
-  assert.equal(calls[0][1].redirect, "error");
-  assert.equal(calls[0][1].headers, undefined);
-  body.display.summary = null;
-  body.display.observedAt = null;
-  body.observations = [];
-  assert.equal(
-    (await inspectSprintRollover(base, fetcher)).recordedRemainingHours,
-    null,
-  );
-  body.display.mode = "live";
-  await assert.rejects(
-    () => inspectSprintRollover(base, fetcher),
-    /display contract/,
-  );
-});
-
-test("rollover smoke does not bypass denied reads or accept a post-cutoff point", async () => {
-  let calls = 0;
-  await assert.rejects(
-    () =>
-      inspectSprintRollover(base, async () => {
-        calls++;
-        return Response.json({ error: "scope_not_public" }, { status: 403 });
-      }),
-    /HTTP 403/,
-  );
-  assert.equal(calls, 1);
-  await assert.rejects(
-    () =>
-      inspectSprintRollover(base, async () =>
-        Response.json({
-          ok: true,
-          milestone: 9,
-          current: { remainingHours: 0 },
-          display: {
-            mode: "historical",
-            policy: "sprint-v2-exclusive-jst",
-            cutoff: "2026-10-27T15:00:00.000Z",
-            observedAt: "2026-10-27T15:00:00Z",
-            summary: { remainingHours: 0 },
-          },
-          observations: [{ at: "2026-10-27T15:00:00Z" }],
-        }),
-      ),
-    /display contract/,
   );
 });
 
@@ -427,4 +345,59 @@ test("current sprint smoke refuses an unapproved destination before issuing a re
       /Production URL/,
     );
   assert.equal(calls, 0);
+});
+
+
+test("current history smoke uses the discovered Sprint and only logs projected metadata", async () => {
+  const summary = { estimated: 1, unestimated: 2, total: 3, cancelled: 0, excludedChildren: 0, estimatedHours: 4, remainingHours: 2 };
+  const data = { ok: true, milestone: 42, observedAt: "2026-10-31T00:00:00Z", current: summary, display: { mode: "live", summary, observedAt: "2026-10-31T00:00:00Z" }, observations: [{ ...summary, at: "2026-10-31T00:00:00Z", privateExtra: "not-logged" }] };
+  let calls = 0;
+  const fetcher = async (url, options) => {
+    calls++;
+    assert.equal(url.href, base + "api/burndown?milestone=42");
+    assert.equal(options.method, "GET");
+    assert.equal(options.redirect, "error");
+    assert.equal(options.headers, undefined);
+    return Response.json(data);
+  };
+  const current = { status: "current", milestone: 42 };
+  assert.deepEqual(await inspectCurrentHistory(base, current, fetcher), { checked: true, milestone: 42, displayMode: "live", retainedPoints: 1 });
+  assert.equal(calls, 1);
+  data.observations = [];
+  data.display.mode = "historical";
+  data.display.summary = null;
+  data.display.observedAt = null;
+  assert.equal((await inspectCurrentHistory(base, current, fetcher)).retainedPoints, 0);
+  data.current.remainingHours = -1;
+  await assert.rejects(() => inspectCurrentHistory(base, current, fetcher), /contract/);
+  for (const status of [403, 503]) {
+    let reads = 0;
+    await assert.rejects(() => inspectCurrentHistory(base, current, async () => { reads++; return new Response("", { status }); }), /read failed/);
+    assert.equal(reads, 1);
+  }
+  for (const status of ["none", "unavailable"])
+    assert.deepEqual(await inspectCurrentHistory(base, { status }, () => { throw new Error("unexpected read"); }), { checked: false, reason: "no_current_sprint" });
+});
+
+
+test("current history smoke rejects malformed data and sanitizes transport failures", async () => {
+  const current = { status: "current", milestone: 42 };
+  const zero = { estimated: 0, unestimated: 0, total: 0, cancelled: 0, excludedChildren: 0, estimatedHours: 0, remainingHours: 0 };
+  const valid = { ok: true, milestone: 42, observedAt: "2026-10-31T00:00:00Z", current: zero, display: { mode: "historical", summary: null, observedAt: null }, observations: [] };
+  assert.equal((await inspectCurrentHistory(base, current, async () => Response.json(valid))).checked, true);
+  const unknown = { ...zero, unestimated: 2, total: 2 };
+  assert.equal((await inspectCurrentHistory(base, current, async () => Response.json({ ...valid, current: unknown }))).checked, true);
+  for (const data of [
+    { ...valid, milestone: 9 },
+    { ...valid, display: { mode: "live", summary: null, observedAt: null } },
+    { ...valid, current: {} },
+    { ...valid, observations: [{}] },
+    { ...valid, display: { mode: "historical", summary: null, observedAt: valid.observedAt } },
+    { ...valid, display: { mode: "live", summary: zero, observedAt: null } },
+  ]) await assert.rejects(() => inspectCurrentHistory(base, current, async () => Response.json(data)), /contract/);
+  await assert.rejects(() => inspectCurrentHistory(base, current, async () => { throw new Error("private-url"); }), { message: "Current history read failed" });
+  await assert.rejects(() => inspectCurrentHistory(base, current, async () => new Response("private-body")), { message: "Current history response was not valid JSON" });
+  let reads = 0;
+  await assert.rejects(() => inspectCurrentHistory("https://example.com/", current, async () => { reads++; }), /production/i);
+  assert.equal(reads, 0);
 });

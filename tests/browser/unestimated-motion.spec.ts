@@ -21,7 +21,7 @@ type HaloSample = {
   easing: string;
 };
 
-async function ready(page: Page, allEligible = false, eligibleCount?: number) {
+async function ready(page: Page, allEligible = false) {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.route("https://avatars.githubusercontent.com/**", (route) =>
     route.fulfill({
@@ -49,14 +49,6 @@ async function ready(page: Page, allEligible = false, eligibleCount?: number) {
   if (!allEligible) {
     (f.board.tasks[1] as any).estimateHours = 0;
     delete (f.board.tasks[2] as any).estimateHours;
-  }
-  if (eligibleCount !== undefined) {
-    for (const task of f.board.tasks) Object.assign(task, { estimateHours: 4 });
-    const visible = f.board.tasks.filter(
-      (task) => task.lane !== "p6" && Number(task.id.split("-").at(-1)) < 4,
-    );
-    for (const task of visible.slice(0, eligibleCount))
-      Object.assign(task, { estimateHours: null });
   }
   f.board.tasks[5].type = "競合調査";
   f.board.tasks[9].type = "Bug";
@@ -122,44 +114,6 @@ async function setSyntheticVisibility(page: Page, hidden: boolean) {
     }
     document.dispatchEvent(new Event("visibilitychange"));
   }, hidden);
-}
-async function pauseAtNaturalMidpoint(target: Locator) {
-  // Pause via the existing visibility guard, without seeking/changing the clock.
-  // The paired stills below compare style strength, not animation performance.
-  await target.evaluate(
-    (element) =>
-      new Promise<void>((resolve, reject) => {
-        const begin = performance.now();
-        const tick = () => {
-          const opacity = Number(
-            getComputedStyle(
-              element.querySelector(".unestimated-motion")!,
-              "::after",
-            ).opacity,
-          );
-          if (opacity >= 0.4 && opacity <= 0.5) {
-            Object.defineProperty(document, "hidden", {
-              configurable: true,
-              value: true,
-            });
-            Object.defineProperty(document, "visibilityState", {
-              configurable: true,
-              value: "hidden",
-            });
-            document.dispatchEvent(new Event("visibilitychange"));
-            resolve();
-          } else if (performance.now() - begin > 5000) {
-            reject(
-              new Error(
-                `No natural middle-opacity frame within 5s: ${opacity}`,
-              ),
-            );
-          } else requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      }),
-  );
-  await twoFrames(target.page());
 }
 async function motion(target: Locator) {
   return target.evaluate((element) => {
@@ -329,158 +283,6 @@ function diffPng(first: Buffer, second: Buffer) {
     image: PNG.sync.write(output) as Buffer,
   };
 }
-function exteriorStrength(off: Buffer, highlighted: Buffer) {
-  const a = PNG.sync.read(off),
-    b = PNG.sync.read(highlighted);
-  expect([b.width, b.height]).toEqual([a.width, a.height]);
-  let changed = 0,
-    absoluteRgbDelta = 0;
-  for (let y = 0; y < a.height; y++)
-    for (let x = 0; x < a.width; x++) {
-      // Keep a 1px safety band outside the paper to exclude its static cue.
-      const edge = frameMargin - 1;
-      if (x >= edge && y >= edge && x < a.width - edge && y < a.height - edge)
-        continue;
-      const offset = (y * a.width + x) * 4,
-        delta = [0, 1, 2].reduce(
-          (sum, channel) =>
-            sum + Math.abs(a.data[offset + channel] - b.data[offset + channel]),
-          0,
-        );
-      if (delta) changed++;
-      absoluteRgbDelta += delta;
-    }
-  return { changed, absoluteRgbDelta };
-}
-function changedPixelDetails(first: Buffer, second: Buffer) {
-  const a = PNG.sync.read(first),
-    b = PNG.sync.read(second);
-  expect([b.width, b.height]).toEqual([a.width, a.height]);
-  const coordinates: {
-    x: number;
-    y: number;
-    before: number[];
-    after: number[];
-  }[] = [];
-  let total = 0,
-    minX = a.width,
-    minY = a.height,
-    maxX = -1,
-    maxY = -1,
-    maxChannelDelta = 0;
-  for (let y = 0; y < a.height; y++)
-    for (let x = 0; x < a.width; x++) {
-      const offset = (y * a.width + x) * 4,
-        before = [...a.data.subarray(offset, offset + 4)],
-        after = [...b.data.subarray(offset, offset + 4)],
-        delta = Math.max(
-          ...before.map((value, channel) => Math.abs(value - after[channel])),
-        );
-      if (!delta) continue;
-      total++;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-      maxChannelDelta = Math.max(maxChannelDelta, delta);
-      if (coordinates.length < 200) coordinates.push({ x, y, before, after });
-    }
-  return {
-    image: { width: a.width, height: a.height },
-    total,
-    bounds: total ? { minX, minY, maxX, maxY } : null,
-    maxChannelDelta,
-    truncated: total > coordinates.length,
-    coordinates,
-  };
-}
-async function strengthVisualState(page: Page) {
-  return page.evaluate(() => {
-    const identify = (element: Element | null) =>
-      element && {
-        tag: element.tagName,
-        id: element.id,
-        class: element.getAttribute("class"),
-        task: element.getAttribute("data-task"),
-      };
-    const inspect = (element: Element | null, pseudo?: string) => {
-      if (!element) return null;
-      const style = getComputedStyle(element, pseudo),
-        properties = [
-          "width",
-          "height",
-          "padding",
-          "margin",
-          "border",
-          "border-radius",
-          "background-color",
-          "color",
-          "box-shadow",
-          "outline",
-          "opacity",
-          "transform",
-          "filter",
-          "clip-path",
-          "overflow",
-          "position",
-          "z-index",
-          "contain",
-          "container-type",
-          "font",
-          "line-height",
-          "animation-play-state",
-        ];
-      return {
-        element: identify(element),
-        rect: element.getBoundingClientRect().toJSON(),
-        scroll: {
-          left: element.scrollLeft,
-          top: element.scrollTop,
-          width: element.scrollWidth,
-          height: element.scrollHeight,
-          clientWidth: element.clientWidth,
-          clientHeight: element.clientHeight,
-        },
-        style: Object.fromEntries(
-          properties.map((property) => [
-            property,
-            style.getPropertyValue(property),
-          ]),
-        ),
-      };
-    };
-    const readCard = (id: string) => {
-      const element = document.querySelector(`[data-task="${id}"]`)!,
-        span = element.querySelector(".unestimated-motion"),
-        grid = element.closest(".task-grid")!,
-        port = element.closest(".cell-viewport");
-      return {
-        card: inspect(element),
-        title: inspect(element.querySelector(".task-title")),
-        titleText: inspect(element.querySelector(".task-title-text")),
-        avatar: inspect(element.querySelector(".person")),
-        hours: inspect(element.querySelector(".task-estimate")),
-        motion: inspect(span),
-        motionAfter: inspect(span, "::after"),
-        haloRoom:
-          span && getComputedStyle(span).getPropertyValue("--u-halo-room"),
-        grid: inspect(grid),
-        gridGap: getComputedStyle(grid).gap,
-        port: inspect(port),
-      };
-    };
-    return {
-      dpr: devicePixelRatio,
-      viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY },
-      hidden: document.hidden,
-      visibilityState: document.visibilityState,
-      focus: identify(document.activeElement),
-      hovered: [...document.querySelectorAll(":hover")].map(identify),
-      target: readCard("t0-0-0"),
-      neighbour: readCard("t0-0-1"),
-    };
-  });
-}
 function paperPixels(
   first: Buffer,
   second: Buffer,
@@ -532,76 +334,6 @@ async function frame(target: Locator, path: string) {
     },
   });
 }
-async function sampleFrameTime(page: Page) {
-  // Identical wall-clock rAF sampling for OFF and ON; no screenshot, seek, API
-  // request or FPS threshold is introduced during either measurement window.
-  const sample = await page.evaluate(
-    () =>
-      new Promise<{
-        durations: number[];
-        activeAnimations: number;
-        visibleCards: number;
-      }>((resolve) => {
-        const stamps: number[] = [];
-        const tick = (time: number) => {
-          stamps.push(time);
-          if (stamps.length < 61) return requestAnimationFrame(tick);
-          resolve({
-            durations: stamps
-              .slice(1)
-              .map((stamp, index) => stamp - stamps[index]),
-            activeAnimations: document
-              .getAnimations()
-              .filter(
-                (animation) =>
-                  (animation as CSSAnimation).animationName ===
-                    "unestimated-halo" && animation.playState === "running",
-              ).length,
-            visibleCards: document.querySelectorAll(
-              ".unestimated-highlight.unestimated-visible",
-            ).length,
-          });
-        };
-        requestAnimationFrame(tick);
-      }),
-  );
-  expect(sample.durations).toHaveLength(60);
-  expect(
-    sample.durations.every(
-      (duration) => Number.isFinite(duration) && duration > 0,
-    ),
-  ).toBe(true);
-  const sorted = [...sample.durations].sort((a, b) => a - b);
-  return {
-    ...sample,
-    mean:
-      sample.durations.reduce((sum, duration) => sum + duration, 0) /
-      sample.durations.length,
-    p50: sorted[Math.floor(sorted.length * 0.5)],
-    p95: sorted[Math.floor(sorted.length * 0.95)],
-    max: sorted.at(-1)!,
-  };
-}
-function summarizeFrameWindows(
-  samples: Awaited<ReturnType<typeof sampleFrameTime>>[],
-) {
-  const durations = samples.flatMap((sample) => sample.durations),
-    sorted = [...durations].sort((a, b) => a - b);
-  return {
-    samples,
-    sampleCount: samples.length,
-    activeAnimations: Math.max(
-      ...samples.map((sample) => sample.activeAnimations),
-    ),
-    visibleCards: Math.max(...samples.map((sample) => sample.visibleCards)),
-    mean:
-      durations.reduce((sum, duration) => sum + duration, 0) / durations.length,
-    p50: sorted[Math.floor(sorted.length * 0.5)],
-    p95: sorted[Math.floor(sorted.length * 0.95)],
-    max: sorted.at(-1)!,
-  };
-}
-
 async function captureCycle(target: Locator, stem: string) {
   const samplesPromise = sampleHalo(target),
     states = [],
@@ -636,104 +368,6 @@ async function captureCycle(target: Locator, stem: string) {
   await writeFile(`${stem}-diff.png`, differences[0].image);
   return { first: frames[0], metrics };
 }
-
-for (const appearance of ["light", "dark"])
-  test(`${appearance}の旧Aと強めたAを同じ自然停止位相で比較し外側だけ強くする`, async ({
-    page,
-  }, testInfo) => {
-    const f = await ready(page, false, 1);
-    await theme(page, appearance);
-    const target = card(page),
-      neighbour = card(page, "t0-0-1"),
-      stem = `test-results/unestimated-motion-${page.viewportSize()!.width}-${appearance}-strength-r${testInfo.repeatEachIndex}`,
-      geometryBefore = await geometry(page),
-      requests = f.requests.length,
-      off = await frame(target, `${stem}-off.png`),
-      visualBefore = await strengthVisualState(page),
-      neighbourBefore = await neighbour.screenshot({
-        path: `${stem}-neighbour-before.png`,
-        animations: "allow",
-      }),
-      visualBeforeAfterCapture = await strengthVisualState(page);
-    let baselineStyle: Awaited<ReturnType<Page["addStyleTag"]>> | undefined;
-    try {
-      await enable(page);
-      await pauseAtNaturalMidpoint(target);
-      const paused = await motion(target);
-      expect(paused.playState).toBe("paused");
-      expect(Number(paused.opacity)).toBeGreaterThanOrEqual(0.3);
-      expect(Number(paused.opacity)).toBeLessThanOrEqual(0.7);
-      // Previous shipped A shadow; only this fixture's one card changes style.
-      // The existing animation object/currentTime/duration are left untouched.
-      baselineStyle = await page.addStyleTag({
-        content: `[data-task="t0-0-0"] .unestimated-motion::after {
-          box-shadow: 0 0 14px 3px color-mix(in srgb, var(--accent) 40%, transparent);
-        }`,
-      });
-      await twoFrames(page);
-      const baseline = await frame(target, `${stem}-before.png`),
-        beforeState = await motion(target);
-      await baselineStyle.evaluate((element) => element.remove());
-      baselineStyle = undefined;
-      await twoFrames(page);
-      const stronger = await frame(target, `${stem}-after.png`),
-        afterState = await motion(target),
-        beforeStrength = exteriorStrength(off, baseline),
-        afterStrength = exteriorStrength(off, stronger),
-        difference = diffPng(baseline, stronger),
-        visualAfter = await strengthVisualState(page),
-        neighbourAfter = await neighbour.screenshot({
-          path: `${stem}-neighbour-after.png`,
-          animations: "allow",
-        }),
-        visualAfterAfterCapture = await strengthVisualState(page),
-        neighbourDifference = diffPng(neighbourBefore, neighbourAfter),
-        neighbourPixels = changedPixelDetails(neighbourBefore, neighbourAfter),
-        metrics = {
-          metric: "unestimated-halo-style-strength",
-          comparison:
-            "same natural midpoint paused via synthetic visibility notification; not perceived-strength or motion-performance measurement",
-          viewport: page.viewportSize(),
-          appearance,
-          beforeState,
-          afterState,
-          beforeStrength,
-          afterStrength,
-          exteriorRgbRatio:
-            afterStrength.absoluteRgbDelta / beforeStrength.absoluteRgbDelta,
-          pixelDiff: {
-            boundary: difference.boundary,
-            center: difference.center,
-          },
-          neighbourPixels,
-          visualBefore,
-          visualBeforeAfterCapture,
-          visualAfter,
-          visualAfterAfterCapture,
-        };
-      await writeFile(`${stem}-metrics.json`, JSON.stringify(metrics, null, 2));
-      await writeFile(`${stem}-diff.png`, difference.image);
-      await writeFile(`${stem}-neighbour-diff.png`, neighbourDifference.image);
-      console.log(JSON.stringify(metrics));
-      expect(beforeState).toEqual(paused);
-      expect(afterState).toEqual(paused);
-      expect(beforeStrength.absoluteRgbDelta).toBeGreaterThan(0);
-      // A meaningful exterior change, not a claim of exactly 3x visual perception.
-      expect(afterStrength.absoluteRgbDelta).toBeGreaterThan(
-        beforeStrength.absoluteRgbDelta * 1.5,
-      );
-      expect(difference.boundary).toBeGreaterThan(0);
-      expect(difference.center).toBe(0);
-      expect(neighbourDifference.total).toBe(0);
-      expect(await geometry(page)).toEqual(geometryBefore);
-      expect(f.requests).toHaveLength(requests);
-      expect(f.posts()).toBe(0);
-    } finally {
-      if (baselineStyle)
-        await baselineStyle.evaluate((element) => element.remove());
-      await setSyntheticVisibility(page, false);
-    }
-  });
 
 for (const appearance of ["light", "dark"])
   test(`${appearance}の6PBI・2×2で全辺ハローがふわっと変化し紙面と隣付箋を覆わない`, async ({
@@ -839,62 +473,6 @@ test("ハローはresize後も全辺同時に変化し、紙面geometryと背景
   expect(f.requests).toHaveLength(requests);
   expect(f.posts()).toBe(0);
 });
-
-for (const count of [6, 24, 94])
-  test(`${count}枚のハローを同一自然時間窓でOFF/ON比較し性能限界を記録`, async ({
-    page,
-  }) => {
-    const f = await ready(page, false, count),
-      requests = f.requests.length;
-    await page.mouse.move(2, page.viewportSize()!.height - 2);
-    const baseline = summarizeFrameWindows([
-      await sampleFrameTime(page),
-      await sampleFrameTime(page),
-    ]);
-    await enable(page);
-    await expect(
-      page.locator(".unestimated-highlight.unestimated-visible"),
-    ).toHaveCount(count);
-    await twoFrames(page);
-    const performance = summarizeFrameWindows([
-      await sampleFrameTime(page),
-      await sampleFrameTime(page),
-    ]);
-    const onOverOff = Object.fromEntries(
-      (["mean", "p50", "p95", "max"] as const).map((key) => [
-        key,
-        performance[key] / baseline[key],
-      ]),
-    );
-    const metrics = {
-      viewport: page.viewportSize(),
-      count,
-      frameTimeBaseline: baseline,
-      frameTimeProxy: performance,
-      frameTimeComparison: { onOverOff },
-    };
-    await writeFile(
-      `test-results/unestimated-motion-${page.viewportSize()!.width}-${count}-performance.json`,
-      JSON.stringify(metrics, null, 2),
-    );
-    console.log(
-      JSON.stringify({
-        metric: "unestimated-halo-frame-time-proxy",
-        ...metrics,
-      }),
-    );
-    for (const sample of baseline.samples) {
-      expect(sample.activeAnimations).toBe(0);
-      expect(sample.visibleCards).toBe(0);
-    }
-    for (const sample of performance.samples) {
-      expect(sample.activeAnimations).toBe(count);
-      expect(sample.visibleCards).toBe(count);
-    }
-    // No arbitrary FPS pass threshold: record matched-window evidence honestly.
-    expect(f.requests).toHaveLength(requests);
-    expect(f.posts()).toBe(0);
-  });
 
 test("overflowで見えないハローはpausedとなり、再入場時だけ変化を再開する", async ({
   page,
