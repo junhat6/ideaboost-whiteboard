@@ -13,14 +13,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+  browser:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
-      # Run each enduring regression once; change-specific probes are not permanent gates.
-      - run: npm run test:e2e -- --workers=2
+      # Each case runs once across isolated runners; never share renderer CPU across workers.
+      - run: npm run test:e2e -- --workers=1 --shard=${{ matrix.shard }}/2
       - name: Keep synthetic browser failure evidence
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: browser-failure-evidence
+          name: browser-failure-evidence-${{ matrix.shard }}
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
@@ -90,7 +104,7 @@ jobs:
       ${{ github.event_name == 'push' &&
           github.ref == 'refs/heads/main' &&
           github.repository == 'junhat6/ideaboost-whiteboard' }}
-    needs: [check, auth-check]
+    needs: [check, browser, auth-check]
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
