@@ -1,8 +1,8 @@
 # 本番導入・運用
 
-## 現在の承認と状態
+## 初回導入時の承認と継続する境界
 
-2026-10-26: Cloudflare対象は junhat6@gmail.com。ユーザーは複雑なURLでの一時的な**匿名閲覧・匿名編集**を、URLを知った誰でも実Issueを変更できると確認したうえで承認した。Access allowlistの設定はしない。Source repositoryはprivateのまま。
+2026-10-26: Cloudflare対象は承認済みの固定アカウント。ユーザーは複雑なURLでの一時的な**匿名閲覧・匿名編集**を、URLを知った誰でも実Issueを変更できると確認したうえで承認した。Access allowlistの設定はしない。初回導入時のSource repositoryはprivate。ソース公開の確認事項は[PUBLICATION.md](PUBLICATION.md)を参照。
 
 既存GitHub App「Idea Boost Whiteboard」App ID 5473658 / installation 175301060に本番鍵を1本追加し、Cloudflare Worker secretへ保存する操作も承認済み。既存デモ鍵は保持し、Sites secretを抽出しない。別App Project Status Syncは変更しない。
 
@@ -12,10 +12,10 @@ Cloudflare OAuthとGitHub sudo本人確認は完了。指定アカウントだ�
 
 1. `npx wrangler login --use-keyring --scopes account:read user:read workers_scripts:write`。ChromeのCloudflareログインを本人が完了し、Wrangler consentのaccount:read / user:read / workers_scripts:write / offline_accessを確認する。既定callback localhost:8976。成功後 `npx wrangler whoami` で対象メールとaccount_idを照合する。追加scopeは勝手に広げない。
 2. account_idを固定。既存/Free枠を確認し、有料契約や課金上限変更はしない。SQLite Durable ObjectsとRate Limiting bindingを使う。Rate Limit namespace 5473658に既存用途がないか確認し、必要なら未使用の専用整数を選ぶ。
-3. `AUTH_MODE=public-temporary`、`APP_ORIGIN=https://<確定hostname>`、`PUBLIC_PATH=/b/<暗号学的乱数24byteのlowercase hex>` を設定する。pathは認証情報ではないが、リポジトリへ実URLを固定しない。preview_urls:false、run_worker_first:true。APP_ORIGIN外とpath外は拒否。
+3. `AUTH_MODE=public-temporary`、`APP_ORIGIN=https://<確定hostname>`、`PUBLIC_PATH=/b/<暗号学的乱数24byteのlowercase hex>` を設定する。pathは本人認証ではないが、匿名編集能力を持つ秘密として扱い、リポジトリ・ログへ実URLを固定しない。preview_urls:false、run_worker_first:true。APP_ORIGIN外とpath外は拒否。
 4. GitHub engineer-first → Settings → Developer settings → GitHub Apps → Idea Boost Whiteboard → Edit → Credentials → Key pairs → New key。App IDを照合し、既存鍵を削除しない。sudo/passkeyが必要なら本人へ引き継ぐ。25鍵上限なら停止する。
 5. ダウンロードPEMを秘密として扱い、本文をツール出力・チャット・引数へ出さない。標準入力で `npx wrangler secret put GITHUB_APP_PRIVATE_KEY --name ideaboost-whiteboard`。この操作は新Worker版を即時デプロイする。PKCS#1/PKCS#8対応。初回はGitHub secretなしでWorkerを作り、path/host/Originの境界を確認してから登録する。
-6. `npm ci && npm run check && npm run test:e2e`。同じcommitから承認済みCLIで `npm run deploy`。CIは検証専用。新しいGitHub Actions deploy tokenの付与は別承認。
+6. `npm ci && npm run check && npm run test:e2e`。同じcommitから承認済みCLIで `npm run deploy`。現在の通常配信は[ACTIONS-DEPLOYMENT.md](ACTIONS-DEPLOYMENT.md)の承認済みCI経路を使う。新しいtokenの付与・更新は別承認。
 7. URL、Git SHA、Cloudflare version IDを記録。本番読み取りを確認する。実IssueをQA目的で書き換えない。
 
 ## 公開モードの意味と防御

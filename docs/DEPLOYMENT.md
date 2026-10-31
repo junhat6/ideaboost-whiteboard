@@ -3,13 +3,13 @@
 - Source code commit: `5cf69633dda4f9934a9f50e44149c4ead57436f9`
 - CI: https://github.com/junhat6/ideaboost-whiteboard/actions/runs/40268427116 （success）
 - Worker: `ideaboost-whiteboard`
-- Cloudflare account: `junhat6@gmail.com` / `29a0469ba7d11f29ac94e3ed41f388a8`
+- Cloudflare account: 承認済みの固定account（識別子は配信設定で照合）
 - Plan: Free。アップグレード・有料契約変更なし。
 - Host: `https://ideaboost-whiteboard.ideaboost-whiteboard.workers.dev`
 - Active version: `1716b698-4996-4177-aed0-4a7617a00e67` （PBI完全行の端数ピクセル修正を反映）
 - Access: `public-temporary`。ランダム24byte由来の48hexパス配下で匿名閲覧・編集。パスそのものはこの記録に固定せず、配信設定と所有者への報告に保持。
 - App ID `5473658`、installation `175301060`。追加本番鍵をserver secretに保存。既存デモ鍵を保持。一時PEM削除済み。App権限・インストール対象の追加なし。
-- Source repositoryはprivate。既存Sitesデモと実Issueはテスト目的で変更していない。
+- 初回配信時のSource repositoryはprivate。既存Sitesデモと実Issueはテスト目的で変更していない。
 
 ## 本番で実施した確認
 

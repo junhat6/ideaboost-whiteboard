@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -22,6 +24,8 @@ jobs:
         shard: [1, 2]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -135,12 +139,14 @@ jobs:
       # 認証を渡す前に依存と静的bundleを準備。PR由来artifact/cacheは使わない。
       - run: npm ci
       - run: npm run build:editor
+      # URLは匿名編集能力を持つため、varsではなくenvironment secretを使う。
+      # stepヘッダー/env出力より前からrunnerのmask対象でなければならない。
       - name: Verify trusted commit and production settings
         run: node scripts/deployment-check.mjs guard
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
       - name: Deploy existing Worker without replacing runtime secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -155,8 +161,8 @@ jobs:
       - name: Read-only production health and asset verification
         run: node scripts/deployment-check.mjs smoke
         env:
-          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
       - name: Read-only current Sprint metadata and history verification
         run: node scripts/deployment-check.mjs current-sprint-smoke
         env:
-          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
