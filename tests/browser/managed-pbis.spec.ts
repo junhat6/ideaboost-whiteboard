@@ -523,6 +523,14 @@ test("手選択は全12件へ増やせ、明示top NだけProject順の追加/�
     await page.locator(`#pbi-options [data-select-pbi="${id}"]`).check();
   await page.locator("#pbi-apply").click();
   const backup = (await selection(page)).ids;
+  // Historical priority values must never override the server's shared order.
+  fixture.board.lanes.forEach((lane, index) => {
+    Object.assign(lane, {
+      priority: index % 2 ? null : 999 - index,
+      優先順位: index % 2 ? null : 999 - index,
+      優先度: index % 2 ? "最優先" : "低",
+    });
+  });
   // 他PBIの追加はmanual membershipを勝手に変更しない。
   const inserted = {
     ...structuredClone(fixture.board.lanes[0]),

@@ -307,3 +307,30 @@ PBI配下の非PBI Issueに任意の見積時間（h）を持つ。種類名を�
 詳細のIssue stateはboardが持つcanonical GitHub state/stateReasonのみを用い、Project Statusから推測しない。Openはgreen、Closed completedはpurple、not-planned/duplicateはneutral、未知は「状態未確認」。付箋へ状態badgeを戻さない。Open/Closed表示はheaderに残し、Openの時だけ「Issueをクローズ」を詳細最下部の左寄せ・低強調の独立行へ出す。コメント投稿とは別行で32px離し、隣接する二者択一に見せない。チェック入り円の既存Closedアイコン、淡い紫の面と枠・濃い紫の文字で、青い投稿primaryとは別の完了操作として示す。高さ36px、keyboard focusを保ち、送信中/再試行でもiconと文言を維持する。赤いdanger表現や追加アニメーション/APIは用いない。クローズ時に未保存本文・タイトル・Project Statusを便乗送信しない。既存のIssue単位保存queue/DO/request ID/revision/fingerprintと公開scope guardを通り、state/reasonもpreflight比較する。POST中は同Issueの追加closeを止めるがdrawerは閉じられる。成功のcanonical CLOSED/COMPLETEDを確認してから表示し、失敗・競合・結果不明は保持して勝手に再送しない。状態確認GETだけで未知結果のfenceを解除せず、公開失効時は古いstate DOMも消す。既存Done→close、他Issue並行保存、未見積の確認済null・0h区別は変更しない。
 
 headerの13px Issue state文字・icon・輪郭はdark専用の局所tokenを使い、Open #7ee787／completed #bc8cff／neutral・状態未確認 #b7bfccとする。dark surface #232730との文字contrastは順に9.73／5.93／8.07:1。ライトの既存green／purple／gray、Project Status共通token、下部の独立したClose actionの配色は変更しない。canonical文言・iconを残し、色だけで状態を伝えない。
+
+## PBIの優先順：Projectの共有手動順（2026-10-31）
+
+- 優先順の正本は GitHub Project 3 の共有手動順。view 16 の上からの順を、
+  ビュー固有のソート設定ではなく Project 全体の `POSITION ASC` として取得する。
+  数値「優先順位」と選択式「優先度」は過去値であり、取得・比較・表示・保存に使わない。
+  今回の監査でも旧フィールドの参照や採番同期処理は存在しなかった。
+- 全 `ProjectV2.items` リクエストで `orderBy:{field:POSITION,direction:ASC}` を明示する。
+  `hasNextPage` と `endCursor` によるページ順を保持し、並列で取得した詳細を
+  Project の索引順へ戻す。view のフィルター、マイルストーン、手選択は集合の絞り込みで、
+  残った PBI の相対順を変更しない。top N はその後の先頭 N 件。
+- 手選択の保存順は優先順ではなく選択対象の記録。画面内の密度・選択・スクロールや
+  付箋の移動から共有手動順は更新しない。ドラッグによる既存の Status 変更は
+  引き続き Status のみを更新する。位置更新 mutation や旧フィールドへの同期はない。
+- フィルターを適用できない既存の全体取得経路では、正式な子Issueをまとめるための
+  Project 外の親 PBI が末尾に補助表示されることがある。その親には Project の順位は
+  存在しない（`projectItemId:null`）。Issue 番号などによる代替順位ではない。
+- 重複した項目、循環カーソル、不完全な応答は失敗として扱い、旧数値へ切り替えない。
+  更新失敗時は既存の前回表示・未更新表示を維持し、再取得を案内する。
+  GitHub は複数ページにまたがる原子的なスナップショットを保証していないため、
+  取得中の並べ替えをすべて検出できる保証はない。順序が疑わしければ操作が落ち着いてから
+  「最新を取得」を行う。重複検出だけで完全な同時点整合性を保証するものではない。
+- 通常の「最新を取得」は新たに GitHub を取得する。初期表示には最大60秒の既存スナップショットを
+  利用する場合があるが、直ちに最新取得へ進む。初回描画が必ず最新の順序とは限らない。
+- 本体の変更は PR #884 でマージ済み（`500cd7aa7f9ba4f8d769d64c44c07097f0e3df85`）。
+  [ADR 0024](https://github.com/engineer-first/idea-boost/blob/develop/docs/adr/0024-pbi-shared-manual-order.md)、
+  [GitHub公式 ProjectV2.items / ProjectV2ItemOrder](https://docs.github.com/en/graphql/reference/projects#projectv2) を参照。

@@ -2,6 +2,12 @@
 /* Same-origin authenticated API only. Never accepts, persists, or exposes GitHub tokens. */
 (() => {
   const messages = {
+    project_items_unavailable:
+      "GitHub Projectの項目と共有手動順を確認できませんでした。「最新を取得」で再取得してください。",
+    pagination_error:
+      "GitHub Projectの一覧を最後まで確認できませんでした。「最新を取得」で再取得してください。",
+    project_order_unavailable:
+      "GitHub Projectの共有手動順を確認できませんでした。旧優先順位には切り替えません。「最新を取得」で再取得してください。",
     scope_not_public: "公開範囲を確認できません。表示を停止しました。",
     sign_in_required: "許可されたチームアカウントでログインし直してください。",
     github_not_configured: "GitHub Appの接続設定がまだ完了していません。",

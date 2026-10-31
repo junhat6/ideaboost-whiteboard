@@ -41,10 +41,39 @@ const BASE = "https://api.github.com";
 const CORE = `id number url title body updatedAt state stateReason author { login avatarUrl url __typename ... on User { name } } repository { nameWithOwner } issueType { name } milestone { number title state dueOn } assignees(first:10) { nodes { login name avatarUrl } pageInfo { hasNextPage } }`;
 const ISSUE = `id repository { nameWithOwner } issueType { name } milestone { number title state dueOn } parent { id repository { nameWithOwner } }`;
 const VISIBILITY = `query PublicScope { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { public } } }`;
+// Project-wide shared manual order, not a view sort or a legacy priority field.
+const PROJECT_ORDER = "orderBy:{field:POSITION,direction:ASC}";
 const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state dueOn } } } } pageInfo { hasNextPage endCursor }`;
 const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name color } } } view(number:16) { filter }`;
-const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100) { ${INDEX} } } } }`;
-const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after) { ${INDEX} } } } }`;
+const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100,${PROJECT_ORDER}) { ${INDEX} } } } }`;
+const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,${PROJECT_ORDER}) { ${INDEX} } } } }`;
+// Reject incomplete/obviously inconsistent scans instead of silently inventing an
+// order. GitHub does not promise a snapshot across cursor requests: this detects
+// duplicates and cursor cycles, not every possible concurrent Project edit.
+function projectPages() {
+  const cursors = new Set(),
+    identities = new Set();
+  return (connection) => {
+    if (
+      !Array.isArray(connection?.nodes) ||
+      typeof connection.pageInfo?.hasNextPage !== "boolean"
+    )
+      throw new ApiError(502, "project_order_unavailable");
+    for (const item of connection.nodes) {
+      const id = item?.id || item?.content?.id;
+      if (id && identities.has(id))
+        throw new ApiError(502, "project_order_unavailable");
+      if (id) identities.add(id);
+    }
+    if (connection.pageInfo.hasNextPage) {
+      const cursor = connection.pageInfo.endCursor;
+      if (typeof cursor !== "string" || !cursor || cursors.has(cursor))
+        throw new ApiError(502, "project_order_unavailable");
+      cursors.add(cursor);
+    }
+  };
+}
+
 class ApiError extends Error {
   constructor(status, code, extra = {}) {
     super(code);
@@ -605,16 +634,17 @@ export function createHandler({
       let rowIDs = null;
       if (filterApplied) {
         rowIDs = new Set();
+        const validatePage = projectPages();
         let cursor = null,
           complete = false;
-        const query = `query BoardRows($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) { nodes { isArchived content { ... on Issue { id issueType { name } repository { nameWithOwner } } } } pageInfo { hasNextPage endCursor } } } } }`;
+        const query = `query BoardRows($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter,${PROJECT_ORDER}) { nodes { isArchived content { ... on Issue { id issueType { name } repository { nameWithOwner } } } } pageInfo { hasNextPage endCursor } } } } }`;
         for (let page = 0; page < 100; page++) {
           const c = (
             await read("rows", () =>
               gql(env, query, { after: cursor, filter: viewFilter ?? "" }),
             )
           )?.organization?.projectV2?.items;
-          if (!c) throw new ApiError(502, "view_rows_unavailable");
+          validatePage(c);
           for (const item of c.nodes) {
             const i = item?.content;
             if (
@@ -643,6 +673,7 @@ export function createHandler({
       const all = new Map(),
         parents = new Map(),
         index = new Map();
+      const validatePage = projectPages();
       let after = null,
         done = false;
       for (let page = 0; page < 100; page++) {
@@ -651,7 +682,7 @@ export function createHandler({
             ? meta.items
             : (await read("index", () => gql(env, ITEMS, { after })))
                 ?.organization?.projectV2?.items;
-        if (!connection) throw new ApiError(502, "project_items_unavailable");
+        validatePage(connection);
         for (const item of connection.nodes) {
           const i = item?.content;
           if (
@@ -924,7 +955,14 @@ export function createHandler({
     await read("visibilityEnd", () => assertPublic(env));
     return { output, meta, all, timings };
   }
-  async function focusedBoard(env, milestone, meta, read, timings, observation) {
+  async function focusedBoard(
+    env,
+    milestone,
+    meta,
+    read,
+    timings,
+    observation,
+  ) {
     const own = (i) =>
       i?.id && i.repository?.nameWithOwner === `${OWNER}/${REPO}`;
     const pointValues = {},
@@ -932,9 +970,10 @@ export function createHandler({
     const fullFields = `nodes { id isArchived content { ... on Issue { ${CORE} parent { id repository { nameWithOwner } } subIssuesSummary { total } } } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } pageInfo { hasNextPage endCursor }`;
     async function pages(name, filter) {
       const items = [];
+      const validatePage = projectPages();
       let after = null;
       for (let page = 0; page < 100; page++) {
-        const base = `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter) { ${fullFields} } } } }`;
+        const base = `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter,${PROJECT_ORDER}) { ${fullFields} } } } }`;
         const data = await read(name, () =>
           (name === "BoardRowsFull" && publicProjectPoints(meta.pointsField)) ||
           (name === "BoardChildren" && publicHours(meta.hoursField, env))
@@ -960,6 +999,7 @@ export function createHandler({
               c.pageInfo.endCursor === after))
         )
           throw new ApiError(502, "project_items_unavailable");
+        validatePage(c);
         for (const item of c.nodes) {
           if (item?.isArchived || !own(item?.content)) continue;
           const i = item.content;
@@ -994,6 +1034,7 @@ export function createHandler({
     }
     async function index() {
       const result = new Map();
+      const validatePage = projectPages();
       let after = null;
       for (let page = 0; page < 100; page++) {
         const c =
@@ -1011,6 +1052,7 @@ export function createHandler({
               c.pageInfo.endCursor === after))
         )
           throw new ApiError(502, "project_items_unavailable");
+        validatePage(c);
         for (const item of c.nodes)
           if (!item.isArchived && own(item.content))
             result.set(item.content.id, item.content);
@@ -1640,7 +1682,7 @@ export function createHandler({
       const data = await gql(
         env,
         `query CommentParentScope($after:String,$filter:String!) {
-        organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter) {
+        organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,query:$filter,${PROJECT_ORDER}) {
           nodes { isArchived content { ... on Issue { repository { nameWithOwner } parent { id } } } }
           pageInfo { hasNextPage endCursor }
         } } }
