@@ -148,6 +148,9 @@ test("progress has flat segments, rounded ends and readable count across edge ca
 test("unchanged author keeps avatar DOM through fresh reads, changed author updates", async ({
   page,
 }) => {
+  // Date だけを制御し、実 timers/rAF と DOM の更新は止めない。
+  let now = Date.parse("2026-10-31T00:00:00Z");
+  await page.clock.setFixedTime(now);
   const s = await setup(page);
   (s.board.tasks[0] as any).author = {
     login: "creator",
@@ -174,9 +177,18 @@ test("unchanged author keeps avatar DOM through fresh reads, changed author upda
   });
   for (let i = 0; i < 3; i++) {
     const count = s.reads();
+    // このケースは author DOM の保持。refresh 直列化・wake-up 集約は
+    // board.spec.ts の slow poll / online ケースに残す。
+    await page.clock.setFixedTime((now += 5000));
+    const response = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/board",
+    );
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect.poll(() => s.reads()).toBeGreaterThan(count);
-    await page.waitForTimeout(150);
+    await (await response).finished();
+    await expect(page.locator("#board")).toHaveAttribute("aria-busy", "false");
+    expect(s.reads()).toBeGreaterThan(count);
   }
   const replacements = await page.evaluate(
     () => (window as any).authorReplacements,
@@ -187,6 +199,7 @@ test("unchanged author keeps avatar DOM through fresh reads, changed author upda
     ...(s.board.tasks[0] as any).author,
     name: "更新された作者",
   } as any;
+  await page.clock.setFixedTime((now += 5000));
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.locator("#issue-author")).toContainText("更新された作者", {
     timeout: 10000,

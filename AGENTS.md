@@ -30,3 +30,5 @@ UIは1920×1080と2560×1440、匿名/nonmember、繰り返し編集、競合、
 一度の変更確認用の before/after、過去 Sprint 固定の照合、性能探索は `.validation/` または `/tmp` に作成して実行し、結果・対象 SHA・コマンド・限界を変更記録に残して片付ける。通常の testDir / npm test / CI に登録しない。恒久的な「手動専用 suite」へ移すだけで済ませない。
 
 通常 CI は `check` と全 browser suite を各 1 回。focused 実行や `--repeat-each` は調査時だけ使い、同じケースを full suite の前に恒久ゲートとして重ねない。テスト削除時は失われる契約と残る検証先をレビューへ示す。速度や件数だけを目的に auth・公開範囲・競合・不明結果・重複書込み・undo・順序・a11y の回帰を削除しない。
+
+CI の browser は 2 shards × 各 1 worker。既存 `check` は unit と全 browser shard の成功を集約する必須判定名として維持し、依存の failure/cancelled/skipped を成功扱いしない。並列変更は同じ対象集合の完走・失敗・総 runner 時間で評価する。Date だけが条件の待ちは局所 `setFixedTime` を検討できるが、実 wheel/animation/geometry を仮想 clock で代替しない。

@@ -40,7 +40,7 @@
 
 通常 push/PR は `npm run check` と `npm run test:e2e` を各 1 回実行する。full suite 前の同じ focused suite、repeat-each 診断ゲートは置かない。focused 実行は開発中の短い feedback または失敗調査に使う。
 
-1920×1080 / 2560×1440 はカード密度・geometry を含む既存製品契約のため今回維持する。viewport 非依存のケースを減らす場合も、代替の検証と固有の browser リスクを個別に説明する。並列数の増加、retry、sharding だけでテストの過剰を隠さない。今回は workers/retries を変えない。
+1920×1080 / 2560×1440 はカード密度・geometry を含む既存製品契約のため今回維持する。viewport 非依存のケースを減らす場合も、代替の検証と固有の browser リスクを個別に説明する。並列数の増加、retry、sharding だけでテストの過剰を隠さない。最初の棚卸しでは workers/retries を変えず、以下の CI 実行方式の追補で別途実測して判断する。
 
 失敗時だけ合成 `test-results/` を artifact に残す。通常は失敗 screenshot とログ、調査時は `--trace on` を明示する。全件常時 trace による記録負担は追加しない。repeat が必要な race はまず制御可能な network gate/clock で条件を作る。実 rendering の試験を virtual clock の成功だけに置き換えない。
 
@@ -72,9 +72,44 @@ trusted main/commit、認証、固定 host/path、health、全 asset hash、curr
 - 失敗を直すためだけの skip、assertion 削除、snapshot 一括更新、全件 retry はしない。
 - 変更後の実測時間と環境を記録する。runner/負荷の違う旧新 run から厳密な高速化倍率を主張しない。件数減少を成果そのものにしない。
 
+## 2026-10-31 追補: CI 実行方式の実測
+
+価値のある回帰を減らさず待ち時間を短くするため、テスト内容を固定して通常 Ubuntu runner 上の実行方式を比較した。対象は 734 browser ケース（45 files、2 viewport）と 402 unit/integration。旧 56 分との比較ではなく、重複整理後の `8dd3a02c` を基準とする。
+
+| 構成 / 対象 SHA / Actions | 結果 | 検証の壁時計 | 検証 job の総 runner 時間 |
+| --- | --- | --- | --- |
+| 1 worker / `8dd3a02c` / [41172181864](https://github.com/junhat6/ideaboost-whiteboard/actions/runs/41172181864) | 734 passes | 25分08秒（browser 24.0分） | 25分08秒 |
+| 同一 runner 2 workers / `d06522cb` / [41176069009](https://github.com/junhat6/ideaboost-whiteboard/actions/runs/41176069009) | 402 passes、2 failed、1 interrupted、329未実行 | 14分52秒で失敗終了 | 14分52秒（完走比較不可） |
+| 2 runners × 1 worker / `aaf74833` / [41177219085](https://github.com/junhat6/ideaboost-whiteboard/actions/runs/41177219085) | 各367 passes、合計734、重複/欠落0 | 14分58秒（browser 各13.7/13.8分） | 31分01秒（unit76秒 + browser887/898秒） |
+
+全比較は同じ app/tests/lockfile、Ubuntu 24.04 image `20261025.353.1`、Node 24、npm cache key 同一。retry は0。2 shards は旧全734件との pass集合一致を確認し、unit/integration 402件も成功。実験 branch の auth-check/deploy は skip、本番配信していない。Date 待ち短縮はこの比較の後に追加する別変更であり、表の改善要因には含めない。
+
+この標本では待ち時間が10分10秒（約40%）減った一方、総 runner 時間は5分53秒（約23%）増えた。配信 job は比較の費用に含めない。最終構成の軽い集約 job にも追加時間がかかる。共有 runner の負荷・setup時間は一定でなく、請求分数の丸めや残枠も測っていないため、厳密な倍率や金額を保証しない。
+
+同一 runner の 2 workers は採用しない。実 wheel の残り慣性と drawer の実 geometry が失敗し、maxFailures で残りが未実行だった。失敗 run の短い経過時間を高速化と数えない。負荷による遅延と整合するが、trace/event 時刻がないため CPU 競合を唯一の原因とは断定しない。assertion 緩和・skip・retry で緑にしない。
+
+### 実行構成と保護境界
+
+- browser は 2 shards、各 runner に 1 Playwright worker。`fullyParallel: true` と `--shard=1/2`, `2/2` で対象集合を重複なく分割する。件数分割は時間均等の保証ではない。通常 suite の repeat は増やさない。
+- unit/check は 1 回。従来の required-check 名 `check` を集約 job として維持し、`if: always()` と依存結果の完全一致で unit と browser matrix の両方が `success` のときだけ成功する。failure/cancelled/skipped は拒否する。配信も全 shard と auth-check の成功が必要。
+- matrix は fail-fast を無効にして片方の失敗でももう片方の証拠を回収する。失敗 artifact 名は shard ごとに分ける。認証・main 限定の配信 guard・信頼された commit の再 build は変更しない。PR artifact を本番配信へ再利用しない。
+- runner 数の増加は待ち時間と総 runner 時間の交換条件。追加 setup/集約の費用を記録し、無料・料金減少を保証しない。larger/有料 runner は導入しない。さらに分割を増やす判断は別の必要性と実測に基づく。
+
+### タイマー待ちの局所的な短縮
+
+`diagram-scroll` の author DOM 保持と `title-cancel-sync` の繰り返し取消だけ、setup 前の `page.clock.setFixedTime` と focus 前の Date 前進で 5 秒 throttle の実時間待ちを省く。アプリ内部関数を呼んで同期を迂回せず、focus → mock GET → 完了 → DOM/競合/取消の同じ契約を確認する。author の固定 150ms 待ちは matched GET 完了と `aria-busy=false` へ置換する。
+
+`setFixedTime` は Date のみを制御し、実 timers/rAF/performance と CSS animation は維持する。full clock install は使わない。実 wheel、drawer geometry、halo の画素変化、reduced-motion ケースは改変しない。`board.spec.ts` の slow poll / online ケースは既存の制御 clock と mock 通信（slow poll は network gate も使用）で直列化・wake-up 集約を引き続き確認する（これだけで厳密な 5 秒境界の専用試験を主張しない）。
+
+### 今後の変更の判断
+
+同じテスト集合・同じ依存・runner image を記録し、全ケースの完走、失敗・retry・未実行、壁時計時間と runner 時間を確認する。自然時間の描画負荷を仮想時刻の成功に置換しない。単発の共有 runner 実測から普遍的な高速化や flake-free を保証しない。新しい診断 harness/repeat は一時検証に留め、通常 CI に残さない。
+
 ## 根拠
 
 - [Playwright Best Practices](https://playwright.dev/docs/best-practices): 利用者に見える振る舞い、独立したテスト、実装詳細への過度な依存を避ける。
 - [Google Testing Blog: Just Say No to More End-to-End Tests](https://testing.googleblog.com/2015/04/just-say-no-to-more-end-to-end-tests.html): 小さな試験による速く原因の分かる feedback と、必要な統合 workflow の釣り合い。推奨比率をこの製品のノルマにはしない。
 - [Playwright Clock](https://playwright.dev/docs/clock): タイマー条件を制御し、時間経過だけの待機を減らせる。ただし実描画性能の代替にはしない。
 - [Playwright CI](https://playwright.dev/docs/ci): CI 安定性と runner 資源に応じて実行方法を決める。並列度だけで最適化しない。
+
+- [Playwright Sharding](https://playwright.dev/docs/test-sharding): 各 runner の独立実行、fullyParallel によるケース単位の分割、matrix の結果集約。

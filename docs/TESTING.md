@@ -6,6 +6,12 @@
 
 失敗時は `test-results/` の合成 UI screenshot と CI ログを確認する。詳細な trace が必要な再現調査では `npx playwright test <対象> --trace on` を一時的に使う。自動 retry によって失敗を隠さない。
 
+## CI の実行方式
+
+`unit` は `npm run check` を 1 回、`browser (1)` / `browser (2)` は `npm run test:e2e -- --workers=1 --shard=N/2` をそれぞれ別の通常 Ubuntu runner で実行する。全 734 ケースを合計で 1 回（367+367）、両 viewport を維持する。`check` は unit と全 browser shard の成功だけを受け付ける集約判定。失敗・中断・未実行は通過扱いにしない。
+
+失敗 artifact は `browser-failure-evidence-1` / `-2`。同一 runner の 2 workers は描画・実入力ケースの失敗により採用しない。`diagram-scroll` の author 同期と `title-cancel-sync` の繰り返し取消だけ Date を制御し、実 timers/rAF は生かす。比較条件・実測・限界は [ADR 013 の追補](adr/013-sustainable-tests.md) を参照する。計測用 repeat を通常ゲートへ追加しない。
+
 ## 自動試験
 
 `npm run check`: ESLint、Worker TypeScript、Node unit/integration mock、Wrangler dry-run。

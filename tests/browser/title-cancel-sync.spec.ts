@@ -158,11 +158,15 @@ test("Enterで受け入れ済みの未保存Draft1は再編集Draft2の取消後
 test("二度の外部更新と鉛筆の再開・取消を繰り返しても古い取消値が復活しない", async ({
   page,
 }) => {
+  // 繰り返し取消の契約に不要な throttle 待ちだけ省く。実 timers/rAF は維持。
+  let now = Date.parse("2026-10-31T00:00:00Z");
+  await page.clock.setFixedTime(now);
   const s = await setup(page);
   await open(page);
   await pencil(page);
   for (const title of ["外部更新1", "外部更新2"]) {
     updateRemote(s, title);
+    await page.clock.setFixedTime((now += 5000));
     await refresh(page, s);
     await expect(page.locator("#detail-title")).toHaveValue(title);
     await expect(page.locator("#detail-title")).toBeFocused();
@@ -171,6 +175,7 @@ test("二度の外部更新と鉛筆の再開・取消を繰り返しても古�
   await expectClean(page, "外部更新2");
   await pencil(page, "再開後の取り消す入力");
   updateRemote(s, "外部更新3");
+  await page.clock.setFixedTime((now += 5000));
   await refresh(page, s);
   await expect(page.locator('[data-resolve="title"]')).toHaveCount(2);
   await page.keyboard.press("Escape");
