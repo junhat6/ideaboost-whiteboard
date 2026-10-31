@@ -81,10 +81,11 @@ trusted main/commit、認証、固定 host/path、health、全 asset hash、curr
 | 1 worker / `8dd3a02c` / [41172181864](https://github.com/junhat6/ideaboost-whiteboard/actions/runs/41172181864) | 734 passes | 25分08秒（browser 24.0分） | 25分08秒 |
 | 同一 runner 2 workers / `d06522cb` / [41176069009](https://github.com/junhat6/ideaboost-whiteboard/actions/runs/41176069009) | 402 passes、2 failed、1 interrupted、329未実行 | 14分52秒で失敗終了 | 14分52秒（完走比較不可） |
 | 2 runners × 1 worker / `aaf74833` / [41177219085](https://github.com/junhat6/ideaboost-whiteboard/actions/runs/41177219085) | 各367 passes、合計734、重複/欠落0 | 14分58秒（browser 各13.7/13.8分） | 31分01秒（unit76秒 + browser887/898秒） |
+| 同構成 + Date 待ち短縮 + 集約 check / `20beebd5` / [41178368240](https://github.com/junhat6/ideaboost-whiteboard/actions/runs/41178368240) | 各367 passes、合計734、重複/欠落0、集約成功 | 17分19秒（browser 各13.4/16.0分） | 33分11秒（unit75秒 + browser880/1033秒 + 集約3秒） |
 
-全比較は同じ app/tests/lockfile、Ubuntu 24.04 image `20261025.353.1`、Node 24、npm cache key 同一。retry は0。2 shards は旧全734件との pass集合一致を確認し、unit/integration 402件も成功。実験 branch の auth-check/deploy は skip、本番配信していない。Date 待ち短縮はこの比較の後に追加する別変更であり、表の改善要因には含めない。
+最初の3行の比較は同じ app/tests/lockfile。全 run は Ubuntu 24.04 image `20261025.353.1`、Node 24、npm cache key 同一。retry は0。2 shards は旧全734件との pass集合一致を確認し、unit/integration 402件も成功。実験 branch の auth-check/deploy は skip、本番配信していない。Date 待ち短縮は4行目だけの別変更であり、最初の3行の比較の改善要因には含めない。最終 run も同じ734ケース・402 unit/integrationが完走し、retry/failed/interrupted/未実行0。
 
-この標本では待ち時間が10分10秒（約40%）減った一方、総 runner 時間は5分53秒（約23%）増えた。配信 job は比較の費用に含めない。最終構成の軽い集約 job にも追加時間がかかる。共有 runner の負荷・setup時間は一定でなく、請求分数の丸めや残枠も測っていないため、厳密な倍率や金額を保証しない。
+2 shards の2回の観測では待ち時間が約15〜17分（基準から約31〜40%減）になった一方、総 runner 時間は約31〜33分（約23〜32%増）だった。Date 待ちを短くした最終 run のほうが全体は遅く、共有 runner の変動を示すため、全体の差をその変更の因果効果としない。配信 job は比較の費用に含めない。共有 runner の負荷・setup時間は一定でなく、請求分数の丸めや残枠も測っていないため、厳密な倍率や金額を保証しない。
 
 同一 runner の 2 workers は採用しない。実 wheel の残り慣性と drawer の実 geometry が失敗し、maxFailures で残りが未実行だった。失敗 run の短い経過時間を高速化と数えない。負荷による遅延と整合するが、trace/event 時刻がないため CPU 競合を唯一の原因とは断定しない。assertion 緩和・skip・retry で緑にしない。
 
@@ -97,7 +98,7 @@ trusted main/commit、認証、固定 host/path、health、全 asset hash、curr
 
 ### タイマー待ちの局所的な短縮
 
-`diagram-scroll` の author DOM 保持と `title-cancel-sync` の繰り返し取消だけ、setup 前の `page.clock.setFixedTime` と focus 前の Date 前進で 5 秒 throttle の実時間待ちを省く。アプリ内部関数を呼んで同期を迂回せず、focus → mock GET → 完了 → DOM/競合/取消の同じ契約を確認する。author の固定 150ms 待ちは matched GET 完了と `aria-busy=false` へ置換する。
+`diagram-scroll` の author DOM 保持と `title-cancel-sync` の繰り返し取消だけ、setup 前の `page.clock.setFixedTime` と focus 前の Date 前進で 5 秒 throttle の実時間待ちを省く。アプリ内部関数を呼んで同期を迂回せず、focus → mock GET → 完了 → DOM/競合/取消の同じ契約を確認する。author の固定 150ms 待ちは matched GET 完了と `aria-busy=false` へ置換する。 最終 run の当該ケースは author が desktop/wide で2.1/2.9秒（基準15.8/16.4秒）、繰り返し取消が2.6/3.0秒（基準11.1/11.9秒）で成功した。
 
 `setFixedTime` は Date のみを制御し、実 timers/rAF/performance と CSS animation は維持する。full clock install は使わない。実 wheel、drawer geometry、halo の画素変化、reduced-motion ケースは改変しない。`board.spec.ts` の slow poll / online ケースは既存の制御 clock と mock 通信（slow poll は network gate も使用）で直列化・wake-up 集約を引き続き確認する（これだけで厳密な 5 秒境界の専用試験を主張しない）。
 
