@@ -45,6 +45,7 @@ export function fixture({
   fieldsDenied = false,
   closeFailure = false,
   closeUncertain = false,
+  closeReadbackReason = null,
   milestones = null,
 } = {}) {
   const parent = makeIssue(1, "PBI");
@@ -196,7 +197,8 @@ export function fixture({
       Object.assign(target, body);
       if (body.state) target.state = body.state.toUpperCase();
       if (body.state_reason)
-        target.stateReason = body.state_reason.toUpperCase();
+        target.stateReason =
+          closeReadbackReason ?? body.state_reason.toUpperCase();
       if (body.state === "closed" && closeUncertain)
         throw Error("Close response lost");
       target.updatedAt = "2026-10-26T00:00:01Z";

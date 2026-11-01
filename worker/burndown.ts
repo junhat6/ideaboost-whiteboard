@@ -51,7 +51,8 @@ export function validSchoolDays(value: unknown): value is string[] {
 
 export const cancelledBurnTask = (t: BurnTask) =>
   t.status === "見送り" ||
-  (t.state === "CLOSED" && t.stateReason === "NOT_PLANNED");
+  (t.state === "CLOSED" &&
+    ["NOT_PLANNED", "DUPLICATE"].includes(t.stateReason ?? ""));
 export const completedBurnTask = (t: BurnTask) =>
   !cancelledBurnTask(t) &&
   (t.status === "完了" ||

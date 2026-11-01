@@ -178,3 +178,16 @@ Project同梱SP: PVTF→canonical IFN ID/type/ALL、通常Project独自numberの
 `server/estimate-hours.test.mjs`は公開canonical field/未取得とnull/単一field保存/解除/種類なし・未知種類/末端集計/階層欠落を確認。`tests/burndown.test.ts`はJST日次、immutable観測、singleflight、失効時の公開遮断と保管、記録上限を確認。`tests/browser/burndown.spec.ts`は両解像度で遅延load、edge/ボタン/Escape、drawer非発火、本文を巻き込まないautosave、連続変更/再訪、公開失効後ackを確認。実Issue値のQA変更は禁止。
 
 公開性の確認不能（optional queryのfallback等）は503、一致した正規fieldのORG_ONLY確認は403。いずれも記録を返さず、既存履歴を消去しない。再公開を正規readで確認できた場合のみ保管済み履歴を再び閲覧可能にする。
+
+
+## 2026-11-01: クローズ理由・学校日軸の統合変更
+
+基準は main `63dcc69708b9efb36d8380e4f10a3bc1be4912b8`。クラウドへ復元した全153ファイルは元blob SHAとtree `1056bde7b8fc89fc873fe55ab01effc9f4bb9a8e` を照合した。実Issue、日程、本番の保存データはテスト目的で変更していない。
+
+- 恒久契約: native completed/not_planned/duplicateの送信と正本readback、invalid入力拒否、Closed理由維持、reopenedからの再close、不明結果の再送防止は既存server integrationへ追加。理由メニューのDOM/keyboard/focus・送信中二重操作・Issue切替・リロード・誤った成功応答は4 browserケース（2 viewport）で接続を守る。既存close/contrast/race suiteは削除していない。
+- 学校日軸の位置計算・直線ideal・学校日外観測の補間は既存unitを拡張し、既存browserの描画期待を新契約へ更新。duplicateは見送りと同じ除外へ揃え、既存集計テストで現在のtotal/remaining/未見積と過去の保存済みred不変を確認。旧「duplicateの残り見積を保持する」期待は依頼された除外契約へ置換した。
+- 統合時 `XDG_CONFIG_HOME=/tmp/whiteboard-config npm run check` はlint/typecheck、225 + 179 = 404 unit/integration、editor bundle、Wrangler dry-runを通過。その後のduplicate集計整合はserver側28、worker側12のfocused testsを通過し、最終lint/typecheck/buildを再実行して成功。browser discoveryは742 cases / 46 files。
+- クラウドのChromiumはローカルsocket制限で起動前に停止し、許可申請による実行もsandbox初期化で停止。browser操作・描画geometry・新画面の目視はローカルでは未検証。ユーザーの参考画像の実ピクセルは確認済みだが、実装画面の検証の代用にはしない。合成fixtureの全browser suiteは既存2-shard CIで1回実行して判定する。新しい恒久診断workflowや重複full suiteは追加しない。
+- Sprint 10の日程の実接続GETは403で取得できず、設定内容は未確認。アクセス経路の迂回・設定変更はしていない。参照画像とsourceによる軸の根因確認、および合成データの検証とは区別する。
+
+一時browser設定は `.validation/` に置き、通常CIへ登録しない。参照画像・生成bundle・依存・一時ログはコミット対象外。

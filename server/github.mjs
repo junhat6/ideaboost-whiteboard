@@ -174,6 +174,7 @@ export function validateMutation(v) {
           "assignees",
           "status",
           "close",
+          "closeReason",
           "storyPoints",
           "expectedStoryPoints",
           "estimateHours",
@@ -198,6 +199,13 @@ export function validateMutation(v) {
     throw new ApiError(400, "invalid_precondition");
   if ("close" in v && v.close !== true)
     throw new ApiError(400, "invalid_close");
+  if (
+    "closeReason" in v &&
+    (v.close !== true ||
+      !["completed", "not_planned", "duplicate"].includes(v.closeReason) ||
+      (v.status === "完了" && v.closeReason !== "completed"))
+  )
+    throw new ApiError(400, "invalid_close_reason");
   if (
     typeof v.expectedFingerprint !== "string" ||
     !/^[a-f0-9]{64}$/.test(v.expectedFingerprint)
@@ -1467,7 +1475,8 @@ export function createHandler({
     }
     const changeStatus = "status" in v && v.status !== current.status;
     const closeRequested = v.status === "完了" || v.close === true,
-      closeOpenIssue = closeRequested && current.state === "OPEN";
+      closeOpenIssue = closeRequested && current.state === "OPEN",
+      closeReason = v.closeReason ?? "completed";
     let option;
     if (changeStatus) {
       if (!current.projectItemId)
@@ -1530,7 +1539,7 @@ export function createHandler({
       if (closeOpenIssue) {
         await api(env, `/repos/${OWNER}/${REPO}/issues/${number}`, {
           method: "PATCH",
-          body: { state: "closed", state_reason: "completed" },
+          body: { state: "closed", state_reason: closeReason },
         });
         completed.push("close");
       }
@@ -1602,7 +1611,8 @@ export function createHandler({
       (!changeStatus || actual.status === v.status) &&
       (!closeRequested || actual.state === "CLOSED") &&
       (!closeOpenIssue ||
-        (actual.state === "CLOSED" && actual.stateReason === "COMPLETED")) &&
+        (actual.state === "CLOSED" &&
+          actual.stateReason === closeReason.toUpperCase())) &&
       (!changePoints || actual.storyPoints === v.storyPoints) &&
       (!changeHours || actual.estimateHours === v.estimateHours);
     if (failure || !confirmed)
@@ -2010,7 +2020,10 @@ export function createHandler({
             stateReason: t.stateReason,
             complete:
               t.status !== "見送り" &&
-              !(t.state === "CLOSED" && t.stateReason === "NOT_PLANNED") &&
+              !(
+                t.state === "CLOSED" &&
+                ["NOT_PLANNED", "DUPLICATE"].includes(t.stateReason)
+              ) &&
               (t.status === "完了" ||
                 (t.state === "CLOSED" && t.stateReason === "COMPLETED")),
             milestone: (t.milestone ?? parents.get(t.lane)?.milestone)?.number,

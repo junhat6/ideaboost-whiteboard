@@ -219,7 +219,8 @@
             (patch.close === true &&
               (data.issue.state !== "CLOSED" ||
                 (old.state === "OPEN" &&
-                  data.issue.stateReason !== "COMPLETED")))
+                  data.issue.stateReason !==
+                    (patch.closeReason ?? "completed").toUpperCase())))
           ) {
             const e = new Error(
               "保存結果を確認できません。再送せず、最新を取得してください。",

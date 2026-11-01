@@ -53,6 +53,9 @@ test("未見積強調は初期OFF、確定nullの末端作業だけを型色を�
   t[8].estimateHours = null;
   t[8].state = "CLOSED";
   t[8].stateReason = "NOT_PLANNED";
+  t[10].estimateHours = null;
+  t[10].state = "CLOSED";
+  t[10].stateReason = "DUPLICATE";
   t[9].estimateHours = null;
   t[9].type = "Bug";
   // The seventh, unselected PBI must not acquire an on-board marker.
@@ -75,7 +78,7 @@ test("未見積強調は初期OFF、確定nullの末端作業だけを型色を�
       "未見積",
     );
   }
-  for (const task of [t[1], t[2], t[3], t[4], t[6], t[8]])
+  for (const task of [t[1], t[2], t[3], t[4], t[6], t[8], t[10]])
     await expect(card(page, task.id)).not.toHaveClass(/unestimated-highlight/);
   expect(
     await card(page).evaluate((n) => getComputedStyle(n).backgroundColor),

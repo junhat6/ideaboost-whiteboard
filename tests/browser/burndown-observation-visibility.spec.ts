@@ -168,32 +168,23 @@ function replaceCurrent(chart: any, remaining: number, at: string, total = 60) {
   chart.observations.push(point(day, at, remaining, total));
 }
 
-test("学校日外10/28の保存53hと10/29の23hを元日時で描き、学校6日を変更しない", async ({
+test("開始前の履歴を描画から除外し、学校6日と元日時を変更しない", async ({
   page,
 }) => {
   const f = await prepare(page);
   await open(page);
-  await expect(page.locator(".burn-point")).toHaveCount(2);
+  await expect(page.locator(".burn-point")).toHaveCount(1);
   await expect(page.locator(".burn-point title").first()).toContainText(
-    "2026-10-28: 53h",
-  );
-  await expect(page.locator(".burn-point title").first()).toContainText(
-    "19:13:18",
-  );
-  await expect(page.locator(".burn-point title").last()).toContainText(
     "2026-10-29: 23h",
   );
   await expect(page.locator(".burn-summary")).toContainText("未見積 10件");
-  const firstX = Number(
-      await page.locator(".burn-point").first().getAttribute("cx"),
-    ),
-    ideal = await page.locator(".burn-ideal").getAttribute("d");
-  expect(Number(ideal!.match(/^M\s+([\d.]+)/)![1])).toBeGreaterThan(firstX);
-  await expect(page.locator(".burn-chart svg")).toContainText("10/28");
-  const labels = await page
-    .locator(".burn-chart svg")
-    .evaluate((svg) => svg.outerHTML);
-  expect(labels).toContain("学校日外の観測日");
+  await expect(page.locator(".burn-point").first()).toHaveAttribute("cx", "60");
+  await expect(page.locator(".burn-ideal")).toHaveAttribute(
+    "d",
+    "M 60 50 L 680 310",
+  );
+  await expect(page.locator(".burn-chart svg")).not.toContainText("10/28");
+  await expect(page.locator(".burn-chart text[aria-label]")).toHaveCount(6);
   await page.locator("#burn-settings-toggle").focus();
   await page.keyboard.press("Enter");
   await expect(page.locator(".burn-calendar-count")).toHaveText("6日選択中");
@@ -332,7 +323,7 @@ test("503は前回値と元観測時刻を残し、次wakeで回復する", asyn
   );
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：23h");
   await expect(page.locator(".burn-observed")).toHaveText(observed!);
-  await expect(page.locator(".burn-point")).toHaveCount(2);
+  await expect(page.locator(".burn-point")).toHaveCount(1);
   f.hooks.get = undefined;
   replaceCurrent(f.charts[10], 18, new Date(f.now() + 45000).toISOString());
   await f.wake();
@@ -342,7 +333,7 @@ test("503は前回値と元観測時刻を残し、次wakeで回復する", asyn
   expect(f.posts()).toBe(0);
 });
 
-test("同SprintでもJST日跨ぎは45秒未満で再検証し前日の実観測を残す", async ({
+test("同SprintでもJST日跨ぎは45秒未満で再検証し開始日から実観測を描く", async ({
   page,
 }) => {
   const beforeMidnight = "2026-10-28T14:59:50Z",
@@ -359,9 +350,9 @@ test("同SprintでもJST日跨ぎは45秒未満で再検証し前日の実観測
   await expect(page.locator(".burn-observed")).toHaveText(
     "観測: 2026/10/29 0:00:01 JST",
   );
-  await expect(page.locator(".burn-point")).toHaveCount(2);
+  await expect(page.locator(".burn-point")).toHaveCount(1);
   await expect(page.locator(".burn-point title").first()).toContainText(
-    "2026-10-28: 53h",
+    "2026-10-29: 23h",
   );
   expect(f.posts()).toBe(0);
 });
@@ -542,7 +533,7 @@ test("JST跨ぎで完了した前日開始GETは当日のwake再読を一度だ�
     await expect(page.locator(".burn-observed")).toHaveText(
       "観測: 2026/10/29 0:00:01 JST",
     );
-    await expect(page.locator(".burn-point")).toHaveCount(2);
+    await expect(page.locator(".burn-point")).toHaveCount(1);
     expect(f.reads).toEqual([10, 10]);
     expect(f.posts()).toBe(0);
   } finally {

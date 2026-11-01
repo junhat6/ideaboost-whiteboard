@@ -795,7 +795,7 @@ function estimateTarget(t) {
     t.projectItemId === null ||
     (Number.isSafeInteger(t.subIssueCount) && t.subIssueCount > 0) ||
     t.status === "見送り" ||
-    (t.state === "CLOSED" && t.stateReason === "NOT_PLANNED")
+    (t.state === "CLOSED" && ["NOT_PLANNED", "DUPLICATE"].includes(t.stateReason))
   )
     return false;
   return t.subIssueCount === 0 &&
@@ -1667,12 +1667,21 @@ function canCloseIssue() {
     (!job || (job.retryReady && job.patch.close === true))
   );
 }
+function dismissCloseMenu(returnFocus = false) {
+  $("#close-issue-menu").hidden = true;
+  $("#close-issue-options").setAttribute("aria-expanded", "false");
+  if (returnFocus) $("#close-issue-options").focus();
+}
 function renderIssueState() {
   renderDetailIssueNumber();
   const badge = $("#issue-state"),
     button = $("#close-issue"),
     item = editorLatest,
     job = activeSave();
+  const options = $("#close-issue-options");
+  options.hidden = item?.state !== "OPEN";
+  options.disabled = !canCloseIssue();
+  if (options.hidden || options.disabled) dismissCloseMenu();
   if (!button.querySelector(".issue-close-label"))
     button.innerHTML = `${iconMarkup("issue-closed")}<span class="issue-close-label"></span>`;
   const buttonLabel = button.querySelector(".issue-close-label");
@@ -3220,6 +3229,7 @@ function openIssue(kind, id) {
     return;
   if ($("#details").open) discardUnsubmittedComment();
   clearDetailCopyFeedback();
+  dismissCloseMenu();
   editorSession++;
   composer?.destroy();
   composer = null;
@@ -3265,6 +3275,7 @@ function closeDetail() {
   if (d.classList.contains("closing")) return;
   clearTitleEdit();
   clearDetailCopyFeedback();
+  dismissCloseMenu();
   discardUnsubmittedComment();
   const job = activeSave();
   if (job?.phase === "posting" && job.viewDraft) {
@@ -3611,7 +3622,7 @@ $("#cancel-edit").onclick = () => {
   syncEditorControls();
 };
 $("#close-detail").onclick = closeDetail;
-$("#close-issue").onclick = () => {
+function submitIssueClose(reason = "completed") {
   if (
     !$("#details").open ||
     $("#details").classList.contains("closing") ||
@@ -3622,10 +3633,71 @@ $("#close-issue").onclick = () => {
     { ...editing },
     clone(editorLatest),
     clone(editorDraft()),
-    { close: true },
+    { close: true, ...(reason !== "completed" ? { closeReason: reason } : {}) },
     adapter,
   );
+}
+$("#close-issue").onclick = () => submitIssueClose();
+const closeMenu = $("#close-issue-menu"),
+  closeOptions = $("#close-issue-options"),
+  closeMenuItems = [...closeMenu.querySelectorAll("[role=menuitem]")];
+for (const item of closeMenuItems) {
+  item.insertAdjacentHTML("afterbegin", iconMarkup("skip"));
+  item.onclick = () => {
+    dismissCloseMenu(true);
+    submitIssueClose(item.dataset.closeReason);
+  };
+}
+function openCloseMenu(last = false) {
+  if (!canCloseIssue() || !$("#details").open) return;
+  closeMenu.hidden = false;
+  closeOptions.setAttribute("aria-expanded", "true");
+  closeMenuItems[last ? closeMenuItems.length - 1 : 0].focus();
+}
+closeOptions.onclick = () => {
+  if (closeMenu.hidden) openCloseMenu();
+  else dismissCloseMenu();
 };
+closeOptions.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    openCloseMenu(event.key === "ArrowUp");
+  }
+});
+closeMenu.addEventListener("keydown", (event) => {
+  if (event.key === "Tab") {
+    dismissCloseMenu(true);
+    return;
+  }
+  const index = closeMenuItems.indexOf(document.activeElement);
+  const next = {
+    ArrowDown: (index + 1) % closeMenuItems.length,
+    ArrowUp: (index + closeMenuItems.length - 1) % closeMenuItems.length,
+    Home: 0,
+    End: closeMenuItems.length - 1,
+  }[event.key];
+  if (next !== undefined) {
+    event.preventDefault();
+    closeMenuItems[next].focus();
+  }
+});
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (closeMenu.hidden || event.key !== "Escape" || event.isComposing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dismissCloseMenu(true);
+  },
+  true,
+);
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest(".issue-close-split")) dismissCloseMenu();
+});
+document.addEventListener("focusin", (event) => {
+  if (!event.target.closest(".issue-close-split")) dismissCloseMenu();
+});
+$("#details").addEventListener("close", () => dismissCloseMenu());
 $("#details").addEventListener("click", (e) => {
   if (e.target !== $("#details")) return;
   const bounds = $("#details").getBoundingClientRect();
@@ -4194,7 +4266,7 @@ $("#recover-edit").onclick = async () => {
       job.retryReady = true;
       job.outcome = null;
       job.error = job.patch.close
-        ? "Issueのクローズが完了していません。確認後に「クローズを再試行」を押してください。"
+        ? "Issueのクローズが完了していません。完了として再試行するか、三角から理由を選び直してください。"
         : "Statusの変更後、Issueを閉じる処理が完了していません。確認後に「完了処理を再試行」を押してください。";
       editorOutcome = null;
       $("#detail-error").textContent = job.error;

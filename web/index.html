@@ -446,9 +446,51 @@
         </form>
       </section>
       <div class="detail-footer">
-        <button type="button" id="close-issue" class="issue-state-close" hidden>
-          Issueをクローズ
-        </button>
+        <div class="issue-close-split">
+          <button
+            type="button"
+            id="close-issue"
+            class="issue-state-close"
+            hidden
+          >
+            Issueをクローズ
+          </button>
+          <button
+            type="button"
+            id="close-issue-options"
+            class="issue-state-close"
+            aria-label="クローズ理由を選ぶ"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="close-issue-menu"
+            hidden
+          >
+            <span class="issue-close-caret" aria-hidden="true"></span>
+          </button>
+          <div
+            id="close-issue-menu"
+            role="menu"
+            aria-label="クローズ理由"
+            hidden
+          >
+            <button
+              type="button"
+              role="menuitem"
+              tabindex="-1"
+              data-close-reason="not_planned"
+            >
+              見送りとしてクローズ
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              tabindex="-1"
+              data-close-reason="duplicate"
+            >
+              重複としてクローズ
+            </button>
+          </div>
+        </div>
       </div>
     </dialog>
     <dialog id="list-dialog" aria-labelledby="list-heading">

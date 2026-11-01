@@ -57,15 +57,20 @@ export function chart(data) {
     return root;
   }
   const schoolDays = [...(data.schedule?.schoolDays || [])].sort();
-  // The saved schedule remains unchanged; actual observations keep their own dates.
+  // 学校日が軸の正本。範囲外の履歴は保存したまま描画だけ除外する。
+  const visiblePoints = schoolDays.length
+    ? points.filter(
+        (point) => point.day >= schoolDays[0] && point.day <= schoolDays.at(-1),
+      )
+    : points;
   const days = [
-    ...new Set([...schoolDays, ...points.map((p) => p.day)]),
+    ...new Set([...schoolDays, ...visiblePoints.map((p) => p.day)]),
   ].sort();
+  const ticks = schoolDays.length ? schoolDays : days;
   if (!days.length) {
     root.append(node("p", "記録なし", "burn-empty"));
     return root;
   }
-  const visiblePoints = points;
   const ideal =
     schoolDays.length >= 2 && summary?.estimated
       ? summary.estimatedHours
@@ -73,15 +78,29 @@ export function chart(data) {
   const svg = svgNode("svg", {
     viewBox: "0 0 720 380",
     role: "img",
-    "aria-label": `学校日と保存観測日ごとの残り見積時間。青は${historical ? "最終記録の" : "現在の"}全体見積から計算した理想、赤は実際の観測。単位は時間。`,
+    "aria-label": `学校日を等間隔にした残り見積時間。学校日間の観測は日付の比率で配置。青は${historical ? "最終記録の" : "現在の"}全体見積から計算した理想、赤は実際の観測。単位は時間。`,
   });
   const max = Math.max(
     1,
     ideal || 0,
     ...visiblePoints.map((p) => p.remainingHours),
   );
-  const x = (day) =>
-    60 + (days.length === 1 ? 0 : days.indexOf(day) / (days.length - 1)) * 620;
+  const x = (day) => {
+    if (ticks.length === 1) return 60;
+    let index = ticks.indexOf(day);
+    if (index < 0) {
+      const next = ticks.findIndex((tick) => tick > day);
+      // day は保存済みJST暦日。UTC midnightは日数差の計算だけに使い、
+      // 観測時刻や端末のtimezoneで日付を再解釈しない。
+      const time = (date) => Date.parse(`${date}T00:00:00Z`);
+      index =
+        next -
+        1 +
+        (time(day) - time(ticks[next - 1])) /
+          (time(ticks[next]) - time(ticks[next - 1]));
+    }
+    return 60 + (index / (ticks.length - 1)) * 620;
+  };
   const y = (value) => 310 - (value / max) * 260;
   for (let i = 0; i <= 4; i++) {
     const value = (max * i) / 4;
@@ -102,22 +121,8 @@ export function chart(data) {
   }
   svg.append(svgNode("text", { x: 12, y: 24, class: "burn-axis" }, "h"));
   if (ideal !== null) {
-    const withinSchool = days.filter(
-      (day) => day >= schoolDays[0] && day <= schoolDays.at(-1),
-    );
-    // Preserve the original straight school-day line unless an observed extra day
-    // needs an explicit hold. Never invent ideal values outside the school range.
-    let idealPath = `M ${x(schoolDays[0])} ${y(ideal)} L ${x(schoolDays.at(-1))} ${y(0)}`;
-    if (withinSchool.some((day) => !schoolDays.includes(day))) {
-      let schoolIndex = 0;
-      idealPath = withinSchool
-        .map((day, i) => {
-          if (schoolDays.includes(day)) schoolIndex = schoolDays.indexOf(day);
-          const value = ideal * (1 - schoolIndex / (schoolDays.length - 1));
-          return `${i ? "L" : "M"} ${x(day)} ${y(value)}`;
-        })
-        .join(" ");
-    }
+    // 最新の全体見積を最初から引き直す。追加見積の日にも折れ曲げない。
+    const idealPath = `M ${x(schoolDays[0])} ${y(ideal)} L ${x(schoolDays.at(-1))} ${y(0)}`;
     svg.append(
       svgNode("path", {
         d: idealPath,
@@ -151,9 +156,9 @@ export function chart(data) {
     svg.append(circle);
   }
   svg.append(svgNode("path", { d: path, class: "burn-actual", fill: "none" }));
-  const stride = Math.max(1, Math.ceil(days.length / 10));
-  days.forEach((day, i) => {
-    if (i % stride === 0 || i === days.length - 1) {
+  const stride = Math.max(1, Math.ceil(ticks.length / 10));
+  ticks.forEach((day, i) => {
+    if (i % stride === 0 || i === ticks.length - 1) {
       const label = `${day} ${schoolDays.includes(day) ? "学校日" : "学校日外の観測日"}`;
       const tick = svgNode(
         "text",

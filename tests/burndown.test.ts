@@ -415,7 +415,7 @@ test("日程validationは実在日付/順序/重複/長さ/Originを限定する
   );
   assert.equal(f.reads, 0);
 });
-test("Status完了またはclosed-completedは残りから除き、not_planned/見送りは成果にしない", () => {
+test("Status完了またはclosed-completedは残りから除き、not_planned/duplicate/見送りは成果にしない", () => {
   const f = fixture();
   const base = f.data.tasks[0];
   const cases = [
@@ -439,6 +439,12 @@ test("Status完了またはclosed-completedは残りから除き、not_planned/�
       complete: false,
     },
     {
+      status: "完了",
+      state: "CLOSED",
+      stateReason: "DUPLICATE",
+      complete: false,
+    },
+    {
       status: "見送り",
       state: "CLOSED",
       stateReason: "COMPLETED",
@@ -452,15 +458,15 @@ test("Status完了またはclosed-completedは残りから除き、not_planned/�
   const sum = summarizeBurn(f.data.tasks);
   assert.equal(sum.estimatedHours, 6);
   assert.equal(sum.remainingHours, 2);
-  assert.equal(sum.cancelled, 2);
+  assert.equal(sum.cancelled, 3);
   f.data.tasks[1].complete = false;
   assert.equal(validateBurnSource(f.data), false);
 });
 
-test("重複closeは履歴・日程設定を止めず、非Doneの残り見積を維持する", async () => {
+test("重複closeは見送り同様に見積対象から除外し、過去の観測を書き換えない", async () => {
   const f = fixture();
   assert.equal((await f.read()).status, 200);
-  f.advance(60000);
+  f.advance(3600001);
   Object.assign(f.data.tasks[0], {
     state: "CLOSED",
     stateReason: "DUPLICATE",
@@ -470,12 +476,14 @@ test("重複closeは履歴・日程設定を止めず、非Doneの残り見積�
   const result: any = await response.json();
   assert.equal(validateBurnSource(f.data), true);
   assert.equal(completedBurnTask(f.data.tasks[0]), false);
-  assert.equal(result.current.remainingHours, 2);
-  assert.equal(result.current.estimatedHours, 2);
+  assert.equal(result.current.remainingHours, 0);
+  assert.equal(result.current.estimatedHours, 0);
   assert.equal(result.current.unestimated, 1);
-  assert.equal(result.current.total, 2);
-  assert.equal(result.current.cancelled, 0);
-  assert.equal(result.observations.at(-1).remainingHours, 2);
+  assert.equal(result.current.total, 1);
+  assert.equal(result.current.cancelled, 1);
+  assert.equal(result.observations.at(-1).remainingHours, 0);
+  assert.equal(result.observations[0].remainingHours, 2);
+  assert.equal(result.observations[0].day, "2026-10-27");
   assert.equal(
     (await f.history.fetch(settingsRequest(["2026-10-27", "2026-10-28"])))
       .status,
@@ -484,8 +492,10 @@ test("重複closeは履歴・日程設定を止めず、非Doneの残り見積�
   f.data.tasks[0].complete = true;
   assert.equal(validateBurnSource(f.data), false);
   f.data.tasks[0].status = "完了";
+  assert.equal(validateBurnSource(f.data), false);
+  f.data.tasks[0].complete = false;
   assert.equal(validateBurnSource(f.data), true);
-  assert.equal(completedBurnTask(f.data.tasks[0]), true);
+  assert.equal(completedBurnTask(f.data.tasks[0]), false);
   f.data.tasks[0].stateReason = "UNKNOWN";
   assert.equal(validateBurnSource(f.data), false);
 });

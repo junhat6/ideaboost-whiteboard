@@ -72,13 +72,12 @@ const data = {
     observation("2026-10-29", "2026-10-28T18:02:40.037Z", 23),
   ],
 };
-test("学校日開始前の保存済み10/28・53hも正しい日付の赤点を残す", () => {
+test("学校日開始前の観測は描画から除外し、保存日程と履歴は変更しない", () => {
   const before = structuredClone(data),
     root = render(data),
     points = nodes(root, "burn-point");
-  assert.equal(points.length, 2);
-  assert.match(points[0].children[0].textContent, /2026-10-28.*53h/);
-  assert.match(points[1].children[0].textContent, /2026-10-29.*23h/);
+  assert.equal(points.length, 1);
+  assert.match(points[0].children[0].textContent, /2026-10-29.*23h/);
   assert.deepEqual(data, before, "描画で学校日や保存履歴を変更しない");
 });
 function pathPoints(root: Element, className: string) {
@@ -110,7 +109,7 @@ test("学校日だけの場合は既存青線の座標と60/43の異なる指標
     /43h.*未見積10件/,
   );
 });
-test("学校日間の実観測は青の直前学校日値を保持し、未観測学校日で赤を切る", () => {
+test("学校日間の実観測は暦日比率で配置し、青は直線、未観測学校日で赤を切る", () => {
   const root = render({
     ...data,
     observedAt: "2026-11-04T08:00:00Z",
@@ -124,11 +123,12 @@ test("学校日間の実観測は青の直前学校日値を保持し、未観�
   });
   const ideal = pathPoints(root, "burn-ideal"),
     actual = pathPoints(root, "burn-actual");
-  assert.equal(ideal.length, 4);
+  assert.equal(ideal.length, 2);
   assert.deepEqual(
     ideal.map((point) => point.y),
-    [50, 50, 180, 310],
+    [50, 310],
   );
+  assert.equal(actual[1].x, 60 + 310 / 4);
   assert.deepEqual(
     actual.map((point) => point.command),
     ["M", "L", "M"],
@@ -136,43 +136,31 @@ test("学校日間の実観測は青の直前学校日値を保持し、未観�
   assert.equal(actual.at(-1)!.y, 310, "実際に完了した0hは正当な赤点");
   assert.equal(nodes(root, "burn-point").length, 3);
 });
-test("学校期間の前後の実観測は日付を移さず青線は学校期間で止める", () => {
+test("学校期間の前後の観測は非表示、境界学校日だけに軸を限定", () => {
   const root = render({
     ...data,
     observedAt: "2026-11-10T08:00:00Z",
     schedule: { schoolDays: ["2026-10-29", "2026-11-02"] },
     observations: [at("2026-10-28", 53), at("2026-11-10", 12)],
   });
-  const ideal = pathPoints(root, "burn-ideal"),
-    actual = pathPoints(root, "burn-actual");
-  assert.equal(actual[0].x, 60);
-  assert.equal(actual[1].x, 680);
-  assert.ok(ideal[0].x > 60);
-  assert.ok(ideal[1].x < 680);
+  assert.equal(nodes(root, "burn-point").length, 0);
   assert.deepEqual(
-    actual.map((point) => point.command),
-    ["M", "M"],
+    pathPoints(root, "burn-ideal").map((p) => p.x),
+    [60, 680],
   );
-  assert.match(
-    nodes(root, "burn-point")[0].attributes["aria-label"],
-    /2026-10-28/,
-  );
-  assert.match(
-    nodes(root, "burn-point")[1].attributes["aria-label"],
-    /2026-11-10/,
-  );
+  assert.equal(nodes(root, "burn-actual")[0].attributes.d, "");
 });
 test("同日の順不同観測は最後の保存時刻を選び原JST時刻も示す", () => {
   const root = render({
     ...data,
     observations: [
-      observation("2026-10-28", "2026-10-28T10:13:18.433Z", 53),
-      observation("2026-10-28", "2026-10-28T08:00:00Z", 58),
+      observation("2026-10-29", "2026-10-28T18:01:18.433Z", 53),
+      observation("2026-10-29", "2026-10-28T16:00:00Z", 58),
     ],
   });
   const points = nodes(root, "burn-point");
   assert.equal(points.length, 1);
-  assert.match(points[0].children[0].textContent, /53h.*19:13:18/);
+  assert.match(points[0].children[0].textContent, /53h.*3:01:18/);
 });
 test("未見積だけの観測は完了0hとして描かず、学校日外のunknownで赤線を切る", () => {
   const unknown = {
@@ -201,7 +189,8 @@ test("記録上限時に現在23hから未保存の赤点を作らない", () =>
   const root = render({
     ...data,
     recordingLimited: true,
-    observations: [data.observations[0]],
+    observations: [at("2026-10-29", 53)],
+    observedAt: "2026-10-29T08:00:00Z",
   });
   assert.equal(nodes(root, "burn-point").length, 1);
   assert.match(nodes(root, "burn-point")[0].children[0].textContent, /53h/);
@@ -255,7 +244,7 @@ test("historical61hは現scopeの0や境界時刻以降の観測で書き換え�
 for (const schoolDays of [[], ["2026-10-29"]])
   test(`学校日${schoolDays.length}日の時は保存点を残すが理想を作らない`, () => {
     const root = render({ ...data, schedule: { schoolDays } });
-    assert.equal(nodes(root, "burn-point").length, 2);
+    assert.equal(nodes(root, "burn-point").length, schoolDays.length ? 1 : 2);
     assert.equal(nodes(root, "burn-ideal").length, 0);
   });
 test("historical未記録は現在scopeや現在値で過去点を補完しない", () => {
@@ -271,4 +260,45 @@ test("historical未記録は現在scopeや現在値で過去点を補完しな�
   });
   assert.equal(nodes(root, "burn-point").length, 0);
   assert.equal(nodes(root, "burn-empty")[0].textContent, "記録なし");
+});
+
+// 最小層で守る契約: scope変更は青の開始値のみ引き直し、日次履歴・軸を改変しない。
+test("再見積後も学校日は等間隔、休校日は無ラベルの内挿点、未来の実績を作らない", () => {
+  const observations = [
+    at("2026-10-29", 30),
+    at("2026-10-30", 31),
+    at("2026-10-31", 31),
+    at("2026-11-01", 31),
+    at("2026-11-02", 0),
+  ];
+  const root = render({
+    ...data,
+    current: { ...summary, estimatedHours: 87 },
+    observedAt: "2026-11-01T08:00:00Z",
+    observations,
+  });
+  const ticks = nodes(root, "burn-axis").filter(
+    (p) => p.attributes["aria-label"],
+  );
+  assert.equal(ticks.length, 6);
+  assert.deepEqual(
+    ticks.map((p) => Number(p.attributes.x)),
+    [60, 184, 308, 432, 556, 680],
+  );
+  assert.deepEqual(
+    nodes(root, "burn-point").map((p) => Number(p.attributes.cx)),
+    [60, 91, 122, 153],
+  );
+  assert.deepEqual(pathPoints(root, "burn-ideal"), [
+    { command: "M", x: 60, y: 50 },
+    { command: "L", x: 680, y: 310 },
+  ]);
+  assert.equal(
+    Number(nodes(root, "burn-point")[0].attributes.cy),
+    310 - (30 / 87) * 260,
+  );
+  assert.match(
+    nodes(root, "burn-point")[3].attributes["aria-label"],
+    /2026-11-01.*学校日外/,
+  );
 });

@@ -371,12 +371,13 @@ function assertObservationReadOnly(...fixtures) {
 
 function observationReadFixture({
   viewFilter = "type:PBI",
+  initialStatus = null,
   assigneesStatus = 200,
   assigneesGate,
   onAssigneesRead = () => {},
   visibility = "public",
 } = {}) {
-  const f = fixture({ viewFilter, parentInProject: true });
+  const f = fixture({ viewFilter, parentInProject: true, initialStatus });
   f.issue.body = "観測元の本文を保持";
   f.issue.assignees.nodes = [
     {
@@ -441,6 +442,22 @@ function observationReadFixture({
     finalVisibilityReads: () => finalVisibilityReads,
   };
 }
+
+test("観測はStatus完了でも見送り・重複クローズを成果にせず、正本の理由と見積を保持する", async () => {
+  for (const stateReason of ["COMPLETED", "NOT_PLANNED", "DUPLICATE"]) {
+    const f = observationReadFixture({ initialStatus: "完了" });
+    Object.assign(f.f.issue, { state: "CLOSED", stateReason });
+    const response = await f.handler(req("/api/burndown"), config);
+    assert.equal(response.status, 200);
+    const { tasks } = await response.json();
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].complete, stateReason === "COMPLETED");
+    assert.equal(tasks[0].stateReason, stateReason);
+    assert.equal(tasks[0].status, "完了");
+    assert.equal(tasks[0].estimate, 1.5);
+    assertObservationReadOnly(f);
+  }
+});
 
 test("観測は担当者候補503に依存せず、候補一覧なしで同じsourceを返す", async () => {
   const healthy = observationReadFixture(),
