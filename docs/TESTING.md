@@ -191,3 +191,5 @@ Project同梱SP: PVTF→canonical IFN ID/type/ALL、通常Project独自numberの
 - Sprint 10の日程の実接続GETは403で取得できず、設定内容は未確認。アクセス経路の迂回・設定変更はしていない。参照画像とsourceによる軸の根因確認、および合成データの検証とは区別する。
 
 一時browser設定は `.validation/` に置き、通常CIへ登録しない。参照画像・生成bundle・依存・一時ログはコミット対象外。
+
+初回統合CI [41265621483](https://github.com/junhat6/ideaboost-whiteboard/actions/runs/41265621483)（`6a418908095309a00ad908571be2a36874001bd9`）はunit/auth成功、browserは各370成功・1失敗で合計740成功・2失敗、配信はskip。両方の失敗は既存footerテストの`.detail-footer > #close-issue`が旧直下DOMだけを指していたためで、新しい分割ボタンのwrapperを認識できなかった。selectorだけを`.detail-footer #close-issue`へ補正し、最下部/左寄せ/コメントとの距離/非便乗保存の期待、timeout、retry設定は維持する。ローカルbrowserを実行できなかった環境でのfixture更新漏れであり、機能の失敗をskipで隠すものではない。補正後のcommitを通常CIで再検証する。初回CIの合成artifactから主ボタンと三角のidle表示、学校日を等間隔にした青い直線を実ピクセルでも確認した（メニュー展開画像の目視は未実施）。

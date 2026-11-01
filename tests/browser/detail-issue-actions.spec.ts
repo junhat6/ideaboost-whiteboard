@@ -295,7 +295,7 @@ test("Close stays separate at the bottom left while the canonical state remains 
   await expect(page.locator("#issue-state")).toBeInViewport();
   await expect(page.locator(".issue-state-row #close-issue")).toHaveCount(0);
   await expect(page.locator("#comment-form #close-issue")).toHaveCount(0);
-  const closeButton = page.locator(".detail-footer > #close-issue");
+  const closeButton = page.locator(".detail-footer #close-issue");
   await expect(closeButton).not.toBeInViewport();
   await fillEditor(page, "クローズに便乗させない本文");
   await page.locator("#comment-body").fill("クローズに便乗させないコメント");
