@@ -39,7 +39,7 @@ for (const theme of ["light", "dark"])
       await page.locator('[data-open="t0-0-0"]').click();
       await expect(page.locator("#comments-refresh")).toBeEnabled();
       const button = page.getByRole("button", {
-        name: "Issueをクローズ",
+        name: "IssueをClose",
         exact: true,
       });
       await button.scrollIntoViewIfNeeded();
@@ -101,7 +101,7 @@ for (const theme of ["light", "dark"])
       await capture("idle");
       await page.keyboard.press("Space");
       await expect.poll(() => posts.length).toBe(1);
-      await expect(page.locator("#close-issue")).toHaveText("クローズ中…");
+      await expect(page.locator("#close-issue")).toHaveText("Close中…");
       await expect(page.locator("#close-issue")).toHaveAttribute(
         "aria-busy",
         "true",
@@ -112,7 +112,7 @@ for (const theme of ["light", "dark"])
       release();
       await expect(page.locator("#recover-edit")).toBeEnabled();
       await page.locator("#recover-edit").click();
-      await expect(page.locator("#close-issue")).toHaveText("クローズを再試行");
+      await expect(page.locator("#close-issue")).toHaveText("Closeを再試行");
       await expect(page.locator("#close-issue")).toBeEnabled();
       await expect(page.locator("#close-issue svg")).toHaveCount(1);
       await capture("retry");

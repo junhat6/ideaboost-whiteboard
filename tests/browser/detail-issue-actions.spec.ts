@@ -306,7 +306,7 @@ test("Close stays separate at the bottom left while the canonical state remains 
   expect(bounds.y - (postBounds.y + postBounds.height)).toBeGreaterThanOrEqual(
     24,
   );
-  await expect(closeButton).toHaveText("Issueをクローズ");
+  await expect(closeButton).toHaveText("IssueをClose");
   await expect(closeButton.locator("svg.octicon-issue-closed")).toHaveCount(1);
   expect(
     await closeButton.evaluate(

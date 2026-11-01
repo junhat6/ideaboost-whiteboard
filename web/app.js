@@ -1692,7 +1692,7 @@ function renderIssueState() {
     badge.setAttribute("aria-label", "GitHub Issueの状態");
     button.hidden = true;
     button.disabled = true;
-    buttonLabel.textContent = "Issueをクローズ";
+    buttonLabel.textContent = "IssueをClose";
     button.setAttribute("aria-busy", "false");
     return;
   }
@@ -1721,11 +1721,11 @@ function renderIssueState() {
   button.disabled = !canCloseIssue();
   buttonLabel.textContent =
     job?.patch.close && job.phase === "posting"
-      ? "クローズ中…"
+      ? "Close中…"
       : job?.patch.close && job.retryReady
-        ? "クローズを再試行"
-        : "Issueをクローズ";
-  button.title = "完了としてクローズします。Project Statusは変更しません。";
+        ? "Closeを再試行"
+        : "IssueをClose";
+  button.title = "完了としてCloseします。Project Statusは変更しません。";
   button.setAttribute(
     "aria-busy",
     String(job?.patch.close === true && job.phase === "posting"),
@@ -4254,7 +4254,7 @@ $("#recover-edit").onclick = async () => {
     const job = activeSave();
     if (job?.closeIntent && editorOutcome.uncertain) {
       $("#detail-error").textContent =
-        `${job.patch.close ? "クローズ" : "完了処理"}の結果が不明です。再送せず、管理者による保存結果の確認が必要です。`;
+        `${job.patch.close ? "Close" : "完了処理"}の結果が不明です。再送せず、管理者による保存結果の確認が必要です。`;
       $("#detail-error").hidden = false;
       editorBusy = false;
       syncEditorControls();
@@ -4266,7 +4266,7 @@ $("#recover-edit").onclick = async () => {
       job.retryReady = true;
       job.outcome = null;
       job.error = job.patch.close
-        ? "Issueのクローズが完了していません。完了として再試行するか、三角から理由を選び直してください。"
+        ? "IssueのCloseが完了していません。完了として再試行するか、三角から理由を選び直してください。"
         : "Statusの変更後、Issueを閉じる処理が完了していません。確認後に「完了処理を再試行」を押してください。";
       editorOutcome = null;
       $("#detail-error").textContent = job.error;

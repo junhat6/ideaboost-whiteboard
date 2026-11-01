@@ -212,7 +212,7 @@ for (const theme of ["light", "dark"] as const)
         await expect(page.locator("#detail-status")).toHaveValue("完了");
         await expect(page.locator("#close-issue")).toBeEnabled();
         await expect(page.locator("#close-issue")).toHaveText(
-          "Issueをクローズ",
+          "IssueをClose",
         );
         await expect(
           page.locator("#close-issue svg.octicon-issue-closed"),

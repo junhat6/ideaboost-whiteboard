@@ -213,7 +213,7 @@ mermaid fenceは近傍でWorker描画し、通常は図、選択/鉛筆では原
 - 原文・アバター・状態の意味を維持する。色だけで情報を伝えない。
 - 最初の4枚を必ず見せ、残りを件数で明示する。
 - 保存結果を GitHub から確認し、失敗・競合・更新時刻を正直に表示する。
-- Project StatusとIssue stateは独立した正本。白板の明示操作でStatusを完了へ変更した時、または詳細の「Issueをクローズ」を押した時に、その対象IssueをcompletedとしてCloseする。詳細の隣接する三角メニューからはnot_planned／duplicateを理由に閉じられる。詳細からのクローズはProject Statusを変更しない。既にclosedなら状態は変更しない。未完了へ戻しても自動Reopenしない。親子への連鎖や既存Doneの一括処理はしない。見送りを完了に数えない。
+- Project StatusとIssue stateは独立した正本。白板の明示操作でStatusを完了へ変更した時、または詳細の「IssueをClose」を押した時に、その対象IssueをcompletedとしてCloseする。詳細の隣接する三角メニューからはnot_planned／duplicateを理由に閉じられる。詳細からのクローズはProject Statusを変更しない。既にclosedなら状態は変更しない。未完了へ戻しても自動Reopenしない。親子への連鎖や既存Doneの一括処理はしない。見送りを完了に数えない。
 - 白い作業面を基本に、長文の可読性とキーボード操作を実機サイズで検証する。
 - 宣伝ページ、サイドナビ常設、意味のないカード列、ダミーの実績値を追加しない。
 
@@ -304,7 +304,7 @@ PBI配下の非PBI Issueに任意の見積時間（h）を持つ。種類名を�
 
 詳細上端のIssue番号は16pxの文字だけのnative buttonとし、追加アイコン・説明tooltipは置かない。表示番号と一致する固定repoのcanonical Issue URLだけをクリック/Enter/Spaceでコピーする。URL未確認は無効化してariaで伝え、clipboard成功後だけ番号の横に一時的なチェックと「コピーしました」をdialog内live statusで2秒表示し、拒否時も同じ場所で失敗を伝える。常設コピーアイコンは追加せず、番号・×・見出しの位置は変えない。再クリックで表示timerを更新し、Issue切替/close/公開失効/接続変更で通知と旧完了の所有権を即消去する。古い接続元・drawer sessionの完了通知は新しいIssueへ出さず、追加APIは呼ばない。
 
-詳細のIssue stateはboardが持つcanonical GitHub state/stateReasonのみを用い、Project Statusから推測しない。Openはgreen、Closed completedはpurple、not-planned/duplicateはneutral、未知は「状態未確認」。付箋へ状態badgeを戻さない。Open/Closed表示はheaderに残し、Openの時だけ「Issueをクローズ」を詳細最下部の左寄せ・低強調の独立行へ出す。コメント投稿とは別行で32px離し、隣接する二者択一に見せない。チェック入り円の既存Closedアイコン、淡い紫の面と枠・濃い紫の文字で、青い投稿primaryとは別の完了操作として示す。高さ36px、keyboard focusを保ち、送信中/再試行でもiconと文言を維持する。赤いdanger表現や追加アニメーション/APIは用いない。クローズ時に未保存本文・タイトル・Project Statusを便乗送信しない。既存のIssue単位保存queue/DO/request ID/revision/fingerprintと公開scope guardを通り、state/reasonもpreflight比較する。POST中は同Issueの追加closeを止めるがdrawerは閉じられる。成功のcanonical CLOSEDと送信した理由（省略時COMPLETED）を確認してから表示し、失敗・競合・結果不明は保持して勝手に再送しない。状態確認GETだけで未知結果のfenceを解除せず、公開失効時は古いstate DOMも消す。既存Done→close、他Issue並行保存、未見積の確認済null・0h区別は変更しない。
+詳細のIssue stateはboardが持つcanonical GitHub state/stateReasonのみを用い、Project Statusから推測しない。Openはgreen、Closed completedはpurple、not-planned/duplicateはneutral、未知は「状態未確認」。付箋へ状態badgeを戻さない。Open/Closed表示はheaderに残し、Openの時だけ「IssueをClose」を詳細最下部の左寄せ・低強調の独立行へ出す。コメント投稿とは別行で32px離し、隣接する二者択一に見せない。チェック入り円の既存Closedアイコン、淡い紫の面と枠・濃い紫の文字で、青い投稿primaryとは別の完了操作として示す。高さ36px、keyboard focusを保ち、送信中/再試行でもiconと文言を維持する。赤いdanger表現や追加アニメーション/APIは用いない。クローズ時に未保存本文・タイトル・Project Statusを便乗送信しない。既存のIssue単位保存queue/DO/request ID/revision/fingerprintと公開scope guardを通り、state/reasonもpreflight比較する。POST中は同Issueの追加closeを止めるがdrawerは閉じられる。成功のcanonical CLOSEDと送信した理由（省略時COMPLETED）を確認してから表示し、失敗・競合・結果不明は保持して勝手に再送しない。状態確認GETだけで未知結果のfenceを解除せず、公開失効時は古いstate DOMも消す。既存Done→close、他Issue並行保存、未見積の確認済null・0h区別は変更しない。
 
 headerの13px Issue state文字・icon・輪郭はdark専用の局所tokenを使い、Open #7ee787／completed #bc8cff／neutral・状態未確認 #b7bfccとする。dark surface #232730との文字contrastは順に9.73／5.93／8.07:1。ライトの既存green／purple／gray、Project Status共通token、下部の独立したClose actionの配色は変更しない。canonical文言・iconを残し、色だけで状態を伝えない。
 
@@ -336,9 +336,9 @@ headerの13px Issue state文字・icon・輪郭はdark専用の局所tokenを使
   [GitHub公式 ProjectV2.items / ProjectV2ItemOrder](https://docs.github.com/en/graphql/reference/projects#projectv2) を参照。
 
 
-### クローズ理由の分割ボタン
+### Close理由の分割ボタン
 
-既存の「Issueをクローズ」は文言・淡い紫の低強調を維持し、毎回completedとして送信する。隣接する36px以上の三角ボタンから上方向の小さなメニューを開き、「見送りとしてクローズ」「重複としてクローズ」をその場限りの操作として実行する。選択を主ボタンに記憶しない。参考画像のチェック付きcompleted選択肢は主ボタンと重複するため省き、重複先入力・関連づけのサブ画面は追加しない。duplicateはGitHubのnative reasonであり、not_plannedやlabelで代用しない。
+「IssueをClose」は淡い紫の低強調を維持し、毎回completedとして送信する。隣接する36px以上の三角ボタンから上方向の小さなメニューを開き、「見送りとしてClose」「重複としてClose」をその場限りの操作として実行する。選択を主ボタンに記憶しない。参考画像のチェック付きcompleted選択肢は主ボタンと重複するため省き、重複先入力・関連づけのサブ画面は追加しない。duplicateはGitHubのnative reasonであり、not_plannedやlabelで代用しない。
 
 メニューは上下矢印/Home/End、Enter/Spaceで操作できる。Escapeはメニューだけを閉じて三角へfocusを戻し、Tab/Shift+Tabは三角を起点に次/前の操作へ進み、外クリックは移動先のfocusを奪わない。Issue切替・drawer終了・公開失効・保存開始で閉じる。同Issue送信中は主ボタンと三角の両方を無効にし、既存のqueueと結果不明fenceを共有する。既知失敗後は再取得してから理由を選び直せるが、主ボタンは再試行時もcompleted。既に閉じたIssueの理由やreopen後の正本理由を推測・上書きしない。GitHubに選択理由が反映されたと確認できない応答を成功表示しない。
 

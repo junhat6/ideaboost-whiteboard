@@ -228,7 +228,7 @@ for (const uncertain of [false, true])
       await expect(page.locator("#close-issue")).toBeDisabled();
       await expect(page.locator("#detail-error")).toContainText("結果が不明");
     } else {
-      await expect(page.locator("#close-issue")).toHaveText("クローズを再試行");
+      await expect(page.locator("#close-issue")).toHaveText("Closeを再試行");
       await expect(page.locator("#close-issue")).toBeEnabled();
       await page.locator("#close-issue").click();
       await expect(page.locator("#issue-state")).toHaveText("Closed · 完了");
