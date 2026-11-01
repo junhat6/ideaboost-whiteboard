@@ -319,7 +319,7 @@ test("履歴失効後に古い公開boardが戻っても時間を復活せず、
     }
     if (reads > 2)
       return r.fulfill({ status: 503, json: { error: "unavailable" } });
-    return r.fulfill({ json: withRebase(data) });
+    return r.fulfill({ json: data });
   });
   await page.route("**/api/burndown**", (r) =>
     r.fulfill({ status: 403, json: { error: "estimate_hours_not_public" } }),
