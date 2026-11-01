@@ -58,7 +58,14 @@ function fixture() {
     ],
   };
   const storage: any = {
-    get: async (key: string) => structuredClone(map.get(key)),
+    get: async (key: string | string[]) =>
+      Array.isArray(key)
+        ? new Map(
+            key
+              .filter((k) => map.has(k))
+              .map((k) => [k, structuredClone(map.get(k))]),
+          )
+        : structuredClone(map.get(key)),
     put: async (key: string | Record<string, unknown>, value?: unknown) => {
       const entries =
         typeof key === "string" ? [[key, value]] : Object.entries(key);
@@ -193,6 +200,8 @@ test("未完5h・完了3hの9を10へ移動しても9の終了時表示は5/8h�
   assert.equal(moved.display.cutoff, cutoff);
   assert.equal(moved.display.policy, policy);
   assert.equal(moved.observations.length, 1);
+  assert.equal(moved.rebase.basis, "final-observation");
+  assert.equal(moved.rebase.observations[0].remainingHours, 5);
   assert.equal((await f.read(null)).milestone, 10);
   f.time("2026-10-29T08:00:00Z");
   Object.assign(f.data.tasks[0], {
@@ -205,6 +214,7 @@ test("未完5h・完了3hの9を10へ移動しても9の終了時表示は5/8h�
   const allMoved = await f.read();
   assert.equal(allMoved.current.total, 0);
   assert.deepEqual(allMoved.display, moved.display);
+  assert.deepEqual(allMoved.rebase, moved.rebase);
   assert.equal((await f.read(10)).display.mode, "live");
   for (const [key, value] of original) assert.deepEqual(f.map.get(key), value);
   assert.ok(allMoved.milestones.some((m: any) => m.number === 9));

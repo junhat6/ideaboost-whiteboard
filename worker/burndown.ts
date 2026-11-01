@@ -1,4 +1,4 @@
-// Historical observations, never reconstructed from today's state or issue close dates.
+// 保存観測は不変。表示時だけ最新の対象・見積で投影し、完了日時は推測しない。
 export type BurnTask = {
   id: string;
   parent: string;
@@ -214,6 +214,87 @@ export function summarizeBurn(tasks: BurnTask[], excludedChildren = 0) {
     cancelled: tasks.length - active.length,
   };
 }
+// 古い snapshot も同じ正本判定を検証する。不完全な記録を空の集合にしない。
+function snapshotTasks(value: unknown): BurnTask[] | null {
+  if (
+    !Array.isArray(value) ||
+    value.some((task) => !task || typeof task !== "object")
+  )
+    return null;
+  const milestones = [...new Set(value.map((task) => task.milestone))].map(
+    (number) => ({ number, title: "snapshot", dueOn: null }),
+  );
+  const candidate = {
+    ok: true,
+    scope: "snapshot",
+    observedAt: "2000-01-01T00:00:00Z",
+    milestones,
+    tasks: value,
+  };
+  return validateBurnSource(candidate) ? candidate.tasks : null;
+}
+
+// 配列の形だけでは切り詰められたsnapshotを検出できない。保存summaryとも照合する。
+function observationTasks(
+  value: unknown,
+  record: Observation,
+): BurnTask[] | null {
+  const tasks = snapshotTasks(value);
+  if (
+    tasks === null ||
+    tasks.some(
+      (task) => !Object.hasOwn(record.summaries, String(task.milestone)),
+    )
+  )
+    return null;
+  const fields = [
+    "remainingHours",
+    "estimatedHours",
+    "unestimated",
+    "estimated",
+    "total",
+    "cancelled",
+  ] as const;
+  for (const [milestone, expected] of Object.entries(record.summaries)) {
+    const actual = summarizeBurn(
+      tasks.filter((task) => task.milestone === Number(milestone)),
+    );
+    if (!expected || fields.some((field) => actual[field] !== expected[field]))
+      return null;
+  }
+  return tasks;
+}
+
+export function rebaseBurn(basis: BurnTask[] | null, snapshot: unknown) {
+  const unknown = (reason: string, unknownTasks: number | null = null) => ({
+    remainingHours: null,
+    unknownTasks,
+    assumedIncompleteTasks: null,
+    reason,
+  });
+  if (basis === null) return unknown("basis_unavailable");
+  const past = snapshotTasks(snapshot);
+  if (past === null) return unknown("snapshot_unavailable");
+  const byId = new Map(past.map((task) => [task.id, task]));
+  const active = basis.filter((task) => !cancelledBurnTask(task));
+  // 0h と未見積は数値寄与しない。未見積件数は基準 summary に残す。
+  const weighted = active.filter(
+    (task) => task.estimate !== null && task.estimate > 0,
+  );
+  // 利用者承認の遡及projection: 有効な記録にない現在対象は未完了として置く。
+  // snapshot全体の欠測/不完全とは別で、作成日や実際の追加日を推測しない。
+  const missing = active.filter((task) => !byId.has(task.id)).length;
+  return {
+    remainingHours: weighted.reduce(
+      (sum, task) => sum + (byId.get(task.id)?.complete ? 0 : task.estimate!),
+      0,
+    ),
+    unknownTasks: 0,
+    assumedIncompleteTasks: missing,
+    reason: null,
+  };
+}
+
 export class BurnHistory {
   private tail: Promise<unknown> = Promise.resolve();
   private flight: Promise<{
@@ -633,6 +714,38 @@ export class BurnHistory {
               undefined,
             )
           : undefined;
+      // 一度に全 snapshot を展開せず、日次 index の参照先だけを順次読む。
+      // 終了済み Sprint は最後の保存 scope を基準にして繰越後の0へ潰さない。
+      const basis = boundary
+        ? last
+          ? observationTasks(await this.storage.get(last.snapshotKey), last)
+          : null
+        : source.tasks;
+      const basisTasks = basis === null ? null : filter(basis);
+      const projections = new Map<Observation, ReturnType<typeof rebaseBurn>>();
+      const keys = [
+        ...new Set(visibleRecords.map((record) => record.snapshotKey)),
+      ];
+      // Storage get の上限128より小さい32件単位で読み、raw task配列を保持しない。
+      for (let offset = 0; offset < keys.length; offset += 32) {
+        const batch = keys.slice(offset, offset + 32);
+        const snapshots = await this.storage.get<unknown>(batch);
+        for (const record of visibleRecords.filter((record) =>
+          batch.includes(record.snapshotKey),
+        ))
+          projections.set(
+            record,
+            rebaseBurn(
+              basisTasks,
+              observationTasks(snapshots.get(record.snapshotKey), record),
+            ),
+          );
+      }
+      const rebasedObservations = visibleRecords.map((record) => ({
+        at: record.observedAt,
+        day: record.day,
+        ...projections.get(record)!,
+      }));
       return Response.json({
         ok: true,
         observedAt: source.observedAt,
@@ -660,6 +773,11 @@ export class BurnHistory {
           ...v.summaries[String(milestone)],
           changes: v.changes[String(milestone)],
         })),
+        rebase: {
+          policy: "latest-scope-observed-completion-v1",
+          basis: boundary ? "final-observation" : "current",
+          observations: rebasedObservations,
+        },
         scope: source.scope,
         schedule: await this.schedule(milestone),
         timezone: "Asia/Tokyo",

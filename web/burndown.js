@@ -32,7 +32,11 @@ export function chart(data) {
   const root = node("section", undefined, "burn-chart");
   const display = displayFor(data),
     summary = display.summary,
-    historical = display.mode === "historical";
+    historical = display.mode === "historical",
+    rebased = data.rebase?.policy === "latest-scope-observed-completion-v1",
+    projected = new Map(
+      (rebased ? data.rebase.observations || [] : []).map((p) => [p.at, p]),
+    );
   const daily = new Map();
   for (const observation of data.observations)
     if (
@@ -40,7 +44,14 @@ export function chart(data) {
       (!daily.has(observation.day) ||
         Date.parse(daily.get(observation.day).at) < Date.parse(observation.at))
     )
-      daily.set(observation.day, observation);
+      daily.set(observation.day, {
+        ...observation,
+        estimated: summary?.estimated ?? 0,
+        unestimated: summary?.unestimated ?? 0,
+        remainingHours: projected.get(observation.at)?.remainingHours ?? null,
+        assumedIncompleteTasks:
+          projected.get(observation.at)?.assumedIncompleteTasks ?? 0,
+      });
   const points = [...daily.values()].sort((a, b) => a.day.localeCompare(b.day));
   if (!summary?.estimated && !points.some((p) => p.estimated)) {
     root.append(
@@ -78,7 +89,7 @@ export function chart(data) {
   const svg = svgNode("svg", {
     viewBox: "0 0 720 380",
     role: "img",
-    "aria-label": `学校日を等間隔にした残り見積時間。学校日間の観測は日付の比率で配置。青は${historical ? "最終記録の" : "現在の"}全体見積から計算した理想、赤は実際の観測。単位は時間。`,
+    "aria-label": `学校日を等間隔にした残り見積時間。学校日間の観測は日付の比率で配置。青は${historical ? "最終記録の" : "現在の"}全体見積から計算した理想、赤は${rebased ? "同じ全体見積から観測時の完了分を引いた再計算。中空点は開始基準で実測ではありません" : "再計算データ未取得"}。単位は時間。`,
   });
   const max = Math.max(
     1,
@@ -131,20 +142,39 @@ export function chart(data) {
       }),
     );
   }
-  let path = "",
+  const baseline =
+    rebased &&
+    ideal !== null &&
+    schoolDays[0] <= todayJst(new Date(display.observedAt).getTime());
+  let path = baseline ? `M ${x(schoolDays[0])} ${y(ideal)}` : "",
     previous = null;
+  let marker;
+  const pointMarkers = [];
+  if (baseline) {
+    const label = `${schoolDays[0]}: 開始基準 ${hours(ideal)}h（全体見積・実測ではありません）`;
+    marker = svgNode("circle", {
+      cx: x(schoolDays[0]),
+      cy: y(ideal),
+      r: 6,
+      class: "burn-baseline",
+      "aria-label": label,
+    });
+    marker.append(svgNode("title", {}, label));
+  }
   for (const point of visiblePoints) {
-    if (!point.estimated) {
+    if (!point.estimated || !Number.isFinite(point.remainingHours)) {
       previous = null;
       continue;
     }
     const px = x(point.day),
       py = y(point.remainingHours);
     const adjacent =
-      previous && days.indexOf(point.day) === days.indexOf(previous.day) + 1;
+      (previous &&
+        days.indexOf(point.day) === days.indexOf(previous.day) + 1) ||
+      (baseline && point === visiblePoints[0] && point.day === schoolDays[0]);
     path += adjacent ? ` L ${px} ${py}` : ` M ${px} ${py}`;
     previous = point;
-    const observationLabel = `${point.day}: ${hours(point.remainingHours)}h / 未見積${point.unestimated}件 / ${schoolDays.includes(point.day) ? "学校日の観測" : "学校日外の観測"} / ${new Date(point.at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`;
+    const observationLabel = `${point.day}: ${hours(point.remainingHours)}h${rebased ? "（最新見積で再計算）" : ""} / 未見積${point.unestimated}件 / ${schoolDays.includes(point.day) ? "学校日の観測" : "学校日外の観測"} / ${new Date(point.at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`;
     const circle = svgNode("circle", {
       "aria-label": observationLabel,
       cx: px,
@@ -153,9 +183,11 @@ export function chart(data) {
       class: "burn-point",
     });
     circle.append(svgNode("title", {}, observationLabel));
-    svg.append(circle);
+    pointMarkers.push(circle);
   }
   svg.append(svgNode("path", { d: path, class: "burn-actual", fill: "none" }));
+  if (marker) svg.append(marker);
+  svg.append(...pointMarkers);
   const stride = Math.max(1, Math.ceil(ticks.length / 10));
   ticks.forEach((day, i) => {
     if (i % stride === 0 || i === ticks.length - 1) {
@@ -185,8 +217,36 @@ export function chart(data) {
         "burn-ideal-label",
       ),
     );
-  legend.append(node("span", "実際（観測した残り見積）", "burn-actual-label"));
+  legend.append(node("span", "実際（最新見積で再計算）", "burn-actual-label"));
   root.append(legend);
+  if (!rebased)
+    root.append(
+      node(
+        "p",
+        "再計算データを取得できません。最新を取得してください。",
+        "burn-note",
+      ),
+    );
+  if (baseline)
+    root.append(
+      node(
+        "p",
+        "中空点は全体見積の開始基準（実測ではありません）。",
+        "burn-note",
+      ),
+    );
+  if (rebased && visiblePoints.some((p) => !Number.isFinite(p.remainingHours)))
+    root.append(
+      node("p", "完了状況の記録が不足する日は空白です。", "burn-note"),
+    );
+  if (visiblePoints.some((p) => p.assumedIncompleteTasks > 0))
+    root.append(
+      node(
+        "p",
+        "当時の記録にない現在のIssueは未完了として再計算しています。",
+        "burn-note",
+      ),
+    );
   if (!visiblePoints.length) root.append(node("p", "記録なし", "burn-note"));
   return root;
 }
@@ -460,6 +520,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       data.current,
       data.display,
       data.observations,
+      data.rebase,
       data.schedule?.schoolDays,
       data.recordingLimited,
     ]);

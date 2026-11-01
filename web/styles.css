@@ -3791,3 +3791,13 @@ input[type="checkbox"] {
   fill: currentColor;
   color: var(--muted);
 }
+
+/* 全体見積の開始基準は観測点と区別する。 */
+.burn-baseline {
+  fill: var(--surface);
+  stroke: #b42337;
+  stroke-width: 2;
+}
+[data-theme="dark"] .burn-baseline {
+  stroke: #ff8896;
+}

@@ -43,7 +43,14 @@ function fixture() {
     values: Map<string, any>,
     state: { alarm: number | null },
   ) => ({
-    get: async (key: string) => structuredClone(values.get(key)),
+    get: async (key: string | string[]) =>
+      Array.isArray(key)
+        ? new Map(
+            key
+              .filter((k) => values.has(k))
+              .map((k) => [k, structuredClone(values.get(k))]),
+          )
+        : structuredClone(values.get(key)),
     put: async (key: string | Record<string, unknown>, value?: unknown) => {
       const entries =
         typeof key === "string" ? [[key, value]] : Object.entries(key);

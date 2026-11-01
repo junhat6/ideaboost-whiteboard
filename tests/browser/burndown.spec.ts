@@ -1,3 +1,4 @@
+import { withRebase } from "./burndown-fixture";
 import { test, expect, type Page } from "@playwright/test";
 import { setup, fillEditor } from "./fixtures";
 const hour = (page: any, value: number | null) =>
@@ -111,7 +112,7 @@ test("バーンダウンは初回要求なし、右端hoverと明示button、Esc
   });
   await page.route("**/api/burndown**", (r) => {
     reads++;
-    return r.fulfill({ json: data });
+    return r.fulfill({ json: withRebase(data) });
   });
   await page.reload();
   await expect(page.locator("#burndown-open")).toBeVisible();
@@ -182,7 +183,7 @@ test("未見積のみは達成ゼロ線を描かず、失敗は空履歴にし�
       fail
         ? { status: 503, json: { error: "observation_unavailable" } }
         : {
-            json: {
+            json: withRebase({
               ...data,
               current: {
                 ...data.current,
@@ -191,7 +192,7 @@ test("未見積のみは達成ゼロ線を描かず、失敗は空履歴にし�
                 unestimated: 5,
               },
               observations: [],
-            },
+            }),
           },
     ),
   );
@@ -318,7 +319,7 @@ test("履歴失効後に古い公開boardが戻っても時間を復活せず、
     }
     if (reads > 2)
       return r.fulfill({ status: 503, json: { error: "unavailable" } });
-    return r.fulfill({ json: data });
+    return r.fulfill({ json: withRebase(data) });
   });
   await page.route("**/api/burndown**", (r) =>
     r.fulfill({ status: 403, json: { error: "estimate_hours_not_public" } }),
@@ -442,10 +443,10 @@ test("背景保存後のchartは旧flightを待って一度だけ更新、閉じ
     const n = ++reads;
     if (n === 1) await old;
     await route.fulfill({
-      json: {
+      json: withRebase({
         ...data,
         current: { ...data.current, remainingHours: n === 1 ? 1 : 2 },
-      },
+      }),
     });
   });
   await page.reload();
@@ -484,7 +485,7 @@ test("時間の0表示とkeyboard解除、他Issue値保持とchartの無関係�
   let reads = 0;
   await page.route("**/api/burndown**", (r) => {
     reads++;
-    return r.fulfill({ json: data });
+    return r.fulfill({ json: withRebase(data) });
   });
   await page.reload();
   await page.locator(".task-title").first().click();
@@ -613,7 +614,9 @@ test("Sprint9の6学校日と青ideal/赤actual、過去未観測と未来を補
   const f = await setup(page);
   (f.board.scope as any).estimateHoursField = true;
   const current = structuredClone(data);
-  await page.route("**/api/burndown**", (r) => r.fulfill({ json: current }));
+  await page.route("**/api/burndown**", (r) =>
+    r.fulfill({ json: withRebase(current) }),
+  );
   await page.reload();
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-ideal")).toHaveCount(1);
@@ -631,6 +634,10 @@ test("Sprint9の6学校日と青ideal/赤actual、過去未観測と未来を補
   await expect(page.locator(".burn-ideal")).toHaveAttribute(
     "d",
     "M 60 50 L 680 310",
+  );
+  await expect(page.locator(".burn-baseline")).toHaveAttribute("cy", "50");
+  await expect(page.locator(".burn-baseline")).toHaveAccessibleName(
+    /開始基準.*実測ではありません/,
   );
   const actual = await page.locator(".burn-actual").getAttribute("d");
   await page.screenshot({
@@ -656,13 +663,15 @@ test("赤い実線は中間の未観測学校日を補間せず、観測済み�
     day: i ? "2026-10-23" : "2026-10-21",
     at: i ? "2026-10-23T08:00:00Z" : "2026-10-21T08:00:00Z",
   }));
-  await page.route("**/api/burndown**", (r) => r.fulfill({ json: current }));
+  await page.route("**/api/burndown**", (r) =>
+    r.fulfill({ json: withRebase(current) }),
+  );
   await page.reload();
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-point")).toHaveCount(2);
   await expect(page.locator(".burn-actual")).toHaveAttribute(
     "d",
-    " M 60 50 M 680 147.5",
+    "M 60 50 L 60 50 M 680 147.5",
   );
   await closeChart(page);
   current.observations.splice(1, 0, {
@@ -675,7 +684,7 @@ test("赤い実線は中間の未観測学校日を補間せず、観測済み�
   await expect(page.locator(".burn-point")).toHaveCount(3);
   await expect(page.locator(".burn-actual")).toHaveAttribute(
     "d",
-    " M 60 50 L 370 115 L 680 147.5",
+    "M 60 50 L 60 50 L 370 115 L 680 147.5",
   );
   expect(f.posts()).toBe(0);
 });
@@ -699,10 +708,10 @@ test("再openは前回観測を即表示、背景更新/失敗保持と公開失
         json: { error: "estimate_hours_not_public" },
       });
     return r.fulfill({
-      json: {
+      json: withRebase({
         ...data,
         current: { ...data.current, remainingHours: count === 1 ? 5 : 4 },
-      },
+      }),
     });
   });
   await page.reload();
@@ -745,7 +754,7 @@ test("学校カレンダーの独立選択と明示保存はIssueを変更せず
       current.schedule = { schoolDays: patch.schoolDays, revision: "saved" };
       return r.fulfill({ json: { ok: true, schedule: current.schedule } });
     }
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -799,7 +808,7 @@ test("日程の保存中に追記した下書きはackと再取得で失わず�
       return r.fulfill({ json: { ok: true, schedule: current.schedule } });
     }
     reads++;
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -873,7 +882,7 @@ test("別スプリントの日程保存中と遅いack後の取得失敗でも�
       failedTenReads++;
       return r.fulfill({ status: 503, json: { error: "unavailable" } });
     }
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -936,7 +945,7 @@ test("スプリントを切替えても他スプリントのcache/遅い応答�
       await gate;
     }
     return r.fulfill({
-      json: {
+      json: withRebase({
         ...data,
         milestone,
         milestones: [
@@ -944,7 +953,7 @@ test("スプリントを切替えても他スプリントのcache/遅い応答�
           { number: 10, title: "Sprint 10", dueOn: "2026-11-11T00:00:00Z" },
         ],
         current: { ...data.current, remainingHours: milestone === 9 ? 5 : 2 },
-      },
+      }),
     });
   });
   await page.reload();
@@ -975,10 +984,10 @@ test("同じ観測の背景更新は図DOMを保持し、確認時刻だけ更�
   let reads = 0;
   await page.route("**/api/burndown**", (r) =>
     r.fulfill({
-      json: {
+      json: withRebase({
         ...data,
         observedAt: ++reads === 1 ? data.observedAt : "2026-10-27T08:01:00Z",
-      },
+      }),
     }),
   );
   await page.reload();
@@ -1021,7 +1030,7 @@ test("未設定の学校日程は初回展開だけ今日JSTから期日まで�
   await page.route("**/api/burndown**", (r) => {
     if (r.request().method() === "POST") writes++;
     else reads++;
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -1082,7 +1091,7 @@ test("未設定から全候補を解除して空日程を明示保存すると�
       };
       return r.fulfill({ json: { ok: true, schedule: current.schedule } });
     }
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -1140,7 +1149,7 @@ test("初回候補と外部保存が同値なら明示保存で送信せずrevis
       };
       return r.fulfill({ json: { ok: true, schedule: current.schedule } });
     }
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -1209,7 +1218,7 @@ test("保存応答503後の同値再取得は明示保存で再送せずエラ�
       return r.fulfill({ json: { ok: true, schedule: current.schedule } });
     }
     reads++;
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -1265,7 +1274,7 @@ test("連続範囲ではなく月をまたぐ6日を独立選択し、明示保�
       current.schedule = { schoolDays: patch.schoolDays, revision: "six-days" };
       return r.fulfill({ json: { ok: true, schedule: current.schedule } });
     }
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -1319,7 +1328,7 @@ test("学校カレンダーは矢印と月移動キーでfocusを保ちSpace/Ent
   let posts = 0;
   await page.route("**/api/burndown**", (r) => {
     if (r.request().method() === "POST") posts++;
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -1393,7 +1402,7 @@ for (const [title, dueOn] of [
     let posts = 0;
     await page.route("**/api/burndown**", (r) => {
       if (r.request().method() === "POST") posts++;
-      return r.fulfill({ json: current });
+      return r.fulfill({ json: withRebase(current) });
     });
     await page.reload();
     await page.locator("#burndown-open").click();
@@ -1424,7 +1433,7 @@ test("学校日程の保存失敗は下書きを保持し、公開失効では�
           : { status: 403, json: { error: "estimate_hours_not_public" } },
       );
     }
-    return r.fulfill({ json: current });
+    return r.fulfill({ json: withRebase(current) });
   });
   await page.reload();
   await page.locator("#burndown-open").click();
@@ -1492,25 +1501,31 @@ test("繰越後の旧Sprintは終了前の最終記録と学校日を保持し�
     const ten =
       new URL(r.request().url()).searchParams.get("milestone") === "10";
     return r.fulfill({
-      json: ten
-        ? {
-            ...old,
-            milestone: 10,
-            current: { ...data.current, remainingHours: 3, estimatedHours: 12 },
-            display: {
-              mode: "live",
-              summary: {
+      json: withRebase(
+        ten
+          ? {
+              ...old,
+              milestone: 10,
+              current: {
                 ...data.current,
                 remainingHours: 3,
                 estimatedHours: 12,
               },
-              observedAt: old.observedAt,
-              cutoff: null,
-              policy: null,
-            },
-            observations: [],
-          }
-        : old,
+              display: {
+                mode: "live",
+                summary: {
+                  ...data.current,
+                  remainingHours: 3,
+                  estimatedHours: 12,
+                },
+                observedAt: old.observedAt,
+                cutoff: null,
+                policy: null,
+              },
+              observations: [],
+            }
+          : old,
+      ),
     });
   });
   await page.reload();
@@ -1566,7 +1581,7 @@ test("終了前の記録がないSprintは残りをゼロにせず記録なし�
   (f.board.scope as any).estimateHoursField = true;
   await page.route("**/api/burndown**", (r) =>
     r.fulfill({
-      json: {
+      json: withRebase({
         ...data,
         observedAt: "2026-10-28T01:00:00Z",
         observations: [],
@@ -1584,7 +1599,7 @@ test("終了前の記録がないSprintは残りをゼロにせず記録なし�
           cutoff: "2026-10-27T15:00:00Z",
           policy: "sprint-v2-exclusive-jst",
         },
-      },
+      }),
     }),
   );
   await page.reload();
@@ -1603,7 +1618,7 @@ test("終了前に実際に完了した0hは保持し、最終非ゼロ値へ戻
   (f.board.scope as any).estimateHoursField = true;
   await page.route("**/api/burndown**", (r) =>
     r.fulfill({
-      json: {
+      json: withRebase({
         ...data,
         observedAt: "2026-10-28T01:00:00Z",
         display: {
@@ -1617,7 +1632,7 @@ test("終了前に実際に完了した0hは保持し、最終非ゼロ値へ戻
           ...p,
           remainingHours: i ? 0 : p.remainingHours,
         })),
-      },
+      }),
     }),
   );
   await page.reload();
@@ -1627,14 +1642,14 @@ test("終了前に実際に完了した0hは保持し、最終非ゼロ値へ戻
   expect(f.posts()).toBe(0);
 });
 
-test("現在scopeが空でも保存済みの過去赤線は消さず、現在のゼロ理想線を捏造しない", async ({
+test("進行中の現在scopeが空なら過去scopeの赤線へfallbackせずゼロ理想線も捏造しない", async ({
   page,
 }) => {
   const f = await setup(page);
   (f.board.scope as any).estimateHoursField = true;
   await page.route("**/api/burndown**", (r) =>
     r.fulfill({
-      json: {
+      json: withRebase({
         ...data,
         current: {
           ...data.current,
@@ -1643,13 +1658,13 @@ test("現在scopeが空でも保存済みの過去赤線は消さず、現在の
           estimated: 0,
           total: 0,
         },
-      },
+      }),
     }),
   );
   await page.reload();
   await page.locator("#burndown-open").click();
   await expect(page.locator(".burn-summary strong")).toHaveText("残り：—");
-  await expect(page.locator(".burn-point")).toHaveCount(2);
+  await expect(page.locator(".burn-point")).toHaveCount(0);
   await expect(page.locator(".burn-ideal")).toHaveCount(0);
   expect(f.posts()).toBe(0);
 });

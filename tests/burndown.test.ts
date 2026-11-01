@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   BurnHistory,
+  rebaseBurn,
   summarizeBurn,
   validateBurnSource,
   jstDay,
@@ -42,7 +43,14 @@ function fixture(sourceOverride?: () => Promise<Response>) {
   let alarm = 0,
     reads = 0;
   const storage: any = {
-    get: async (k: string) => map.get(k),
+    get: async (k: string | string[]) =>
+      Array.isArray(k)
+        ? new Map(
+            k
+              .filter((key) => map.has(key))
+              .map((key) => [key, structuredClone(map.get(key))]),
+          )
+        : map.get(k),
     put: async (k: string | Record<string, unknown>, v?: any) => {
       if (typeof k === "string") map.set(k, structuredClone(v));
       else
@@ -498,4 +506,116 @@ test("重複closeは見送り同様に見積対象から除外し、過去の観
   assert.equal(completedBurnTask(f.data.tasks[0]), false);
   f.data.tasks[0].stateReason = "UNKNOWN";
   assert.equal(validateBurnSource(f.data), false);
+});
+
+// 最新scope/weightと観測時の状態を混ぜて誤った成果を出さない契約を最小の純粋層で守る。
+test("過去の完了を現在見積で控除し、reopen・scope離脱・取消・別milestoneを区別する", () => {
+  const task = fixture().data.tasks[0];
+  const basis = [
+    { ...task, id: "a", estimate: 8 },
+    { ...task, id: "b", estimate: 5 },
+    {
+      ...task,
+      id: "cancel",
+      estimate: 99,
+      state: "CLOSED",
+      stateReason: "DUPLICATE",
+    },
+    { ...task, id: "null", estimate: null },
+    { ...task, id: "zero", estimate: 0 },
+  ];
+  const past = [
+    {
+      ...task,
+      id: "a",
+      estimate: 2,
+      milestone: 8,
+      status: "完了",
+      complete: true,
+    },
+    { ...task, id: "b", estimate: 1 },
+    { ...task, id: "removed", estimate: 40, status: "完了", complete: true },
+  ];
+  assert.equal(rebaseBurn(basis, past).remainingHours, 5);
+  past[0] = { ...past[0], status: "作業中", complete: false };
+  assert.equal(rebaseBurn(basis, past).remainingHours, 13);
+});
+test("欠落・破損snapshotを0や当時の残量で補完しない", () => {
+  const basis = fixture().data.tasks;
+  for (const snapshot of [
+    undefined,
+    null,
+    {},
+    [null],
+    [{ id: "a", complete: true }],
+  ])
+    assert.equal(rebaseBurn(basis, snapshot).reason, "snapshot_unavailable");
+  assert.equal(rebaseBurn(null, basis).reason, "basis_unavailable");
+});
+test("GETの再計算は保存済みsnapshotと日次summaryを変更せず、欠落snapshotはnull", async () => {
+  const f = fixture();
+  await f.read();
+  const before = new Map(
+    [...f.map].filter(
+      ([k]) => k.startsWith("tasks:") || k.startsWith("observation:"),
+    ),
+  );
+  f.advance(86400000);
+  f.data.tasks[0].estimate = 9;
+  f.data.tasks[0].status = "完了";
+  f.data.tasks[0].complete = true;
+  const response = (await (await f.read()).json()) as any;
+  assert.deepEqual(
+    response.rebase.observations.map((p: any) => p.remainingHours),
+    [9, 0],
+  );
+  assert.deepEqual(
+    response.observations.map((p: any) => p.remainingHours),
+    [2, 0],
+  );
+  for (const [key, value] of before) assert.deepEqual(f.map.get(key), value);
+  const snapshotKey = [...before.keys()].find((key) =>
+    key.startsWith("tasks:"),
+  )!;
+  f.map.set(snapshotKey, []);
+  const truncated = (await (await f.read()).json()) as any;
+  assert.equal(
+    truncated.rebase.observations[0].remainingHours,
+    null,
+    "shape-validでも保存summaryと不一致なら欠測",
+  );
+  f.map.delete(snapshotKey);
+  const missing = (await (await f.read()).json()) as any;
+  assert.equal(missing.rebase.observations[0].remainingHours, null);
+  assert.equal(missing.rebase.observations[0].reason, "snapshot_unavailable");
+  assert.equal(missing.observations[0].remainingHours, 2);
+});
+
+// 当時不在の対象を置く投影と、記録全体の欠測を混同すると偽の成果が生じる。
+test("有効snapshotに不在の現在Issueは未完了として加算するが、snapshot欠測は空白", () => {
+  const task = fixture().data.tasks[0];
+  const basis = [
+    { ...task, id: "known", estimate: 5 },
+    { ...task, id: "added", estimate: 8 },
+  ];
+  const past = [
+    { ...task, id: "known", estimate: 1, status: "完了", complete: true },
+  ];
+  assert.deepEqual(rebaseBurn(basis, past), {
+    remainingHours: 8,
+    unknownTasks: 0,
+    assumedIncompleteTasks: 1,
+    reason: null,
+  });
+  assert.equal(
+    rebaseBurn(basis, []).remainingHours,
+    13,
+    "有効な空snapshotも全体欠測と区別",
+  );
+  assert.equal(rebaseBurn(basis, undefined).remainingHours, null);
+  assert.equal(
+    rebaseBurn(basis, [{ ...past[0], complete: false }]).remainingHours,
+    null,
+    "矛盾した不完全snapshotを不在扱いしない",
+  );
 });

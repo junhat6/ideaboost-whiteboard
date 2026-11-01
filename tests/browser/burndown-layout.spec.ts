@@ -1,3 +1,4 @@
+import { withRebase } from "./burndown-fixture";
 import { test, expect, type Page } from "@playwright/test";
 import { setup } from "./fixtures";
 
@@ -47,7 +48,7 @@ async function prepare(page: Page) {
   await page.route("**/api/burndown**", (route) => {
     if (route.request().method() === "POST") posts++;
     else reads++;
-    return route.fulfill({ json: source });
+    return route.fulfill({ json: withRebase(source) });
   });
   await page.reload();
   await expect(page.locator("#burndown-open")).toBeVisible();

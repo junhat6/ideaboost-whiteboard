@@ -16,7 +16,22 @@ class Element {
     this.children.push(...children);
   }
 }
-function render(data: unknown) {
+function render(input: any, legacy = false) {
+  // API接続以外の軸テストは、既知の合成状態から返る再計算payloadを明示する。
+  const data =
+    legacy || input.rebase
+      ? input
+      : {
+          ...input,
+          rebase: {
+            policy: "latest-scope-observed-completion-v1",
+            observations: input.observations.map((p: any) => ({
+              at: p.at,
+              day: p.day,
+              remainingHours: p.estimated ? p.remainingHours : null,
+            })),
+          },
+        };
   const before = globalThis.document;
   globalThis.document = {
     createElement: (tag: string) => new Element(tag),
@@ -128,10 +143,10 @@ test("学校日間の実観測は暦日比率で配置し、青は直線、未�
     ideal.map((point) => point.y),
     [50, 310],
   );
-  assert.equal(actual[1].x, 60 + 310 / 4);
+  assert.equal(actual[2].x, 60 + 310 / 4);
   assert.deepEqual(
     actual.map((point) => point.command),
-    ["M", "L", "M"],
+    ["M", "L", "L", "M"],
   );
   assert.equal(actual.at(-1)!.y, 310, "実際に完了した0hは正当な赤点");
   assert.equal(nodes(root, "burn-point").length, 3);
@@ -148,7 +163,7 @@ test("学校期間の前後の観測は非表示、境界学校日だけに軸�
     pathPoints(root, "burn-ideal").map((p) => p.x),
     [60, 680],
   );
-  assert.equal(nodes(root, "burn-actual")[0].attributes.d, "");
+  assert.equal(nodes(root, "burn-actual")[0].attributes.d, "M 60 50");
 });
 test("同日の順不同観測は最後の保存時刻を選び原JST時刻も示す", () => {
   const root = render({
@@ -181,7 +196,7 @@ test("未見積だけの観測は完了0hとして描かず、学校日外のunk
   });
   assert.deepEqual(
     pathPoints(root, "burn-actual").map((point) => point.command),
-    ["M", "M"],
+    ["M", "L", "M"],
   );
   assert.equal(nodes(root, "burn-point").length, 2);
 });
@@ -300,5 +315,79 @@ test("再見積後も学校日は等間隔、休校日は無ラベルの内挿�
   assert.match(
     nodes(root, "burn-point")[3].attributes["aria-label"],
     /2026-11-01.*学校日外/,
+  );
+});
+
+// 同日の開始基準と実観測を両立し、欠測は成果0や旧残量へ見せかけない。
+test("再計算の開始基準は青と一致し、同日の完了分を縦線で残し欠測で切る", () => {
+  const observations = [
+    at("2026-10-29", 20),
+    at("2026-10-30", 20),
+    at("2026-11-01", 10),
+  ];
+  const root = render({
+    ...data,
+    observedAt: "2026-11-01T09:00:00Z",
+    current: { ...summary, estimatedHours: 87 },
+    observations,
+    rebase: {
+      policy: "latest-scope-observed-completion-v1",
+      observations: observations.map((p, i) => ({
+        at: p.at,
+        day: p.day,
+        remainingHours: [70, null, 40][i],
+        assumedIncompleteTasks: i === 0 ? 1 : 0,
+      })),
+    },
+  });
+  const baseline = nodes(root, "burn-baseline")[0];
+  assert.equal(baseline.attributes.cy, "50");
+  assert.match(
+    baseline.attributes["aria-label"],
+    /開始基準 87h.*実測ではありません/,
+  );
+  assert.deepEqual(
+    pathPoints(root, "burn-actual").map((p) => p.command),
+    ["M", "L", "M"],
+  );
+  assert.deepEqual(
+    nodes(root, "burn-point").map((p) => Number(p.attributes.cx)),
+    [60, 153],
+  );
+  assert.match(
+    nodes(root, "burn-point")[0].attributes["aria-label"],
+    /70h.*再計算/,
+  );
+  assert.ok(
+    nodes(root, "burn-note").some((p) => p.textContent.includes("記録が不足")),
+  );
+  assert.ok(
+    nodes(root, "burn-note").some((p) =>
+      p.textContent.includes("未完了として再計算"),
+    ),
+  );
+});
+test("再計算データの欠落は旧残量へfallbackせず、未来には開始基準を作らない", () => {
+  const root = render({
+    ...data,
+    rebase: { policy: "latest-scope-observed-completion-v1", observations: [] },
+  });
+  assert.equal(nodes(root, "burn-point").length, 0);
+  const future = render({
+    ...data,
+    observedAt: "2026-10-28T08:00:00Z",
+    rebase: { policy: "latest-scope-observed-completion-v1", observations: [] },
+  });
+  assert.equal(nodes(future, "burn-baseline").length, 0);
+});
+
+test("旧API応答の保存残量を新しい赤線として表示しない", () => {
+  const root = render(data, true);
+  assert.equal(nodes(root, "burn-point").length, 0);
+  assert.equal(nodes(root, "burn-baseline").length, 0);
+  assert.ok(
+    nodes(root, "burn-note").some((p) =>
+      p.textContent.includes("再計算データを取得できません"),
+    ),
   );
 });

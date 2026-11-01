@@ -1,3 +1,4 @@
+import { withRebase } from "./burndown-fixture";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { snapshot, chooseToolbarOption } from "./fixtures";
@@ -125,7 +126,7 @@ async function prepare(page: Page, count = 12, legacy = managed(count)) {
         },
       });
     if (url.pathname === "/api/burndown")
-      return route.fulfill({ json: chartPayload });
+      return route.fulfill({ json: withRebase(chartPayload) });
     if (url.pathname.endsWith("/comments"))
       return route.fulfill({ json: { comments: [], nextPage: null } });
     if (url.pathname.endsWith("/pull-requests"))

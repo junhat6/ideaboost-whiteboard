@@ -1,3 +1,4 @@
+import { withRebase } from "./burndown-fixture";
 import { test, expect, type Page } from "@playwright/test";
 import { setup } from "./fixtures";
 
@@ -121,7 +122,7 @@ async function prepare(page: Page, boardMilestone = "9", at = start) {
       });
     }
     reads.push(milestone);
-    const payload = structuredClone(charts[milestone]),
+    const payload = withRebase(structuredClone(charts[milestone])),
       custom = await hooks.get?.(milestone, payload);
     return route.fulfill(custom ?? { json: payload });
   });

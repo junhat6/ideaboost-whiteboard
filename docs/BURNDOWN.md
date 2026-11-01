@@ -10,7 +10,7 @@
 ## 観測履歴
 
 - 既存Cloudflare内の専用Durable Objectへ、全ページ取得成功時の観測のみ保存。JST日付、観測時刻、正式scope、作業Issue ID/parent/estimate/null/status/completeを持つ。部分取得・取得不能・非公開化を0件として保存しない。
-- 日次alarmで閲覧者不在でも取得。初回有効化より前の履歴は作らず、イベント発生時刻ではなく観測時刻として描く。途中追加・除外・再見積・reopenは新しい観測の差分であり、過去点を再計算しない。
+- 日次alarmで閲覧者不在でも取得。初回有効化より前の履歴は作らず、イベント発生時刻ではなく観測時刻として描く。途中追加・除外・再見積・reopenは新しい観測の差分として保存する。保存値は変更せず、表示する赤線は下記の最新基準で再計算する。
 - 閲覧時も最新の公開確認を行う。field/repo/Projectの公開失効時は履歴を公開せず、失効前の値を復活させない（履歴自体は保管し、再公開確認までは返さない）。ネットワーク失敗を正常な空履歴へ変換しない。
 - 学校日程と自動割当期間は別の契約。created_atを開始日と誤用しない。正式な割当期間metadataは下記の終了判定だけに用い、学校日程の設定・選択を変更しない。進行中Sprintの理想線は現在の対象全体見積、終了済みは終了前の最終保存観測の全体見積から引く。いずれも開始時点の実測値とは主張しない。
 
@@ -46,7 +46,7 @@
 - alarmの一時取得障害（HTTP 429/500/502/503/504、source呼出しの通信失敗）には60秒・5分・15分のbackoffを使い、JST日ごとの追加短期retry予約は3回まで。`alarm-retry`の`{day, attempts}`を永続化し、GET・成功・再起動では同日のbudgetを戻さない。使い切った場合は次のJST 00:10へ戻す。公開失効403・不完全取得`observation_incomplete`・成功応答のJSON/値検証エラー・storageエラーには短期retryを追加せず、偽の観測を保存しない。`observation_incomplete`・`scope_not_public`・`estimate_hours_not_public`は、HTTPのerror codeだけでなくsource呼出しがrejectしたErrorのmessageでも短期retryから除外する。
 - GETの初期alarm予約とalarm後のbudget/予約を同じqueueで直列化し、budget更新と予約は小さいstorage transactionで確定する。通信はtransaction外。既存の早いalarmを遅い予約で上書きしない。制限はアプリの追加短期予約数であり、runtimeのat-least-onceによる実行回数上限を主張しない（[Alarms](https://developers.cloudflare.com/durable-objects/api/alarms/)、[Storage transaction](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transaction)）。
 - 観測用board取得は確認できたGitHub通信障害・一時HTTP障害だけを`observation_unavailable`とし、形状・ページング・GraphQL等の不完全取得と区別する。後段の子関係取得も、GitHub失敗を包むHTTP502だけではretryせず、`github_request_failed`の`upstreamStatus`が上記一時statusの場合と`github_network_error`だけを対象にする。その他の`github_*`、`invalid_private_key`、`estimate_hours_unavailable`は認証・設定・field契約・応答検証不足として短期retryしない。通常boardの応答と認証処理は変更しない。
-- immutableな各観測と、日ごとの最終観測への小さいindexを原子的に保存。チャート読取は最大180日分のindexだけを読み、全作業snapshotを毎回メモリ展開しない。保持180日、1日最大96観測。上限時も現在値は確認するが履歴の制限を表示し、過去点は上書きしない。
+- immutableな各観測と、日ごとの最終観測への小さいindexを原子的に保存。チャート読取は保持期間の日次indexと参照先snapshotを読む。snapshotKeyは重複排除し32件ずつ取得・集計して、全raw snapshotを同時保持せずclientにも返さない。保持180日、1日最大96観測。上限時も現在値は確認するが履歴の制限を表示し、過去点は上書きしない。
 - 同時閲覧はsingleflightで共有し、完了後の閲覧は新しい公開確認を行う。TTLで公開確認を省略しない。最大500末端作業・100milestone、完全性を超えた応答は観測不能として扱う。
 - 初回boardへ履歴API/チャートimportを加えない。別途数値の初期入力や実Issue QAは行わない。
 - 観測専用の内部読取では編集用の担当者候補RESTを要求しない。候補一覧の遅延・障害で履歴取得を待たせず、通常boardの担当候補取得と公開性・全件取得・対象Issueの検証は変えない。
@@ -71,7 +71,7 @@ Sprint9はユーザー明示の2026-10-21/22/23/26/27/28 JST。日程初期値�
 
 横軸は保存された学校日を等間隔に配置し、日付ラベルは学校日のみ表示する。学校日 d[i] と d[i+1] の間の保存観測日 t は x=i+(t-d[i])/(d[i+1]-d[i]) に配置する（差はJST暦日の日数）。日内時刻ではずらさず、その日の最後の保存観測を使用する。学校日外の点のtitle/ariaには元の日付・観測時刻を残す。最初の学校日前・最後の学校日後の観測は描画だけ除外し、保存履歴を変更しない。学校日未設定は観測日の軸のみ、1日設定はその日の点のみ表示し、どちらも理想線を作らない。
 
-青い理想線は現在の全対象見積 T を最初の学校日の開始値として、最終学校日0まで常に直線 T*(1-x/(n-1)) で描く。途中の追加・再見積でも開始値から引き直し、段差や水平区間を作らない。終了済みSprintは従来通り終了前の最終記録の全体見積をTにする。残り見積を理想の起点に代用しない。未見積は件数として併記し0確定にしない。赤は日ごとの最後の保存済み観測だけを描き、表示対象の観測時刻より後・未来・過去の未観測日へ点を生成しない。「今日」も保存観測がなければ追加しない。日程/全体見積変更はidealと描画位置だけ再計算し、保存済みactualの値・日付・原観測時刻を修正しない。
+青い理想線は現在の全対象見積 T を最初の学校日の開始値として、最終学校日0まで常に直線 T*(1-x/(n-1)) で描く。途中の追加・再見積でも開始値から引き直し、段差や水平区間を作らない。終了済みSprintは従来通り終了前の最終記録の全体見積をTにする。残り見積を理想の起点に代用しない。未見積は件数として併記し0確定にしない。赤は日ごとの最後の保存済み観測だけを描き、表示対象の観測時刻より後・未来・過去の未観測日へ点を生成しない。「今日」も保存観測がなければ追加しない。日程変更は描画位置、全体見積変更はidealと表示用actualを再計算する。保存済みactualの値・日付・原観測時刻は修正しない。
 
 再openはsame sprintのメモリcacheを即描画し新しいGETを開始。古いGET/保存ackの世代保護を維持。非表示中の定期GETを追加しない。失敗は前回値と観測時刻に短いerror、public/auth失効とscope変更はcache破棄。scopeを跨ぐ混在と永続ブラウザー保存をしない。
 
@@ -81,7 +81,7 @@ Sprint9はユーザー明示の2026-10-21/22/23/26/27/28 JST。日程初期値�
 
 日程のdraft/revision/saving/errorはmilestone別に保持し、scope失効時に破棄する。保存中の別スプリントを表示しても日程を混ぜず、遅いackは元のmilestoneだけを更新する。表示対象の日程保存中は履歴再取得を保留し、ack以前の応答で保存済み日程へ巻き戻さない。
 
-赤線は表示軸上で隣接する観測済み日だけ接続し、途中に未観測の学校日や全未見積の観測があれば空白として別subpathにする。学校日外の観測を追加しても欠測した学校日を跨いで補間しない。CLOSED/DUPLICATEは正式なstateReasonとして受理するが、それだけで完了・取消とは判定せず、非Doneなら残り見積に保持する。
+赤線は表示軸上で隣接する観測済み日だけ接続し、途中に未観測の学校日や再計算不能な観測があれば空白として別subpathにする。学校日外の観測を追加しても欠測した学校日を跨いで補間しない。CLOSED/DUPLICATEはNOT_PLANNEDと同じく取消であり、現在の集計と表示用再計算から除外する。
 
 ## 学校日カレンダーと未見積強調
 
@@ -94,3 +94,19 @@ Sprint9はユーザー明示の2026-10-21/22/23/26/27/28 JST。日程初期値�
 ## 付箋の見積表示（2026-10-28）
 
 付箋は種類・Statusの文字badgeを外し、タイトルと担当avatar群、見積時間のfooterを優先する。2×2の小付箋でもfooterを維持し、見積0は0h、nullは未設定、公開確認不能/値欠落は—として区別する。未見積強調ON時のラベルは同じ未設定欄へ表示し、同じ意味の文字を重ねない。正本値を丸めず0・小数・候補外も保持する。時間選択へ12hを追加したが、PBI Story pointsの候補・集計単位は変更しない。
+
+
+## 最新見積を基準にした赤線（2026-11-01）
+
+- 進行中は最新scopeの取消を除くIssue集合と見積を基準にする。各保存観測の全milestoneのsnapshotから同じIssue IDの当時の完了状態を参照し、`R(t) = 基準全体見積 − 基準Issueの現在見積 × 当時完了` を計算する。古いsummaryの完了時間を引く方式ではない。reopenはその観測から残量へ戻り、最新scopeから外れたIssue・見送り・NOT_PLANNED・DUPLICATEは全期間の表示計算から外す。未見積は数値に加算せず件数で示し、明示0と区別する。
+- 有効な過去snapshotに現在対象のIssue IDがない場合は、利用者承認の遡及計算として未完了（完了控除0）と置き、現在の見積を過去の赤線へ加算する。実際にその日作成/追加された・未完了だったと証明するものではない。APIの`assumedIncompleteTasks`と短い画面注記でこの仮定を示す。記録全体の欠落/破損/不完全はこの規則で埋めずnullにする。snapshotは保存summaryの各milestoneの件数・全体/残り見積とも照合し、形が正しいだけの切り詰め配列を有効な空記録と誤認しない。
+- 終了済みSprintは従来の排他的cutoff前の最終保存snapshotのscope/見積を基準にする。繰越後の現在scopeで過去を空にしない。保存snapshotがない・破損している場合、元のsummaryは保持するが再計算した赤点はnull（欠測）。初回観測以前のclose/reopen日時や未観測日の完了状況を推測しない。
+- 学校日が2日以上あり最初の学校日を迎えたら、青と同じ全体見積の**開始基準**を赤の中空点で示す。これは実測点ではない。初日の最後の実観測は消さず同じJST日xに置くため、完了済み分があれば開始基準から縦に下がる。日内の架空時刻や固定offsetは使わない。初日が欠測なら中空点から次の観測へ線を引かない。
+- APIの保存summary/observationsは従来通り残し、追加の`rebase`にpolicy・基準種別・各日時の再計算残量/不明理由だけを返す。新UIは`rebase`なし・未対応policyなら赤を描かず再取得案内を出す。再計算の欠測を元の残量や0へfallbackしない。認証・公開性・retention・日次記録上限・学校日程保存は変更しない。
+
+### 変更時検証
+
+- 基準: remote main `cea8d321d591666b08e28a64750d26c1759ccfc7`（2026-11-01照合）。cloud workspaceの分離worktreeで実施、実Issue/Project・本番履歴のmutationなし。
+- 恒久回帰: 純粋な再計算はunit（最新weight/別milestone/除外/reopen/0/null/欠損）、APIは既存DO mock（保存値不変・欠落snapshot・終了後freeze）。chart exportの小さいDOM試験で開始基準・同日縦線・欠測・旧API非fallbackを確認。既存browserの代表chart workflowに中空点の接続確認を追加し、通常suiteを重ねて追加しない。
+- `XDG_CONFIG_HOME="$PWD/.validation/config" npm run check`: lint/typecheck、server 226件、unit/integration 186件、dry-run build成功。既定config pathが存在しないため、認証不要のdry-runをworkspace内config pathで実施した。
+- `npx playwright test --list`: 742件/46 filesを確認。local Chromium実行は既知のsocket権限制限のため未実施。本番GETは既存403を再試行せず、実履歴の充足性と本番の再計算値は未確認。配信時の通常2-shard CIと混同しない。
