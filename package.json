@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "node scripts/worktree/dev.mjs",
     "build": "npm run build:editor && WRANGLER_LOG_PATH=.wrangler/logs WRANGLER_SEND_METRICS=false wrangler deploy --dry-run --outdir dist",
     "lint": "eslint editor worker web server scripts tests",
     "typecheck": "tsc --noEmit",
@@ -16,6 +16,9 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "design:lint": "designmd lint DESIGN.md",
     "deploy": "wrangler deploy",
+    "worktree:setup": "node scripts/worktree/setup.mjs",
+    "worktree:archive": "node scripts/worktree/archive.mjs",
+    "worktree:ports": "node -e \"import('./scripts/worktree/ports.mjs').then(m => console.log(m.localPorts()))\"",
     "build:editor": "node scripts/build-icons.mjs && esbuild editor/index.js --bundle --format=esm --minify --outfile=web/editor-bundle.js --legal-comments=inline && esbuild editor/diagram-worker.js --bundle --format=esm --minify --outfile=web/diagram-worker.js --legal-comments=inline && esbuild editor/ui-tools.js --bundle --format=iife --minify --outfile=web/ui-tools.js --legal-comments=inline",
     "pretest:e2e": "npm run build:editor",
     "predev": "npm run build:editor",

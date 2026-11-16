@@ -23,3 +23,6 @@ web/ui-tools.js
 
 # Change-specific validation is local evidence, not a second permanent suite.
 .validation/
+
+# Per-worktree local state written by scripts/worktree/setup.mjs (ports etc.).
+.worktree/
