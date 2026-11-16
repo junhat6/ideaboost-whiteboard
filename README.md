@@ -15,6 +15,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+並列 worktree での準備・port 分離・後片付けは [docs/PARALLEL-DEV.md](docs/PARALLEL-DEV.md)（Orca は `orca.yaml` で自動実行）。
+
 `npm run dev` は設定されたアクセスモードを含むWorkerを起動します。public-temporaryを明示したときだけ匿名編集となります。UIのテストは `scripts/preview.mjs` に対して Playwright が合成データのAPIを差し込みます。テストサーバーはlocalhost限定、実GitHubへの通信・書き込み・秘密なし。
 
 ## 構成

@@ -59,28 +59,80 @@ try {
 }
 
 // 1. この worktree の port で待ち受けている preview / wrangler dev を止める。
-//    他の checkout のプロセスを巻き込まないよう、cwd がこの worktree 配下のものだけを対象にする。
+//    wrangler は子の workerd を止めても再起動するため、listener の pid だけでなく
+//    起動元 (npm / node / wrangler) まで遡り、その配下のプロセス木をまとめて止める。
+//    shell や agent まで遡らないよう、遡るのは cwd がこの worktree 配下の
+//    node / npm / wrangler / workerd に限る。
+function processTable() {
+  const rows = new Map();
+  for (const line of execFileSync("ps", ["-ax", "-o", "pid=,ppid=,comm="], {
+    encoding: "utf8",
+  }).split("\n")) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+    if (match) {
+      rows.set(Number(match[1]), {
+        ppid: Number(match[2]),
+        name: path.basename(match[3]),
+      });
+    }
+  }
+  return rows;
+}
+
+const SERVER_PROCESS = /^(node|npm|npx|wrangler|workerd)$/;
+
+function launcherOf(pid, rows) {
+  let top = pid;
+  for (;;) {
+    const parent = rows.get(top)?.ppid;
+    const row = parent && rows.get(parent);
+    if (!row || parent === process.pid || !SERVER_PROCESS.test(row.name)) break;
+    if (!inside(cwdOf(parent))) break;
+    top = parent;
+  }
+  return top;
+}
+
+function descendants(root, rows) {
+  const tree = [root];
+  for (let i = 0; i < tree.length; i++) {
+    for (const [pid, row] of rows) {
+      if (row.ppid === tree[i] && !tree.includes(pid)) tree.push(pid);
+    }
+  }
+  return tree;
+}
+
 if (ports) {
   await step("stop servers", async () => {
+    const rows = processTable();
     const targets = new Set();
     for (const port of [ports.preview, ports.dev, ports.inspector]) {
       for (const pid of lsof(["-t", `-iTCP:${port}`, "-sTCP:LISTEN"])
         .split("\n")
         .filter(Boolean)
         .map(Number)) {
-        if (pid !== process.pid && inside(cwdOf(pid))) targets.add(pid);
+        if (pid === process.pid || !inside(cwdOf(pid))) continue;
+        for (const member of descendants(launcherOf(pid, rows), rows)) {
+          if (member !== process.pid) targets.add(member);
+        }
       }
     }
     if (targets.size === 0) return log("停止するサーバーはありません");
+    // 親から順に送ると、子を再起動する前に親が止まる。
     for (const pid of targets) {
-      log(`SIGTERM pid ${pid}`);
-      process.kill(pid, "SIGTERM");
+      log(`SIGTERM pid ${pid} (${rows.get(pid)?.name})`);
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {}
     }
     await delay(3000);
     for (const pid of targets) {
       if (!alive(pid)) continue;
       log(`SIGKILL pid ${pid}`);
-      process.kill(pid, "SIGKILL");
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
     }
   });
 }
