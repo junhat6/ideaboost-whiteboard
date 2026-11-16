@@ -109,9 +109,13 @@ function announce(text) {
 const DISPLAY_KEY = "idea-boost-whiteboard-display-v1",
   DISPLAY_V2_KEY = "idea-boost-whiteboard-display-v2",
   ROWS_KEY = "idea-boost-whiteboard-rows-v1",
+  RECENT_CLOSED_KEY = "idea-boost-whiteboard-recent-closed-v1",
   DEFAULT_ROWS = 6;
 const displaySelections = new Map(),
   displayLayouts = new Map();
+// Opt-in per browser: closed PBIs leave view 16, but sprint reviews need them.
+let includeClosed = readDisplayPreference(RECENT_CLOSED_KEY) === true,
+  closedReloading = false;
 let pickerDraft = null,
   pickerScope = null,
   pickerLanes = [],
@@ -347,9 +351,10 @@ function renderPicker() {
       )
       .map(
         (l) =>
-          `<label class="pbi-option"><input type="checkbox" data-select-pbi="${esc(l.id)}" ${ids.has(l.id) ? "checked" : ""} ${top ? "disabled" : ""}><span><small>${esc(issueLabel(l))}</small> ${esc(l.title)}</span></label>`,
+          `<label class="pbi-option"><input type="checkbox" data-select-pbi="${esc(l.id)}" ${ids.has(l.id) ? "checked" : ""} ${top ? "disabled" : ""}><span><small>${esc(issueLabel(l))}</small> ${esc(l.title)}${l.state === "CLOSED" ? ' <em class="pbi-closed-label">Close済み</em>' : ""}</span></label>`,
       )
       .join("") || "<p>一致するPBIはありません。</p>";
+  renderClosedToggle();
   $("#pbi-missing").innerHTML = missing.length
     ? "<p>選択済みですが現在の範囲にないPBIです。自動で別のPBIには置き換えません。</p>" +
       missing
@@ -359,6 +364,44 @@ function renderPicker() {
         )
         .join("")
     : "";
+}
+function renderClosedToggle() {
+  const box = $("#pbi-include-closed"),
+    applied = state.scope?.recentClosed,
+    closedCount = pickerLanes.filter((l) => l.state === "CLOSED").length;
+  box.checked = includeClosed;
+  box.disabled = closedReloading || !adapter;
+  $("#pbi-closed-note").textContent = !adapter
+    ? "GitHub接続時に使えます。"
+    : closedReloading
+      ? "読み込み中…"
+      : !includeClosed
+        ? "Closeしたスプリントの成果を振り返るときに使います。"
+        : applied
+          ? `Close済み ${closedCount}件を候補に含めています（${applied.days}日以内にClose）。`
+          : "このビュー条件ではClose済みPBIを追加取得できません。";
+}
+async function toggleIncludeClosed(checked) {
+  if (!pickerDraft || closedReloading || checked === includeClosed) return;
+  includeClosed = checked;
+  writeDisplayPreference(RECENT_CLOSED_KEY, includeClosed);
+  closedReloading = true;
+  renderPicker();
+  try {
+    // An in-flight ordinary refresh may have started before the toggle.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await refreshBoard(undefined, { allowPicker: true });
+      if (!!state.scope?.recentClosed === includeClosed || !includeClosed)
+        break;
+    }
+  } finally {
+    closedReloading = false;
+    if (pickerDraft) {
+      pickerLanes = clone(state.lanes);
+      renderPicker();
+      $("#pbi-include-closed").focus();
+    }
+  }
 }
 function openPicker() {
   if (pending || loading || dragged || ($("#details").open && editMode))
@@ -795,7 +838,8 @@ function estimateTarget(t) {
     t.projectItemId === null ||
     (Number.isSafeInteger(t.subIssueCount) && t.subIssueCount > 0) ||
     t.status === "見送り" ||
-    (t.state === "CLOSED" && ["NOT_PLANNED", "DUPLICATE"].includes(t.stateReason))
+    (t.state === "CLOSED" &&
+      ["NOT_PLANNED", "DUPLICATE"].includes(t.stateReason))
   )
     return false;
   return t.subIssueCount === 0 &&
@@ -1341,7 +1385,7 @@ function render() {
             (t) => t.lane === l.id && t.status !== "見送り",
           ),
           done = all.filter((t) => t.status === "完了").length;
-        return `<div class="board-row" role="row"><div class="cell pbi-cell" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="pbi-context"><div class="pbi-assignees person" aria-label="PBI担当者: ${esc(person(l))}" title="${esc(person(l))}">${assigneeAvatars(l)}<span class="person-name">${esc(person(l))}</span></div><span class="story-points" data-story-points="${esc(l.id)}" hidden></span></div>${progressMarkup(done, all.length)}</div>${columns
+        return `<div class="board-row" role="row"><div class="cell pbi-cell${l.state === "CLOSED" ? " is-closed" : ""}" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="pbi-context">${l.state === "CLOSED" ? '<span class="pbi-closed-label">Close済み</span>' : ""}<div class="pbi-assignees person" aria-label="PBI担当者: ${esc(person(l))}" title="${esc(person(l))}">${assigneeAvatars(l)}<span class="person-name">${esc(person(l))}</span></div><span class="story-points" data-story-points="${esc(l.id)}" hidden></span></div>${progressMarkup(done, all.length)}</div>${columns
           .map((s) => {
             const list = own.filter((t) => statusColumn(t.status) === s);
             const overflow = list.length > capacity;
@@ -1786,7 +1830,8 @@ function detailIssueCopyUrl() {
   if (!adapter || !Number.isSafeInteger(item?.number) || item.number < 1)
     return null;
   const url = canonicalIssueUrl(item);
-  return url === `https://github.com/engineer-first/idea-boost/issues/${item.number}`
+  return url ===
+    `https://github.com/engineer-first/idea-boost/issues/${item.number}`
     ? url
     : null;
 }
@@ -1834,7 +1879,8 @@ function showDetailCopyFeedback(success) {
   }, 2000);
 }
 $("#detail-meta").onclick = async () => {
-  if (!$("#details").open || $("#details").classList.contains("closing")) return;
+  if (!$("#details").open || $("#details").classList.contains("closing"))
+    return;
   const url = detailIssueCopyUrl();
   clearDetailCopyFeedback();
   if (!url) {
@@ -4074,15 +4120,16 @@ function handleFitModeShortcut(event) {
   const layout = displayLayout(),
     modes = [1, 2, 3, 4, 5, 6, "all"],
     index = modes.indexOf(layout.value),
-    next = modes[
-      Math.max(
-        0,
-        Math.min(
-          modes.length - 1,
-          index + (event.key.toLowerCase() === "n" ? -1 : 1),
-        ),
-      )
-    ];
+    next =
+      modes[
+        Math.max(
+          0,
+          Math.min(
+            modes.length - 1,
+            index + (event.key.toLowerCase() === "n" ? -1 : 1),
+          ),
+        )
+      ];
   event.preventDefault();
   if (next === layout.value) return;
   select.value = String(next);
@@ -4145,9 +4192,14 @@ function refreshBoard(options, flags = {}) {
 }
 async function performRefresh(
   options,
-  { silent = false, pointsConfirmed = false, forceCurrentSprint = false } = {},
+  {
+    silent = false,
+    pointsConfirmed = false,
+    forceCurrentSprint = false,
+    allowPicker = false,
+  } = {},
 ) {
-  if (!adapter || pending || pickerDraft) return false;
+  if (!adapter || pending || (pickerDraft && !allowPicker)) return false;
   if (dragged || hasOptimisticDragSave()) {
     autoRefreshRequested = true;
     return false;
@@ -4166,7 +4218,10 @@ async function performRefresh(
     const writeEpoch = mutationEpoch;
     const hoursReadEpoch = hoursEpoch;
     // A discarded scope-switch response must not change the next default read.
-    const next = await source.load(options || { milestone: selectedMilestone });
+    const next = await source.load({
+      ...(options || { milestone: selectedMilestone }),
+      closed: includeClosed,
+    });
     if (source !== adapter) return false;
     if (!valid(next)) throw new Error("無効なIssueデータです");
     if (next.scope?.estimateHoursField === false) invalidateHours();
@@ -4305,6 +4360,8 @@ $("#milestone-filter").onchange = async () => {
 
 $("#choose-pbis").onclick = openPicker;
 $("#pbi-search").oninput = renderPicker;
+$("#pbi-include-closed").onchange = (e) =>
+  void toggleIncludeClosed(e.target.checked);
 $("#pbi-options").addEventListener("change", (e) => {
   if (e.target.dataset.selectPbi)
     togglePbi(e.target.dataset.selectPbi, e.target.checked);
@@ -4604,7 +4661,7 @@ window.Whiteboard = {
     let snapshot;
     const hoursReadEpoch = hoursEpoch;
     try {
-      snapshot = await next.load();
+      snapshot = await next.load({ closed: includeClosed });
       if (hoursReadEpoch !== hoursEpoch) {
         for (const task of snapshot.tasks || []) delete task.estimateHours;
         if (snapshot.scope) snapshot.scope.estimateHoursField = false;

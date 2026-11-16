@@ -32,18 +32,21 @@ export class BoardReader {
       return Response.json({ error: "not_found" }, { status: 404 });
     let invalidKey = false;
     url.searchParams.forEach((_, key) => {
-      if (key !== "milestone") invalidKey = true;
+      if (key !== "milestone" && key !== "closed") invalidKey = true;
     });
     if (
       invalidKey ||
       url.searchParams.getAll("milestone").length > 1 ||
+      url.searchParams.getAll("closed").length > 1 ||
+      (url.searchParams.has("closed") &&
+        url.searchParams.get("closed") !== "recent") ||
       (url.searchParams.has("milestone") &&
         !/^[1-9]\d{0,8}$/.test(url.searchParams.get("milestone")!))
     )
       return Response.json({ error: "invalid_query" }, { status: 400 });
+    // Only the default read is shared; milestone or recent-closed reads are fresh.
     const reuse =
-      request.headers.get("X-Board-Snapshot") === "1" &&
-      !url.searchParams.has("milestone");
+      request.headers.get("X-Board-Snapshot") === "1" && !url.search;
     const clean = new Request(url, request);
     const cached = this.snapshot;
     if (
