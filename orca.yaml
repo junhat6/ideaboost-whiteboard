@@ -1,0 +1,10 @@
+# Orca で worktree を作る/消すときの設定。仕組みと手動実行は docs/PARALLEL-DEV.md。
+scripts:
+  # npm ci (lockfile が変わった時だけ)・bundle 生成・Chromium 確認・.dev.vars の symlink・port 割当
+  setup: bash scripts/worktree/hook.sh setup
+  # この worktree の dev / preview サーバー停止・port 解放・未 push 作業の記録
+  archive: bash scripts/worktree/hook.sh archive
+
+# node_modules と生成 bundle が揃う前に agent が check / e2e を走らせて誤って失敗しないよう、
+# setup 完了を待ってから agent を起動する。
+setupAgentStartupPolicy: wait-for-setup

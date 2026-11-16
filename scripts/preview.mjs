@@ -1,6 +1,7 @@
 // Test-only static server. No credentials, GitHub calls or production auth bypass.
 import http from "node:http";
 import { readFile } from "node:fs/promises";
+import { localPorts } from "./worktree/ports.mjs";
 const allowed = new Map([
   ["/", "index.html"],
   ["/app.js", "app.js"],
@@ -44,4 +45,4 @@ http
       res.end();
     }
   })
-  .listen(4183, "127.0.0.1");
+  .listen(localPorts().preview, "127.0.0.1");
