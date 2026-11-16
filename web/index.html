@@ -201,6 +201,13 @@
         role="alert"
         hidden
       ></p>
+      <div class="pbi-closed-toggle">
+        <label>
+          <input type="checkbox" id="pbi-include-closed" />
+          <span>最近Closeした PBI も候補に含める（過去28日）</span>
+        </label>
+        <p id="pbi-closed-note" class="picker-note" aria-live="polite"></p>
+      </div>
       <div class="picker-tools">
         <input
           id="pbi-search"
@@ -467,12 +474,7 @@
           >
             <span class="issue-close-caret" aria-hidden="true"></span>
           </button>
-          <div
-            id="close-issue-menu"
-            role="menu"
-            aria-label="Close理由"
-            hidden
-          >
+          <div id="close-issue-menu" role="menu" aria-label="Close理由" hidden>
             <button
               type="button"
               role="menuitem"

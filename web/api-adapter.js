@@ -103,7 +103,8 @@
       ]);
       let initialBoard = firstBoard;
       let latest = null,
-        activeMilestone = "";
+        activeMilestone = "",
+        activeClosed = false;
       await window.Whiteboard.setAdapter({
         label:
           health.accessMode === "public-temporary"
@@ -117,14 +118,22 @@
               throw new Error("マイルストーンを確認してください。");
             requestedMilestone = value;
           }
+          // The first board is the default open-only read; a recent-closed
+          // preference always needs its own fresh read.
+          const requestedClosed =
+            options && Object.hasOwn(options, "closed")
+              ? options.closed === true
+              : activeClosed;
+          const params = new URLSearchParams();
+          if (requestedMilestone) params.set("milestone", requestedMilestone);
+          if (requestedClosed) params.set("closed", "recent");
+          const query = params.toString();
           const loaded =
-            initialBoard ||
-            (await request(
-              "/api/board" +
-                (requestedMilestone ? "?milestone=" + requestedMilestone : ""),
-            ));
+            (!requestedClosed && initialBoard) ||
+            (await request("/api/board" + (query ? "?" + query : "")));
           initialBoard = null;
           activeMilestone = requestedMilestone;
+          activeClosed = requestedClosed;
           latest = loaded;
           return latest;
         },

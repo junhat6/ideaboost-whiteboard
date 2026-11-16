@@ -3801,3 +3801,48 @@ input[type="checkbox"] {
 [data-theme="dark"] .burn-baseline {
   stroke: #ff8896;
 }
+/* Recent closed PBIs: opt-in in the picker, marked on the PBI row (not on cards). */
+.pbi-closed-toggle {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--soft);
+}
+.pbi-closed-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pbi-closed-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+.pbi-closed-toggle .picker-note {
+  margin: 2px 0 0 24px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pbi-closed-label {
+  --pbi-closed-ink: #6940b3;
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--pbi-closed-ink) 35%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--pbi-closed-ink) 8%, transparent);
+  color: var(--pbi-closed-ink);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+[data-theme="dark"] .pbi-closed-label {
+  --pbi-closed-ink: #bc8cff;
+}

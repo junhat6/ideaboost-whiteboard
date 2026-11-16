@@ -46,6 +46,17 @@ const PROJECT_ORDER = "orderBy:{field:POSITION,direction:ASC}";
 const INDEX = `nodes { id isArchived content { ... on Issue { id repository { nameWithOwner } milestone { number title state dueOn } } } } pageInfo { hasNextPage endCursor }`;
 const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2SingleSelectField { id name options { id name color } } } view(number:16) { filter }`;
 const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100,${PROJECT_ORDER}) { ${INDEX} } } } }`;
+// Closed PBIs leave view 16 (`is:open`). Sprint reviews still need recently
+// completed rows, so an explicit opt-in adds only a bounded recent window.
+export const RECENT_CLOSED_DAYS = 28;
+const OPEN_QUALIFIER = /(^|\s)is:open(?=\s|$)/gi;
+export function recentClosedFilter(filter, at) {
+  if (typeof filter !== "string" || !filter.match(OPEN_QUALIFIER)) return null;
+  const since = new Date(at - RECENT_CLOSED_DAYS * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  return filter.replace(OPEN_QUALIFIER, `$1is:closed closed:>=${since}`);
+}
 const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,${PROJECT_ORDER}) { ${INDEX} } } } }`;
 // Reject incomplete/obviously inconsistent scans instead of silently inventing an
 // order. GitHub does not promise a snapshot across cursor requests: this detects
@@ -592,7 +603,7 @@ export function createHandler({
     env,
     milestone = null,
     applyView = true,
-    { observation = false } = {},
+    { observation = false, recentClosed = false } = {},
   ) {
     const timings = [];
     const read = async (name, operation) => {
@@ -626,7 +637,15 @@ export function createHandler({
       !/@/.test(meta.view.filter ?? "") &&
       /(?:^|\s)type:(?:PBI|"PBI")(?:\s|$)/i.test(meta.view.filter ?? "")
     )
-      return focusedBoard(env, milestone, meta, read, timings, observation);
+      return focusedBoard(
+        env,
+        milestone,
+        meta,
+        read,
+        timings,
+        observation,
+        recentClosed,
+      );
     const loadMetadata = async () => {
       const viewFilter = meta.view?.filter ?? null;
       const filterApplied =
@@ -970,6 +989,7 @@ export function createHandler({
     read,
     timings,
     observation,
+    recentClosed = false,
   ) {
     const own = (i) =>
       i?.id && i.repository?.nameWithOwner === `${OWNER}/${REPO}`;
@@ -983,14 +1003,15 @@ export function createHandler({
       for (let page = 0; page < 100; page++) {
         const base = `query ${name}($after:String,$filter:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:50,after:$after,query:$filter,${PROJECT_ORDER}) { ${fullFields} } } } }`;
         const data = await read(name, () =>
-          (name === "BoardRowsFull" && publicProjectPoints(meta.pointsField)) ||
+          (name.startsWith("BoardRows") &&
+            publicProjectPoints(meta.pointsField)) ||
           (name === "BoardChildren" && publicHours(meta.hoursField, env))
             ? optionalPointsQuery(
                 env,
                 base,
                 base.replace(
                   "nodes { id isArchived",
-                  `nodes { ${name === "BoardRowsFull" ? POINT_VALUE : HOURS_VALUE} id isArchived`,
+                  `nodes { ${name.startsWith("BoardRows") ? POINT_VALUE : HOURS_VALUE} id isArchived`,
                 ),
                 { after, filter },
               )
@@ -1020,7 +1041,7 @@ export function createHandler({
             i.number < 1
           )
             throw new ApiError(502, "issue_details_unavailable");
-          if (name === "BoardRowsFull" && i.issueType?.name === "PBI") {
+          if (name.startsWith("BoardRows") && i.issueType?.name === "PBI") {
             const point = projectPoint(item.pointsValue);
             if (point !== undefined) pointValues[i.number] = point;
           }
@@ -1071,10 +1092,20 @@ export function createHandler({
       }
       throw new ApiError(502, "project_too_large");
     }
+    const closedFilter =
+      recentClosed && !observation
+        ? recentClosedFilter(meta.view.filter, now())
+        : null;
     async function hierarchy() {
-      const rows = (await pages("BoardRowsFull", meta.view.filter)).filter(
-        (v) => v.issue.type === "PBI",
-      );
+      const [openRows, closedRows] = await Promise.all([
+        pages("BoardRowsFull", meta.view.filter),
+        closedFilter ? pages("BoardRowsClosed", closedFilter) : [],
+      ]);
+      const openIds = new Set(openRows.map((v) => v.issue.id));
+      const rows = [
+        ...openRows,
+        ...closedRows.filter((v) => !openIds.has(v.issue.id)),
+      ].filter((v) => v.issue.type === "PBI");
       const roots = new Map(rows.map((v) => [v.issue.id, v.issue]));
       const tasks = new Map();
       let frontier = rows
@@ -1236,6 +1267,9 @@ export function createHandler({
           filterApplied: true,
           filterTarget: "PBI rows",
           childTasksExpanded: true,
+          recentClosed: closedFilter
+            ? { days: RECENT_CLOSED_DAYS, filter: closedFilter }
+            : null,
           milestone,
           selectedMilestone: milestone,
           milestones,
@@ -2048,14 +2082,24 @@ export function createHandler({
       }
       if (request.method === "GET" && url.pathname === "/api/board") {
         if (
-          [...url.searchParams.keys()].some((k) => k !== "milestone") ||
-          url.searchParams.getAll("milestone").length > 1
+          [...url.searchParams.keys()].some(
+            (k) => k !== "milestone" && k !== "closed",
+          ) ||
+          url.searchParams.getAll("milestone").length > 1 ||
+          url.searchParams.getAll("closed").length > 1 ||
+          (url.searchParams.has("closed") &&
+            url.searchParams.get("closed") !== "recent")
         )
           throw new ApiError(400, "invalid_query");
         const value = url.searchParams.get("milestone");
         if (value !== null && !/^[1-9]\d{0,8}$/.test(value))
           throw new ApiError(400, "invalid_milestone");
-        const result = await board(env, value === null ? null : Number(value));
+        const result = await board(
+          env,
+          value === null ? null : Number(value),
+          true,
+          { recentClosed: url.searchParams.get("closed") === "recent" },
+        );
         const response = reply(result.output);
         response.headers.set("Server-Timing", result.timings.join(", "));
         return response;

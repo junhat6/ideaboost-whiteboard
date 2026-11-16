@@ -60,7 +60,16 @@ test("expired snapshots and milestone reads always fetch fresh", async () => {
   );
   await f.reader.fetch(request(true, "?milestone=2"));
   assert.equal(f.calls(), 3);
+  // Recent closed PBIs are an opt-in scope: never served from the open-only snapshot.
+  await f.reader.fetch(request(true));
+  assert.equal(f.calls(), 3);
+  await f.reader.fetch(request(true, "?closed=recent"));
+  assert.equal(f.calls(), 4);
   assert.equal((await f.reader.fetch(request(true, "?x=1"))).status, 400);
+  assert.equal(
+    (await f.reader.fetch(request(true, "?closed=all"))).status,
+    400,
+  );
 });
 test("private transition denies and purges snapshot; second guard also fails closed", async () => {
   for (const failAt of [1, 2]) {
