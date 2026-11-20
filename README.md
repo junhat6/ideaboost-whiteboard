@@ -30,6 +30,7 @@ npm run test:e2e
 - [docs/adr](docs/adr): アーキテクチャと競合の決定記録。
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): 承認が必要な設定、本番導入、障害対応。
 - [docs/TESTING.md](docs/TESTING.md): 試験範囲と限界。
+- [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md): Renovateによる依存更新と自動マージの範囲。
 
 対象は `engineer-first/idea-boost`、組織 Project 3 / view 16 に固定。PBI行だけビューで絞り、正式な子・孫IssueをProjectから展開します。Issue番号はAPIで固定リポジトリに解決し、他のProjectへの自由なプロキシにはしません。
 
