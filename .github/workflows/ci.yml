@@ -12,6 +12,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
+          # runnerのtool cacheは修正前のpatchが残るため、24系の最新(セキュリティ修正)を取得する。
+          check-latest: true
           cache: npm
       - run: npm ci
       - run: npm run check
@@ -29,6 +31,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
+          # runnerのtool cacheは修正前のpatchが残るため、24系の最新(セキュリティ修正)を取得する。
+          check-latest: true
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
@@ -136,6 +140,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
+          # runnerのtool cacheは修正前のpatchが残るため、24系の最新(セキュリティ修正)を取得する。
+          check-latest: true
       # 認証を渡す前に依存と静的bundleを準備。PR由来artifact/cacheは使わない。
       - run: npm ci
       - run: npm run build:editor
