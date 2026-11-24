@@ -29,7 +29,12 @@ try {
     const mainRuns = gh("run", "list", "--repo", REPO, "--workflow", "ci.yml", "--branch", "main", "--event", "push", "-L", "1", "--json", "status") || [];
     if (mainRuns[0] && mainRuns[0].status !== "completed") say(false, "main の配信が実行中");
     const openRc = (gh("pr", "list", "--repo", REPO, "--base", "main", "--state", "open", "--json", "headRefName") || []).filter((p) => p.headRefName.startsWith("rc/"));
-    if (openRc.length) say(true, `出しきれていない昇格 PR（${openRc.map((p) => p.headRefName).join(", ")}）の続き`);
+    if (openRc.length) {
+      // CI 実行中なら誰か（人か前の周回）が見届けている。赤で止まっているときだけ続きを起こす。
+      const rcRuns = gh("run", "list", "--repo", REPO, "--workflow", "ci.yml", "--branch", openRc[0].headRefName, "-L", "1", "--json", "status,conclusion") || [];
+      if (!rcRuns[0] || rcRuns[0].status !== "completed") say(false, `昇格 PR（${openRc[0].headRefName}）の CI が実行中`);
+      say(true, `出しきれていない昇格 PR（${openRc[0].headRefName}、CI ${rcRuns[0].conclusion}）の続き`);
+    }
     const health = latestHealth();
     if (health?.conclusion === "failure") say(false, "develop-health が赤（先に mend）");
     const pending = sh("git", ["log", "--no-merges", "--oneline", "origin/main..origin/develop"]);
