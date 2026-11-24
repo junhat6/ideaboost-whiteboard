@@ -3,6 +3,7 @@ import { createHandler } from "../server/github.mjs";
 import { BoardReader, withReadInvalidation } from "./reader";
 import { MutationCoordinator } from "./coordinator";
 import { BurnHistory } from "./burndown";
+import { TeamNotesStore } from "./team-notes";
 import type { Env } from "./index";
 export { default } from "./index";
 export class HistoryCoordinator extends DurableObject<Env> {
@@ -79,5 +80,16 @@ export class IssueCoordinator extends DurableObject<Env> {
       () => this.coordinator.fetch(request),
       invalidate,
     );
+  }
+}
+/** チームの付箋。ボード 1 枚につき 1 つ。GitHub には書かない。 */
+export class TeamNotesCoordinator extends DurableObject<Env> {
+  private store: TeamNotesStore;
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.store = new TeamNotesStore(ctx.storage);
+  }
+  fetch(request: Request) {
+    return this.store.fetch(request);
   }
 }

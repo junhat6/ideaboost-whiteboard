@@ -7,6 +7,7 @@ export interface Env extends AuthConfig {
   PUBLIC_LIMITER?: RateLimit;
   MUTATIONS?: DurableObjectNamespace;
   HISTORY?: DurableObjectNamespace;
+  TEAM_NOTES?: DurableObjectNamespace;
   ESTIMATE_HOURS_READ_ENABLED?: string;
   ESTIMATE_HOURS_FIELD_ID?: string;
   ESTIMATE_HOURS_NODE_ID?: string;
@@ -147,6 +148,33 @@ export function createWorker(auth = authenticate, api = handleApi) {
               "engineer-first/idea-boost:board-reader",
             ).fetch(internal),
           );
+        }
+        if (new URL(request.url).pathname === "/api/team-notes") {
+          if (new URL(request.url).search)
+            throw new AccessError(400, "invalid_query");
+          if (!env.TEAM_NOTES)
+            throw new AccessError(503, "team_notes_not_configured");
+          const notes = env.TEAM_NOTES.getByName(
+            "engineer-first/idea-boost:team-notes",
+          );
+          try {
+            return secure(await notes.fetch(internal));
+          } catch {
+            // 転送で失敗しても、DO 側で書き込みが済んでいる可能性がある。再送を促さない。
+            return secure(
+              Response.json(
+                {
+                  ok: false,
+                  error:
+                    request.method === "POST"
+                      ? "notes_outcome_unresolved"
+                      : "service_unavailable",
+                  ambiguous: request.method === "POST",
+                },
+                { status: 503 },
+              ),
+            );
+          }
         }
         const result = await api(internal, env);
         if (result) return secure(result);

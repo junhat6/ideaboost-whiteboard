@@ -783,6 +783,8 @@ test("shared snapshot paints actual cards then refreshes immediately, with age a
     }
     if (req.url().endsWith("/health"))
       return route.fulfill({ json: { configured: true } });
+    if (req.url().endsWith("/team-notes"))
+      return route.fulfill({ status: 404 });
     if (req.headers()["x-board-snapshot"] === "1")
       return route.fulfill({
         json: { ...data, readState: { kind: "snapshot", ageMs: 20000 } },

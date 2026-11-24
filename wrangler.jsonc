@@ -6,11 +6,13 @@
     "bindings": [
       { "name": "MUTATIONS", "class_name": "IssueCoordinator" },
       { "name": "HISTORY", "class_name": "HistoryCoordinator" },
+      { "name": "TEAM_NOTES", "class_name": "TeamNotesCoordinator" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["IssueCoordinator"] },
     { "tag": "v2", "new_sqlite_classes": ["HistoryCoordinator"] },
+    { "tag": "v3", "new_sqlite_classes": ["TeamNotesCoordinator"] },
   ],
   "compatibility_date": "2026-10-26",
   "ratelimits": [

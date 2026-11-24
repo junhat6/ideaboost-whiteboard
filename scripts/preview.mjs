@@ -14,6 +14,7 @@ const allowed = new Map([
   ["/editor-bundle.js", "editor-bundle.js"],
   ["/diagram-worker.js", "diagram-worker.js"],
   ["/api-adapter.js", "api-adapter.js"],
+  ["/team-notes.js", "team-notes.js"],
   ["/styles.css", "styles.css"],
 ]);
 http

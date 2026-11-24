@@ -75,6 +75,8 @@ export async function setup(
   let sprintReads = 0;
   await page.route("**/api/**", async (route) => {
     const p = new URL(route.request().url()).pathname.slice(prefix.length);
+    // 付箋の棚は各試験が個別に route する。無ければ静的サーバーの 404（サンプル表示）になる。
+    if (p === "/api/team-notes") return route.fallback();
     if (p === "/api/health")
       return route.fulfill({
         json: {
