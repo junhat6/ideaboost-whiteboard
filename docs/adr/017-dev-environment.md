@@ -21,9 +21,11 @@
 二重に止める。
 
 1. **資格を渡さない**: dev には GitHub App の ID・installation・鍵が無い。`handleApi` は `github_not_configured`（503）で GitHub を一切呼ばない。ボードは読み込めず、付箋の棚だけが動く。
-2. **変数で書き込みを止める**: `GITHUB_WRITES` が置かれていて値が `"enabled"` でなければ、`POST /api/issues/:n` と `/comments` を 403 `github_writes_disabled` で返す。
-   - Worker（`worker/index.ts`）は `MUTATIONS` の DO に入れる前に止める。DO の queue・要求記録にも残らない。
-   - `server/github.mjs` の `handleApi` も、本文を読む前・GitHub を読む前に止める。GitHub への書き込み（REST の PATCH/POST/DELETE と GraphQL の mutation）は全てこの経路から入るため、DO を経由した要求も同じ判定で閉じる。
+2. **変数で書き込みを止める**: `GITHUB_WRITES` が置かれていて値が `"enabled"` でなければ、GitHub への書き込みを 403 `github_writes_disabled` で止める。止める場所は 3 か所で、同じ判定（`githubWritesDisabled`）を使う。
+   - 経路（Worker）: `worker/index.ts` は `POST /api/issues/:n` と `/comments` を `MUTATIONS` の DO に入れる前に止める。DO の queue・要求記録にも残らない。
+   - 経路（`handleApi`）: `server/github.mjs` は同じ POST を、本文を読む前・GitHub を読む前に止める。DO を経由した要求もここを通る。
+   - 送り先（`api()`）: GitHub へ送る唯一の口。GET と `query` で始まる GraphQL だけを読み取りとみなし、それ以外（REST の PATCH/POST/DELETE、GraphQL の mutation、判別できない GraphQL）は token を取る前に止める。installation token の取得（access_tokens）は `api()` を通らないので止まらない。`gql()` も `api()` を通る。
+   - 送り先でも止める理由: M2 の `/mcp` などが `save()` やコメントの write を経路を通さずに呼ぶと、経路の判定だけでは素通りする。送り先で止めれば、MCP 経由でも同じ判定を必ず通る。そのため、GitHub へ `api()` を通さずに fetch するコードを足さない（今 `fetcher` を直接使うのは token の取得だけ）。経路でも止めるのは、GitHub を読む前に、結果不明でない明確な 403 を返すため。
    - 何も送らずに止めるので、結果不明（ambiguous）ではない。利用者に再取得を求める必要もない。
    - 未設定の本番だけが従来どおり書ける。値の綴り違い（`"disable"`・空文字など）も止める側に倒す。
 
@@ -42,12 +44,13 @@ dev でボードも読みたくなったら、読み取り専用（`issues: read
 ## 認証の前提（fail closed）
 
 - dev は `AUTH_MODE` を持たず、チームモードで動く。`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS`・`APP_ORIGIN` のどれかが欠けると、HTML を含む全ルートが 503 `access_not_configured`。Access を設定する前に deploy されても、匿名では何も読めず書けない。
-- **dev で public-temporary は使わない**。付箋とリモート MCP の目的は「誰が書いたか」を区別することで、匿名の主体では検証にならない。誤って `AUTH_MODE=public-temporary` を入れても、dev には `PUBLIC_LIMITER` が無いので `/api/*` は 503 `rate_limit_not_configured` で閉じる（`PUBLIC_PATH` が無ければ全体が 503）。
+- **dev で public-temporary は使わない**。付箋とリモート MCP の目的は「誰が書いたか」を区別することで、匿名の主体では検証にならない。誤って `AUTH_MODE=public-temporary` を入れても、dev には `PUBLIC_LIMITER` が無いので `/api/*` は 503 `rate_limit_not_configured` で閉じる（`PUBLIC_PATH` が無ければ全体が 503）。ただし `PUBLIC_PATH` と `APP_ORIGIN` まで入れた場合、`/b/<path>/` の HTML・CSS・JS（データを含まない画面の外枠）は匿名で見える。中身（付箋・Issue）は API が閉じているので出ない。
 - Access の許可一覧は本番のメンバーと同じか、その一部にする。dev の付箋はチームの外に見せない前提で扱う。
 
 ## 自動では deploy しない
 
-- CI の deploy job は main への push だけで動き、`wrangler deploy --name ideaboost-whiteboard --keep-vars` と本番の名前を明示している。`--env` を付けないので dev は deploy されない。
+- CI の deploy job は main への push だけで動き、`wrangler deploy --env="" --name ideaboost-whiteboard --keep-vars` とトップレベル（本番）と本番の名前を明示している。dev は deploy されない。
+- `--env=""` を付けた理由: `env.dev` を足すと、wrangler は `--env` の無い deploy に「Multiple environments」の警告を出す。本番を明示して警告を消し、意図しない env への deploy を防ぐ。`npm run deploy` と `npm run build`（dry-run）も同じにした。本番の名前・値・bindings は変わらない（dry-run の bindings 表を前後で比較して同一）。
 - release ループ（`npm run release`）は昇格 PR を作るだけで deploy しない。develop-health は deploy しない。
 - dev の deploy・削除は人が手元で行う。
 
@@ -64,6 +67,6 @@ runbook の 9 章に手順を置いた。dev の初回 deploy、workers.dev へ�
 
 ## 検証
 
-- `server/github-writes.test.mjs`: `GITHUB_WRITES` の値ごとの判定、停止中は Issue の変更・Status・コメントを GitHub へ 1 件も送らず 403、未設定なら従来どおり書けること。
+- `server/github-writes.test.mjs`: `GITHUB_WRITES` の値ごとの判定、停止中は Issue の変更・Status・コメントを GitHub へ 1 件も送らず 403、未設定なら従来どおり書けること。送り先（`api()`/`gql()` を経路を通さずに直接呼ぶ）でも、REST の PATCH/POST/DELETE・GraphQL の mutation・`query` で始まらない GraphQL を token の取得も含めて何も送らずに止め、読み取りは止めないこと。未設定なら同じ呼び出しが従来どおり書けること。
 - `tests/dev-env.test.ts`: `wrangler.jsonc` の `env.dev` が別名・付箋有効・書き込み停止で、GitHub の資格・公開モード・rate limit を持たないこと。本番は付箋無効のまま。dev の Worker は付箋を通し、Issue の変更を DO に入れずに 403。Access 未設定なら全ルート 503、public-temporary にしても API は 503。
 - 一度だけの確認（`.validation/` に記録、git に入れない）: `wrangler deploy --dry-run` を本番と `--env dev` で実行し、本番の設定が変更前と同一。ローカルの `wrangler dev --env dev` へ curl で、Access 未設定の全 503、付箋 API の 200、Issue の変更とコメントの 403。

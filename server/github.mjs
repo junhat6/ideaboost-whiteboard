@@ -404,6 +404,15 @@ export function createHandler({
     path,
     { method = "GET", body, withHeaders = false } = {},
   ) {
+    // 送り先でも書き込みを止める（ADR 017）。経路の判定を通らない将来の呼び出し（/mcp など）も
+    // ここを必ず通る。読み取りと分かるもの（GET と `query` で始まる GraphQL）以外は書き込みとみなす。
+    // installation token の取得（access_tokens）は fetcher を直接使うのでここを通らない。
+    const read =
+      method === "GET" ||
+      (path === "/graphql" &&
+        method === "POST" &&
+        /^\s*query\b/.test(body?.query ?? ""));
+    if (!read) assertGithubWritable(env);
     const t = await token(env);
     let r;
     try {
@@ -1790,7 +1799,11 @@ export function createHandler({
         }),
     });
   }
-  return async function handleApi(request, env = {}) {
+  // GitHub への送り口。経路を通らずに save()・コメントの write を呼ぶ将来の呼び出しも、
+  // この api()/gql() を通る。試験はここで送り先の書き込み停止を確かめる。
+  const github = Object.freeze({ api, gql });
+  return Object.assign(handleApi, { github });
+  async function handleApi(request, env = {}) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) return null;
     try {
@@ -2278,6 +2291,6 @@ export function createHandler({
         e.status ?? 502,
       );
     }
-  };
+  }
 }
 export const handleApi = createHandler();

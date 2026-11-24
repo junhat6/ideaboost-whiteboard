@@ -260,14 +260,26 @@ GitHub App の鍵を dev に登録しない。dev でボードも読みたくな
 ### 9.1 deploy（D-A1）
 
 1. develop の最新を手元に取り、`npm ci` と `npm run check` を通す
-2. 次のコマンドを**そのまま**使う。`--env dev` を落とすと本番へ deploy される（`npm run deploy` も本番）
+2. 次のコマンドを**そのまま**使う。`--env dev` を落とすと本番へ deploy される（`npm run deploy` は `--env=""` で本番を明示している）
 
    ```sh
-   npx wrangler deploy --env dev --dry-run   # Worker 名が ideaboost-whiteboard-dev、vars が 2 つだけであることを目で確かめる
+   npx wrangler deploy --env dev --dry-run
+   ```
+
+   dry-run は Worker 名を表示しない（wrangler 4.152 で確認）。代わりに bindings の表で見分ける。
+
+   | 行 | dev（進んでよい） | 本番（止める） |
+   | --- | --- | --- |
+   | Environment Variable | `TEAM_NOTES_ENABLED ("true")` と `GITHUB_WRITES ("disabled")` の 2 行だけ | `GITHUB_APP_ID`・`GITHUB_INSTALLATION_ID`・`TEAM_NOTES_ENABLED ("false")` |
+   | Rate Limit | 無い | `PUBLIC_LIMITER` がある |
+
+   表が dev の列と一致したら、同じ `--env dev` で deploy する。
+
+   ```sh
    npx wrangler deploy --env dev
    ```
 
-3. 表示された workers.dev のホストを控える（以下 `<dev host>`）。リポジトリ・Issue・チャットに書かない
+3. 表示された workers.dev のホストを控える（以下 `<dev host>`）。ホスト名が `ideaboost-whiteboard-dev.` で始まることを確かめる（workers.dev のホスト名は Worker 名から作られるので、本番と取り違えていればここで分かる）。リポジトリ・Issue・チャットに書かない
 4. 確認: ログインしていないブラウザで `<dev host>/` を開き、503（`access_not_configured`）が返る。この時点では誰も読めず書けない
 
 `--keep-vars` は付けない。dev の vars は `wrangler.jsonc` が正本で、Access の値は secret として登録する（deploy で消えない）。
@@ -295,17 +307,45 @@ npx wrangler secret put APP_ORIGIN --env dev           # https://<dev host>（�
 - 値はプロンプトに貼り、コマンド引数・シェル履歴・チャットに出さない
 - 登録しないもの: `GITHUB_APP_PRIVATE_KEY`・`GITHUB_APP_ID`・`GITHUB_INSTALLATION_ID`・`AUTH_MODE`・`PUBLIC_PATH`・`GITHUB_WRITES`（`wrangler.jsonc` で固定。上書きしない）
 
-確認（結果は #8 にコメント。URL・メールは書かない）:
+確認（結果は #8 にコメント。URL・メールは書かない）。画面ではなく curl で、状態コードと `error` を見る。ログインした状態の要求には `cloudflared access curl` を使う（Access のトークンを付けて送る。`cloudflared` の導入が要る）。
 
-- [ ] ログインしていないブラウザで `<dev host>/` が Access のログイン画面になる
-- [ ] 許可メンバーでログインすると、付箋の棚が出て、一言を貼れる。ボードは `github_not_configured` で読み込めない（仕様）
-- [ ] `/api/health` の `accessMode` が `team`、`configured` が `false`
-- [ ] 付箋は本番に出ない（本番の棚は無効のまま）
-- [ ] 詳細ダイアログやコメント欄から保存しようとしても 403（`github_writes_disabled`）。実 Issue は変わっていない
+```sh
+D=https://<dev host>
+
+# 1. ログインなしでは Access で止まる（アプリの HTML・JSON は返らない）
+curl -s -o /dev/null -w '%{http_code}\n' "$D/"                 # 302（Access のログインへ）。401/403 でもよい
+curl -s "$D/api/team-notes" | head -c 200                       # アプリの JSON（"ok":…）が返らない
+
+# 2. 許可メンバーとしてログインする（ブラウザが開く）
+cloudflared access login "$D"
+
+# 3. チームモード・GitHub 未設定
+cloudflared access curl "$D/api/health"        # 200、"accessMode":"team"、"configured":false
+
+# 4. 付箋は有効。ボードは GitHub を読まない（仕様）
+cloudflared access curl "$D/api/team-notes"    # 200、"ok":true
+cloudflared access curl "$D/api/team-notes" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' \
+  -d '{"requestId":"req_devcheck_000001","op":"create","texts":["dev の確認"]}'
+                                               # 200、"createdBy" がログインした人の ID（public-anonymous ではない）
+cloudflared access curl "$D/api/board"         # 503、"error":"github_not_configured"
+
+# 5. GitHub へは書けない（存在しない番号を使う。どの番号でも DO にも GitHub にも届かない）
+cloudflared access curl "$D/api/issues/999999999" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' -d '{}'
+                                               # 403、"error":"github_writes_disabled"
+cloudflared access curl "$D/api/issues/999999999/comments" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' -d '{}'
+                                               # 403、"error":"github_writes_disabled"
+```
+
+- [ ] 1〜5 の結果がコメントのとおり
+- [ ] 本番の `/api/team-notes` は 404 のまま（付箋は本番に出ない。本番の URL はここに書かない）
+- [ ] 確認で貼った付箋は、画面の棚で剥がしてよい（dev のデータなので残っても本番には影響しない）
 
 ### 9.4 managed OAuth と MCP の検証（D-A4）
 
-8.1 の手順を、本番ではなくこの dev の Access アプリで行う（8.1.1 の「検証用の別名 Worker」がこれ）。8.3 の未確認事項は dev で確かめてから本番の判断に使う。MCP 経由でも GitHub へは書けない（同じ `GITHUB_WRITES` の判定を通る）。
+8.1 の手順を、本番ではなくこの dev の Access アプリで行う（8.1.1 の「検証用の別名 Worker」がこれ）。8.3 の未確認事項は dev で確かめてから本番の判断に使う。MCP 経由でも GitHub へは書けない（GitHub への送り口 `api()` が同じ `GITHUB_WRITES` の判定で止める。MCP の実装は GitHub へ直接 fetch せず、必ず `api()`/`gql()` を使う）。
 
 ### 9.5 切り戻し・片付け
 
