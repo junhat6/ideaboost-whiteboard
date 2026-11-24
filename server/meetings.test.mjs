@@ -14,7 +14,7 @@ const SECRET_LINE = "社外秘の発言そのもの";
 const teamEnv = {
   ...githubEnv,
   MEETINGS_AI_ENABLED: "true",
-  ANTHROPIC_API_KEY: "test-key",
+  OPENAI_API_KEY: "test-key",
 };
 const loggerEnv = { ...teamEnv, MEETINGS_LOGGER_READ_ENABLED: "true" };
 const digestJson = {
@@ -91,7 +91,7 @@ function harness({
       if (path.endsWith("/2026-11-20-am.md")) return new Response(transcriptAm);
       return new Response(null, { status: 404 });
     }
-    if (url.startsWith("https://api.anthropic.com/")) {
+    if (url.startsWith("https://api.openai.com/")) {
       if (hold) await hold;
       if (aiStatus !== 200)
         return Response.json(
@@ -99,12 +99,20 @@ function harness({
           { status: aiStatus },
         );
       return Response.json({
-        id: "msg_1",
-        type: "message",
-        role: "assistant",
-        model: "claude-opus-5-5",
-        stop_reason: stopReason,
-        content: [{ type: "text", text: JSON.stringify(aiResponse) }],
+        id: "resp_1",
+        object: "response",
+        model: "gpt-6.1-terra",
+        status: stopReason === "max_tokens" ? "incomplete" : "completed",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content:
+              stopReason === "refusal"
+                ? [{ type: "refusal", refusal: "no" }]
+                : [{ type: "output_text", text: JSON.stringify(aiResponse) }],
+          },
+        ],
         usage: { input_tokens: 1200, output_tokens: 300 },
       });
     }
@@ -242,11 +250,16 @@ test("digest with transcript keeps only verifiable PBI and evidence links", asyn
     1,
     "missing pm transcript is skipped",
   );
-  const ai = calls.find((c) => c.url.startsWith("https://api.anthropic.com/"));
+  const ai = calls.find((c) => c.url.startsWith("https://api.openai.com/"));
   const sent = JSON.parse(ai.body);
-  assert.equal(sent.output_config.format.type, "json_schema");
-  assert.equal(sent.fallbacks, "default");
-  const userText = sent.messages[0].content;
+  assert.equal(sent.text.format.type, "json_schema");
+  assert.equal(sent.text.format.strict, true);
+  assert.equal(
+    sent.store,
+    false,
+    "meeting text is not stored as an OpenAI conversation",
+  );
+  const userText = sent.input;
   assert.ok(
     !userText.includes("聞き取り不確か"),
     "uncertain-recognition markers are removed",

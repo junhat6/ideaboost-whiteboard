@@ -1,7 +1,7 @@
 // 会議まとめ: 議事録・文字起こしを、利用者が起動したときだけ AI で整理する。
 // GitHub へは書き込まない読み取り専用の境界。会議発言は私的データなので
 // 公開モードでは一切応答せず、本文をログ・エラー応答へ含めない。
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { appJwt } from "./github.mjs";
 
 const OWNER = "engineer-first",
@@ -10,7 +10,8 @@ const OWNER = "engineer-first",
   MINUTES_DIR = "docs/meeting-logs/minutes",
   TRANSCRIPTS_DIR = "docs/meeting-logs/transcripts",
   BASE = "https://api.github.com";
-export const DEFAULT_MEETING_MODEL = "claude-opus-5-5";
+// 日本語の長文整理に足りる中位モデル。文字起こし込みでも1回あたり数十円以内に収まる。
+export const DEFAULT_MEETING_MODEL = "gpt-6.1-terra";
 // 文字起こし込みの半日2本(約16万字)は収まり、それ以上は黙って切らずに断る。
 export const MAX_SOURCE_CHARS = 400_000;
 const MAX_BODY_CHARS = MAX_SOURCE_CHARS + 20_000;
@@ -31,7 +32,7 @@ const reply = (data, status = 200) =>
   });
 
 const aiConfigured = (env) =>
-  env.MEETINGS_AI_ENABLED === "true" && !!env.ANTHROPIC_API_KEY;
+  env.MEETINGS_AI_ENABLED === "true" && !!env.OPENAI_API_KEY;
 // meeting-logger は別 repo。App へ contents:read と repo 追加の承認が要るため、
 // 承認後に明示 flag を立てるまで読みに行かない。
 const loggerConfigured = (env) =>
@@ -306,8 +307,8 @@ export function createMeetingHandler({
   crypto: crypt = globalThis.crypto,
   now = () => Date.now(),
   createClient = (env) =>
-    new Anthropic({
-      apiKey: env.ANTHROPIC_API_KEY,
+    new OpenAI({
+      apiKey: env.OPENAI_API_KEY,
       fetch: (...args) => fetcher(...args),
       maxRetries: 0,
       timeout: 170_000,
@@ -463,33 +464,41 @@ export function createMeetingHandler({
     const client = createClient(env);
     let response;
     try {
-      response = await client.beta.messages.create({
+      response = await client.responses.create({
         model: env.MEETINGS_MODEL || DEFAULT_MEETING_MODEL,
-        max_tokens: 16000,
-        betas: ["server-side-fallback-2026-07-01"],
-        // 安全分類で断られた場合だけ、サーバー側で別モデルが続きを引き受ける。
-        fallbacks: "default",
-        output_config: {
-          effort: "medium",
-          format: { type: "json_schema", schema: DIGEST_SCHEMA },
+        max_output_tokens: 16000,
+        reasoning: { effort: "medium" },
+        // 会議記録を OpenAI 側の会話履歴として保存させない。
+        store: false,
+        instructions: SYSTEM,
+        input: prompt(input),
+        text: {
+          format: {
+            type: "json_schema",
+            name: "meeting_digest",
+            strict: true,
+            schema: DIGEST_SCHEMA,
+          },
         },
-        system: SYSTEM,
-        messages: [{ role: "user", content: prompt(input) }],
       });
     } catch (error) {
-      if (error instanceof Anthropic.RateLimitError)
+      if (error instanceof OpenAI.RateLimitError)
         throw new MeetingError(429, "meeting_ai_busy");
-      if (error instanceof Anthropic.AuthenticationError)
+      if (error instanceof OpenAI.AuthenticationError)
         throw new MeetingError(503, "meeting_ai_not_configured");
-      if (error instanceof Anthropic.APIError)
-        throw new MeetingError(502, "meeting_ai_failed");
       throw new MeetingError(502, "meeting_ai_failed");
     }
-    if (response.stop_reason !== "end_turn")
+    // 途中で打ち切られた・断られた出力は、JSONとして読めても採用しない。
+    if (response.status !== "completed")
       throw new MeetingError(502, "meeting_ai_incomplete");
-    const out = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
+    const parts = (response.output || [])
+      .filter((item) => item.type === "message")
+      .flatMap((item) => item.content || []);
+    if (parts.some((c) => c.type === "refusal"))
+      throw new MeetingError(502, "meeting_ai_incomplete");
+    const out = parts
+      .filter((c) => c.type === "output_text")
+      .map((c) => c.text)
       .join("");
     let parsed;
     try {

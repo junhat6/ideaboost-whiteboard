@@ -81,7 +81,7 @@ const digest = {
     ],
   },
   generatedAt: "2026-11-22T03:00:00Z",
-  model: "claude-opus-5-5",
+  model: "gpt-6.1-terra",
 };
 
 async function meetings(

@@ -17,7 +17,8 @@
 - AI 出力は構造化出力（JSON Schema）で受け、サーバーで再検証する。候補に無い PBI 番号、存在しないチャンク、範囲外の話題添字は捨てる。担当・期限は記録に明示された時だけ（プロンプトで指示、UI は空なら「担当未定」と明示）。
 - 結果は保存しない。タブ内のメモリーで同じ日付・同じ入力範囲の再表示に使い、再生成は明示操作だけ。失敗時も自動再送しない（読み取りなので安全だが、費用がかかる）。
 - 入力が40万字を超えたら黙って切り詰めず 413 で断る。
-- モデルは `claude-opus-5-5`（`MEETINGS_MODEL` で上書き可）、effort medium、server-side fallback（`fallbacks: "default"`）を有効化。公式 `@anthropic-ai/sdk` を Worker から呼ぶ。
+- AI は OpenAI Responses API（公式 `openai` SDK を Worker から呼ぶ）。チームが Codex 用に持つ API キーの残り枠を使う。既定モデルは `gpt-6.1-terra`（`MEETINGS_MODEL` で上書き可）、reasoning effort medium、`store: false` で会議記録を OpenAI 側の会話履歴に残さない。
+- 当初は Anthropic API（Claude Opus 5.5）で実装したが、2026-11-25 にオーナーが「新たな従量課金契約は承認しない、既にある OpenAI キーを使う」と判断したため置き換えた。Worker では meeting-logger のような Codex CLI のサブスク認証を使えないため、API キーは必要。
 
 ## 境界・安全
 
@@ -31,10 +32,10 @@
 
 コードは未設定時に fail closed で、以下が揃うまで本番では動かない。いずれも AGENTS.md の「外部認証設定・秘密・権限拡張・有料契約は明示承認」に当たるため、実装者は行っていない。
 
-1. AI: Anthropic API の契約（従量課金）と `ANTHROPIC_API_KEY` を Worker secret に登録、`MEETINGS_AI_ENABLED=true`。会議記録を Anthropic へ送ることへの合意も含む（meeting-logger 自体は既に外部 LLM へ送っている）。
+1. AI: 既存の OpenAI API キーを `OPENAI_API_KEY` として Worker secret に登録し（キーの利用はオーナー承認済み、登録作業は未実施）、`MEETINGS_AI_ENABLED=true`。会議記録は OpenAI へ送られる（meeting-logger も同じく OpenAI のモデルへ送っている）。
 2. 議事録の選択: GitHub App「Idea Boost Whiteboard」に Repository permission `Contents: Read-only` を追加し（org owner の再承認が要る）、installation の対象 repo に `meeting-logger` を追加。その後 `MEETINGS_LOGGER_READ_ENABLED=true`。2 が無くても 1 だけで「貼り付け」は使える。
 
-目安費用（Opus 5.5、$4/$20 per MTok）: 議事録のみ 1回 数円〜十数円、文字起こし込み（約10万トークン入力）で 1回 約60〜80円。
+目安費用（gpt-6.1-terra、$1/$5 per MTok）: 議事録のみ 1回 1円未満、文字起こし込み（約10万トークン入力）で 1回 約20円。
 
 ## 採用しなかった案
 

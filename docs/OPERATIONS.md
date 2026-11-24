@@ -67,6 +67,6 @@ Cloudflare OAuthとGitHub sudo本人確認は完了。指定アカウントだ�
 
 既定は無効（`/api/meetings` は `ai:false` を返し、生成は 503）。公開モードでは常に 404。有効化はいずれも明示承認が必要。
 
-1. AI（貼り付けで使えるようになる）: Anthropic API の従量課金契約を承認 → 標準入力で `npx wrangler secret put ANTHROPIC_API_KEY --name ideaboost-whiteboard` → `vars` に `MEETINGS_AI_ENABLED: "true"`。モデルを変える時だけ `MEETINGS_MODEL`。
+1. AI（貼り付けで使えるようになる）: チームが既に持つ OpenAI API キー（Codex 用の残り枠）を使う（2026-11-25 オーナー承認。Anthropic API は使わない）。標準入力で `npx wrangler secret put OPENAI_API_KEY --name ideaboost-whiteboard` → `vars` に `MEETINGS_AI_ENABLED: "true"`。既定モデルは `gpt-6.1-terra`、変える時だけ `MEETINGS_MODEL`。
 2. 議事録の日付選択: GitHub App 5473658 に Repository permission `Contents: Read-only` を追加し org owner が再承認 → installation 175301060 の対象に `engineer-first/meeting-logger` を追加 → `vars` に `MEETINGS_LOGGER_READ_ENABLED: "true"`。トークンは `meeting-logger` 限定・`contents:read` のみで別発行され、ボードの書き込み権限とは混ざらない。
 3. 確認は読み取りだけで行う: チームモードで「会議まとめ」→ 直近の日付を議事録のみで整理 → 文字起こし込みで整理。実 Issue への書き込みは発生しない。

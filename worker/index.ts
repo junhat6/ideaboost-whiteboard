@@ -19,7 +19,7 @@ export interface Env extends AuthConfig {
   MEETINGS_AI_ENABLED?: string;
   MEETINGS_LOGGER_READ_ENABLED?: string;
   MEETINGS_MODEL?: string;
-  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
 }
 function secure(response: Response) {
   const r = new Response(response.body, response);
