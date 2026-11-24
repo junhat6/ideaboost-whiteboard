@@ -787,3 +787,72 @@ test("保存の途中で失敗した採否は結果不明として返し、記�
   });
   assert.deepEqual([...ledger.rows], before);
 });
+
+test("済みの付箋への直し案は 409 で拒否し、添付は受け付けて人が採否できる", async () => {
+  const s = store();
+  const note = await oneNote(s);
+  const done = (
+    await send(
+      s,
+      humanPost({ op: "done", id: note.id, rev: note.rev, done: true }),
+    )
+  ).body.note;
+  const suggested = await send(
+    s,
+    aiPost({ op: "suggest", id: note.id, before: note.text, after: "案" }),
+  );
+  assert.equal(suggested.status, 409);
+  assert.equal(suggested.body.error, "note_done");
+  assert.deepEqual((await list(s)).notes[0].suggestions ?? [], []);
+  const attached = await send(
+    s,
+    aiPost({
+      op: "attach",
+      id: note.id,
+      kind: "url",
+      value: "https://docs.example/result",
+    }),
+  );
+  assert.equal(attached.status, 200);
+  assert.equal(attached.body.note.rev, done.rev);
+  const kept = await send(
+    s,
+    humanPost({
+      op: "accept",
+      id: note.id,
+      item: attached.body.note.attachments[0].id,
+    }),
+  );
+  assert.equal(kept.body.note.attachments[0].state, "kept");
+  assert.equal(kept.body.note.done, true);
+});
+
+test("チームモード（Access で認証済み）でも、ブラウザの種別ヘッダーは Worker が消す", async () => {
+  const seen: (string | null)[][] = [];
+  const notes = {
+    fetch: async (r: Request) => {
+      seen.push([
+        r.headers.get("x-team-notes-actor"),
+        r.headers.get("x-verified-user-id"),
+      ]);
+      return Response.json({ ok: true });
+    },
+  };
+  const worker = createWorker(async () => ({ id: "member", email: "" }));
+  const response = await worker.fetch(
+    new Request("https://board.example/api/team-notes", {
+      method: "POST",
+      headers: {
+        Origin: "https://board.example",
+        "content-type": "application/json",
+        "Cf-Access-Jwt-Assertion": "verified-by-auth-stub",
+        "x-team-notes-actor": "ai",
+        "x-verified-user-id": "spoofed",
+      },
+      body: "{}",
+    }),
+    { ...publicEnv(notes), AUTH_MODE: undefined },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(seen, [[null, "member"]]);
+});

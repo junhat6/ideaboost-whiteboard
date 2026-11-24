@@ -399,7 +399,12 @@ export class TeamNotesStore {
         const note: TeamNote = { ...current, suggestions, attachments };
         let textChanged = false;
         if (op.op === "suggest") {
-          if (op.before !== current.text) {
+          if (current.done) {
+            // 済みの付箋には直し案を出さない（画面にも出ず、人が採否できないため）。
+            // 添付は済みの後の成果物（作った資料の URL など）もあるので受け付ける。
+            status = 409;
+            body = { ok: false, error: "note_done", note: current };
+          } else if (op.before !== current.text) {
             status = 409;
             body = { ok: false, error: "note_conflict", note: current };
           } else if (op.after === current.text) {
