@@ -101,6 +101,9 @@
         }),
         request("/api/board", { headers: { "X-Board-Snapshot": "1" } }),
       ]);
+      // 会議まとめ等の補助機能が公開モードを判別するための表示用属性。認可には使わない。
+      document.documentElement.dataset.accessMode =
+        health.accessMode === "public-temporary" ? "public-temporary" : "team";
       let initialBoard = firstBoard;
       let latest = null,
         activeMilestone = "",

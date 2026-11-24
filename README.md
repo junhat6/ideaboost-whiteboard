@@ -21,7 +21,8 @@ npm run test:e2e
 
 ## 構成
 
-- [DESIGN.md](DESIGN.md): Google alpha形式のデザイン仕様。3サービスの資料調査を経て作成。
+- [DESIGN.md](DESIGN.md): Google alpha形式のデザイン仕様（トークンと判断の原則）。3サービスの資料調査を経て作成。
+- [docs/UI-BEHAVIOR.md](docs/UI-BEHAVIOR.md): 保存・同期・競合など、領域ごとの細かい振る舞いと経緯の記録。
 - [AGENTS.md](AGENTS.md): 開発・安全・検証規約。
 - `web/`: 日本語ボード、ドラッグ、PBI選択、エディター、45秒更新。
 - `worker/coordinator.ts`: Issue単位の共有直列化と永続request記録。

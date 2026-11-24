@@ -83,6 +83,13 @@
                 stroke-linecap="round"
               />
             </svg></button
+          ><button
+            id="meeting-open"
+            type="button"
+            aria-keyshortcuts="M"
+            data-tooltip="議事録・文字起こしをAIで整理（M）"
+          >
+            会議まとめ</button
           ><button id="refresh">最新を取得</button
           ><button
             id="fullscreen"
@@ -550,10 +557,71 @@
         >GitHub Projectを開く ↗</a
       >
     </dialog>
+    <dialog
+      id="meeting-dialog"
+      class="meeting-dialog"
+      aria-labelledby="meeting-heading"
+    >
+      <div class="meeting-top">
+        <h2 id="meeting-heading">会議まとめ</h2>
+        <form id="meeting-form" class="meeting-form">
+          <div
+            class="meeting-source"
+            role="radiogroup"
+            aria-label="整理する記録"
+          >
+            <label
+              ><input
+                type="radio"
+                name="meeting-source"
+                value="logger"
+                checked
+              />議事録から選ぶ</label
+            ><label
+              ><input
+                type="radio"
+                name="meeting-source"
+                value="paste"
+              />貼り付け</label
+            >
+          </div>
+          <select id="meeting-date" aria-label="会議の日付"></select>
+          <label class="meeting-check"
+            ><input
+              type="checkbox"
+              id="meeting-transcript"
+            />文字起こしも読む</label
+          >
+          <button type="submit" class="primary" id="meeting-run">
+            AIで整理
+          </button>
+        </form>
+        <button
+          class="icon-button close-dialog"
+          aria-label="会議まとめを閉じる"
+        >
+          ×
+        </button>
+      </div>
+      <textarea
+        id="meeting-text"
+        hidden
+        rows="6"
+        aria-label="議事録または文字起こし"
+        placeholder="議事録や文字起こしを貼り付けてください"
+      ></textarea>
+      <p id="meeting-status" class="meeting-status" role="status"></p>
+      <div id="meeting-error" class="meeting-error" role="alert" hidden>
+        <p></p>
+        <button type="button" id="meeting-retry">もう一度整理する</button>
+      </div>
+      <div id="meeting-result" class="meeting-result" aria-busy="false"></div>
+    </dialog>
     <div id="announcement" role="status" aria-live="polite" class="toast"></div>
     <script src="icons.js"></script>
     <script src="app.js"></script>
     <script src="ui-tools.js"></script>
     <script src="api-adapter.js"></script>
+    <script src="meeting.js"></script>
   </body>
 </html>
