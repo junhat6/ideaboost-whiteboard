@@ -1,7 +1,20 @@
 name: Verify
-on: [push, pull_request]
+# full CI はリリースのときだけ回す（docs/RELEASE.md）。
+# - main 向け PR: npm run release が作る昇格 PR（rc/<sha7> → main）。必須チェック check の判定に使う。
+# - main への push: 昇格 PR の merge。同じ run の check 成功後に本番へ配信する。
+# develop・作業ブランチへの push と develop 向け PR では回さない（軽い確認は develop-health.yml）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  # 同じ昇格 PR に新しい push が来たら古い検証は捨てる。main の push（配信）は打ち切らない。
+  group: verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   unit:
     runs-on: ubuntu-latest

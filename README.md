@@ -15,6 +15,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+作業は `develop` へ push し、本番へは `npm run release` で昇格させます（[docs/RELEASE.md](docs/RELEASE.md)）。
+
 並列 worktree での準備・port 分離・後片付けは [docs/PARALLEL-DEV.md](docs/PARALLEL-DEV.md)（Orca は `orca.yaml` で自動実行）。
 
 `npm run dev` は設定されたアクセスモードを含むWorkerを起動します。public-temporaryを明示したときだけ匿名編集となります。UIのテストは `scripts/preview.mjs` に対して Playwright が合成データのAPIを差し込みます。テストサーバーはlocalhost限定、実GitHubへの通信・書き込み・秘密なし。
@@ -31,6 +33,9 @@ npm run test:e2e
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): 承認が必要な設定、本番導入、障害対応。
 - [docs/TESTING.md](docs/TESTING.md): 試験範囲と限界。
 - [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md): Renovateによる依存更新と自動マージの範囲。
+- [docs/RELEASE.md](docs/RELEASE.md): develop（幹）→ main（本番）の昇格と `npm run release`。
+- [docs/ROADMAP.md](docs/ROADMAP.md): v1 / v2 / v3 の範囲。
+- [docs/loop/README.md](docs/loop/README.md): 止まらずに開発を進める自律ループ。
 
 対象は `engineer-first/idea-boost`、組織 Project 3 / view 16 に固定。PBI行だけビューで絞り、正式な子・孫IssueをProjectから展開します。Issue番号はAPIで固定リポジトリに解決し、他のProjectへの自由なプロキシにはしません。
 

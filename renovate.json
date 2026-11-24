@@ -1,9 +1,19 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", "security:minimumReleaseAgeNpm"],
+  "extends": [
+    "config:recommended",
+    "security:minimumReleaseAgeNpm"
+  ],
+  "baseBranchPatterns": [
+    "develop"
+  ],
   "timezone": "Asia/Tokyo",
-  "schedule": ["before 9am"],
-  "labels": ["dependencies"],
+  "schedule": [
+    "before 9am"
+  ],
+  "labels": [
+    "dependencies"
+  ],
   "prHourlyLimit": 0,
   "dependencyDashboard": {
     "enabled": true
@@ -13,17 +23,26 @@
   },
   "packageRules": [
     {
-      "description": "1.0以上のnpmパッチを1つのPRにまとめ、mainの必須チェック check の成功後にGitHubのauto-mergeで取り込む。mainへのマージは本番配信になる (docs/DEPENDENCIES.md)",
-      "matchManagers": ["npm"],
-      "matchDepTypes": ["dependencies", "devDependencies"],
-      "matchUpdateTypes": ["patch"],
+      "description": "1.0以上のnpmパッチを1つのPRにまとめ、develop の develop-health（lint・typecheck・unit・build）成功後にGitHubのauto-mergeで取り込む。本番へは次のリリース列車で full CI を通ってから出る (docs/DEPENDENCIES.md)",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchDepTypes": [
+        "dependencies",
+        "devDependencies"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
       "matchCurrentVersion": "!/^0/",
       "groupName": "patch updates",
       "automerge": true
     },
     {
       "description": "overridesは脆弱性対応で固定した版。lockfileの別の版と比べてパッチと誤判定されうるため、Dashboardで承認した時だけ更新する",
-      "matchDepTypes": ["overrides"],
+      "matchDepTypes": [
+        "overrides"
+      ],
       "dependencyDashboardApproval": true,
       "automerge": false
     }

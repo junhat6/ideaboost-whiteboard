@@ -1,0 +1,29 @@
+name: Develop health
+# develop（開発の幹）の軽い確認。必須ではない。赤なら mend ループが最優先で直す（docs/loop/README.md）。
+# browser suite・配信は含めない。full CI はリリースの昇格 PR でだけ回す（ci.yml）。
+# develop 向け PR でも回すのは、Renovate の自動マージが「チェック成功」を条件にするため。
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+permissions:
+  contents: read
+concurrency:
+  group: develop-health-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          check-latest: true
+          cache: npm
+      - run: npm ci
+      - run: npm run check
