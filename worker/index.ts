@@ -97,6 +97,9 @@ export function createWorker(auth = authenticate, api = handleApi) {
         // Remove client identity headers. Public mode uses one explicit anonymous principal.
         const headers = new Headers(request.headers);
         headers.delete("oai-authenticated-user-id");
+        // 付箋の書き手の種別（ai）は Worker の内部の入口（M2 の MCP）だけが付ける。
+        // ブラウザから届いた同名ヘッダーは消し、AI を名乗っても権限が増えないようにする。
+        headers.delete("x-team-notes-actor");
         headers.set("x-verified-user-id", user.id);
         const internal = new Request(request, { headers });
         if (

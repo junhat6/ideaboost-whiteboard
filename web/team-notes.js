@@ -22,6 +22,9 @@
   // loading | api | sample | error | off（Worker で無効。棚を出さない）
   let mode = "loading";
   let notes = [];
+  let proposals = [];
+  // 添付の折りたたみは描き直しをまたいで覚えておく（付箋 ID）。
+  const openAttachments = new Set();
   let busy = false;
   let inflight = Promise.resolve();
   let editingId = null;
@@ -49,6 +52,8 @@
     origin_mismatch:
       "このページからの操作として確認できませんでした。再読み込みしてください。",
     sign_in_required: "ログインし直してください。",
+    item_not_found: "この案はもうありません。最新を表示しています。",
+    attachments_full: "残せる添付の上限（10 件）に達しています。",
   };
 
   function setStatus(text, kind = "", action) {
@@ -123,9 +128,173 @@
     doneEl.replaceChildren(...done.map(item));
     doneWrap.hidden = !done.length;
     $("#team-note-done-count").textContent = String(done.length);
-    $("#team-note-empty").hidden = !!open.length || mode === "loading";
+    $("#team-note-proposals").hidden = !proposals.length;
+    $("#team-note-proposal-count").textContent = String(proposals.length);
+    $("#team-note-proposal-list").replaceChildren(
+      ...proposals.map(proposalItem),
+    );
+    $("#team-note-empty").hidden =
+      !!open.length || !!proposals.length || mode === "loading";
     input.disabled = mode === "loading" || mode === "error";
     if (focusId) shelf.querySelector(`[data-note-id="${focusId}"]`)?.focus();
+  }
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function button(label, className, run, ariaLabel) {
+    const b = el("button", "team-note-action " + className, label);
+    b.type = "button";
+    if (ariaLabel) b.setAttribute("aria-label", ariaLabel);
+    b.onclick = run;
+    return b;
+  }
+
+  /** http/https だけをリンクにする。それ以外（javascript: など）は null。 */
+  function safeUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" || url.protocol === "http:"
+        ? url.href
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 直し案（赤ペン）: 元の文に取り消し線、案の文を並べ、人が採用か却下を選ぶ。
+  function suggestionBlock(note, s) {
+    const box = el("div", "team-note-suggestion");
+    box.setAttribute("role", "group");
+    box.setAttribute("aria-label", "AI の直し案");
+    box.append(el("span", "team-note-badge", "直し案"));
+    const diff = el("p", "team-note-diff");
+    const before = el("del", "", s.before);
+    before.setAttribute("aria-label", "元の文: " + s.before);
+    const after = el("ins", "", s.after);
+    after.setAttribute("aria-label", "案: " + s.after);
+    diff.append(before, el("span", "team-note-arrow", "→"), after);
+    box.append(diff);
+    const stale = s.before !== note.text;
+    if (stale)
+      box.append(
+        el(
+          "p",
+          "team-note-stale",
+          "本文が変わったため採用できません。却下してください。",
+        ),
+      );
+    const actions = el("div", "team-note-actions");
+    const accept = button(
+      "採用",
+      "accept",
+      () => decide("accept", note, s.id),
+      "直し案を採用: " + s.after,
+    );
+    accept.disabled = stale;
+    actions.append(
+      accept,
+      button(
+        "却下",
+        "reject",
+        () => decide("reject", note, s.id),
+        "直し案を却下: " + s.after,
+      ),
+    );
+    box.append(actions);
+    return box;
+  }
+
+  function attachmentContent(a) {
+    const href = a.kind === "url" ? safeUrl(a.value) : null;
+    if (href) {
+      const link = el("a", "team-note-link", a.label || a.value);
+      link.href = href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.referrerPolicy = "no-referrer";
+      if (a.label) link.title = a.value;
+      return link;
+    }
+    // 文の添付（と、万一安全でない URL）は文字としてだけ見せる。
+    return el("p", "team-note-attachment-text", a.value);
+  }
+
+  // 添付: 付箋の下に折りたたむ。採用待ちは「残す」「却下」を選ぶ。
+  function attachmentsBlock(note, attachments) {
+    const box = el("details", "team-note-attachments");
+    box.open = openAttachments.has(note.id);
+    box.ontoggle = () => {
+      if (box.open) openAttachments.add(note.id);
+      else openAttachments.delete(note.id);
+    };
+    const pending = attachments.filter((a) => a.state === "pending").length;
+    box.append(
+      el(
+        "summary",
+        "",
+        `添付 ${attachments.length}` +
+          (pending ? `（採用待ち ${pending}）` : ""),
+      ),
+    );
+    const list = el("ul", "team-note-attachment-list");
+    for (const a of attachments) {
+      const li = el("li", "team-note-attachment " + a.state);
+      if (a.state === "pending")
+        li.append(el("span", "team-note-badge", "採用待ち"));
+      li.append(attachmentContent(a));
+      if (a.state === "pending") {
+        const actions = el("div", "team-note-actions");
+        const name = a.label || a.value.slice(0, 40);
+        actions.append(
+          button(
+            "残す",
+            "accept",
+            () => decide("accept", note, a.id),
+            "添付を残す: " + name,
+          ),
+          button(
+            "却下",
+            "reject",
+            () => decide("reject", note, a.id),
+            "添付を却下: " + name,
+          ),
+        );
+        li.append(actions);
+      }
+      list.append(li);
+    }
+    box.append(list);
+    return box;
+  }
+
+  // 提案付箋: 通常の付箋と枠・色に加えて「提案」の文字で見分ける。
+  function proposalItem(p) {
+    const li = el("li", "team-note proposal");
+    li.dataset.proposalId = p.id;
+    li.append(el("span", "team-note-badge", "提案"));
+    li.append(el("span", "team-note-text", p.text));
+    const actions = el("div", "team-note-actions");
+    actions.append(
+      button(
+        "採用",
+        "accept",
+        () => decideProposal("accept", p),
+        "提案を採用: " + p.text,
+      ),
+      button(
+        "却下",
+        "reject",
+        () => decideProposal("reject", p),
+        "提案を却下: " + p.text,
+      ),
+    );
+    li.append(actions);
+    return li;
   }
 
   function item(note) {
@@ -185,6 +354,11 @@
     remove.title = "剥がす（Delete）";
     remove.onclick = () => removeNote(note);
     li.append(remove);
+    if (editingId !== note.id && !note.done)
+      for (const s of note.suggestions || [])
+        li.append(suggestionBlock(note, s));
+    if (note.attachments?.length)
+      li.append(attachmentsBlock(note, note.attachments));
     return li;
   }
 
@@ -225,6 +399,7 @@
     try {
       const data = await api("GET");
       notes = sortNotes(data.notes || []);
+      proposals = data.proposals || [];
       if (data.sample === true && mode !== "api") {
         // 静的プレビュー（scripts/preview.mjs）だけが返す見本。保存しない。
         mode = "sample";
@@ -274,7 +449,8 @@
       return;
     }
     setStatus(messages[e.code] || "保存できませんでした。", "error");
-    if (["note_conflict", "note_not_found"].includes(e.code)) load();
+    if (["note_conflict", "note_not_found", "item_not_found"].includes(e.code))
+      load();
   }
 
   async function write(body, apply) {
@@ -408,6 +584,47 @@
     if (ok !== false) focusNote(note.id);
   }
 
+  // 直し案・添付の採否。人だけが行う（サーバーでも強制）。
+  async function decide(op, note, itemId) {
+    if (busy) return;
+    await write({ op, id: note.id, item: itemId }, (data) => {
+      if (data?.note) return replace(data.note);
+      // サンプル表示: ブラウザー内だけで同じ結果を作る。
+      const s = (note.suggestions || []).find((x) => x.id === itemId);
+      const next = {
+        ...note,
+        suggestions: (note.suggestions || []).filter((x) => x.id !== itemId),
+        attachments: (note.attachments || [])
+          .filter((x) => x.id !== itemId || op === "accept")
+          .map((x) => (x.id === itemId ? { ...x, state: "kept" } : x)),
+      };
+      if (s && op === "accept") {
+        next.text = s.after;
+        next.rev = note.rev + 1;
+      }
+      replace(next);
+    });
+    const li = shelf.querySelector(`[data-note-id="${note.id}"]`);
+    (li?.querySelector(".team-note-action:not(:disabled)") || li)?.focus();
+  }
+
+  async function decideProposal(op, p) {
+    if (busy) return;
+    const at = proposals.findIndex((x) => x.id === p.id);
+    const ok = await write({ op, id: p.id }, (data) => {
+      proposals = proposals.filter((x) => x.id !== p.id);
+      if (op === "accept") {
+        const note = data?.note || { ...p, rev: p.rev + 1 };
+        delete note.proposal;
+        notes = sortNotes([note, ...notes]);
+      }
+    });
+    if (ok === false) return;
+    if (op === "accept") return focusNote(p.id);
+    const rest = [...shelf.querySelectorAll("[data-proposal-id] .accept")];
+    (rest[Math.min(at, rest.length - 1)] || input).focus();
+  }
+
   function autosize() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 160) + "px";
@@ -430,7 +647,17 @@
 
   shelf.addEventListener("keydown", (e) => {
     const li = e.target.closest?.("[data-note-id]");
-    if (!li || e.target !== li) return;
+    if (!li || e.target !== li) {
+      // 採用・却下のボタンや添付のリンクの上でも、ボードの 1 文字ショートカットを発火させない。
+      if (
+        e.target.closest?.("button,summary,a") &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      )
+        e.stopPropagation();
+      return;
+    }
     const note = notes.find((n) => n.id === li.dataset.noteId);
     if (!note) return;
     const all = [...shelf.querySelectorAll("[data-note-id]")];

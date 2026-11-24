@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { setup } from "./fixtures";
+import { TeamNotesStore } from "../../worker/team-notes";
 
 type Note = { id: string; text: string; done: boolean; rev: number };
 
@@ -339,4 +340,370 @@ test("棚はたためて、全画面では隠れ、ボードは残りの幅に�
   await expect(shelf(page)).toBeHidden();
   await page.keyboard.press("t");
   await expect(input(page)).not.toBeFocused();
+});
+
+// ---- M1: AI の直し案・添付・提案付箋を人が採否する ----
+
+/** 本物の TeamNotesStore をメモリ上で動かし、画面の要求を人として渡す。 */
+async function realNotes(page: Page) {
+  const rows = new Map<string, unknown>();
+  const ledger = {
+    async get<T>(key: string) {
+      return structuredClone(rows.get(key)) as T | undefined;
+    },
+    async put<T>(key: string, value: T) {
+      rows.set(key, structuredClone(value));
+    },
+    async delete(key: string) {
+      return rows.delete(key);
+    },
+    async transaction<T>(f: (tx: typeof ledger) => Promise<T>) {
+      return f(ledger);
+    },
+  };
+  const store = new TeamNotesStore(ledger as never);
+  const posts: Record<string, unknown>[] = [];
+  let seq = 0;
+  let next: ((route: Route) => Promise<void>) | null = null;
+  const call = async (body: object, actor: "human" | "ai") => {
+    const r = await store.fetch(
+      new Request("https://board.example/api/team-notes", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-verified-user-id": actor === "ai" ? "assistant" : "member",
+          ...(actor === "ai" ? { "x-team-notes-actor": "ai" } : {}),
+        },
+        body: JSON.stringify({
+          requestId: "req_seed_" + String(++seq).padStart(8, "0"),
+          ...body,
+        }),
+      }),
+    );
+    return (await r.json()) as any;
+  };
+  await page.route("**/api/team-notes", async (route) => {
+    const request = route.request();
+    if (request.method() === "POST") {
+      posts.push(request.postDataJSON());
+      if (next) {
+        const once = next;
+        next = null;
+        return once(route);
+      }
+    }
+    // 画面の要求は人として渡す（ai の種別は Worker の内部の入口だけが付ける）。
+    const response = await store.fetch(
+      new Request("https://board.example/api/team-notes", {
+        method: request.method(),
+        headers: {
+          "content-type": "application/json",
+          "x-verified-user-id": "member",
+        },
+        body: request.method() === "POST" ? request.postData() : undefined,
+      }),
+    );
+    return route.fulfill({
+      status: response.status,
+      json: await response.json(),
+    });
+  });
+  return {
+    posts,
+    human: (body: object) => call(body, "human"),
+    ai: (body: object) => call(body, "ai"),
+    list: async () =>
+      (await (
+        await store.fetch(new Request("https://board.example/api/team-notes"))
+      ).json()) as any,
+    failNext(handler: (route: Route) => Promise<void>) {
+      next = handler;
+    },
+  };
+}
+
+async function seedM1(server: Awaited<ReturnType<typeof realNotes>>) {
+  const note = (await server.human({ op: "create", texts: ["告知文を考える"] }))
+    .notes[0];
+  await server.ai({
+    op: "suggest",
+    id: note.id,
+    before: note.text,
+    after: "告知文を 12/1 までに出す",
+  });
+  await server.ai({
+    op: "attach",
+    id: note.id,
+    kind: "url",
+    value: "https://docs.example/draft",
+    label: "告知文の下書き",
+  });
+  await server.ai({ op: "propose", text: "受付係を決める" });
+  return note;
+}
+
+const noteCard = (page: Page) => page.locator("#team-note-list .team-note");
+const proposalsList = (page: Page) => page.locator("#team-note-proposal-list");
+
+async function noOverflow(page: Page) {
+  // 1920 / 2560 で棚の中身が横にはみ出さず、ボードも残りの幅に収まる。
+  const [shelfFits, boardFits] = await Promise.all([
+    page
+      .locator("#team-shelf-body")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    page
+      .locator("#board-scroll")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+  ]);
+  expect(shelfFits).toBe(true);
+  expect(boardFits).toBe(true);
+  const shelfBox = (await shelf(page).boundingBox())!;
+  for (const box of await page
+    .locator("#team-shelf .team-note-action")
+    .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON())))
+    expect(box.right).toBeLessThanOrEqual(shelfBox.x + shelfBox.width);
+}
+
+test("AI の直し案・添付・提案を、キーボードだけで採用でき、崩れない", async ({
+  page,
+}) => {
+  const server = await realNotes(page);
+  const note = await seedM1(server);
+  await setup(page);
+  const card = noteCard(page).first();
+  // 直し案は元の文に取り消し線、案の文を並べ、文字でも「直し案」と示す。
+  const suggestion = card.locator(".team-note-suggestion");
+  await expect(suggestion.locator(".team-note-badge")).toHaveText("直し案");
+  await expect(suggestion.locator("del")).toHaveText("告知文を考える");
+  await expect(suggestion.locator("del")).toHaveCSS(
+    "text-decoration-line",
+    "line-through",
+  );
+  await expect(suggestion.locator("ins")).toHaveText(
+    "告知文を 12/1 までに出す",
+  );
+  // 提案付箋は「提案」の文字と破線の枠で通常の付箋と見分ける。
+  const proposal = proposalsList(page).locator(".team-note.proposal");
+  await expect(proposal.locator(".team-note-badge")).toHaveText("提案");
+  await expect(proposal).toHaveCSS("border-top-style", "dashed");
+  await noOverflow(page);
+
+  // T → ↓ で付箋へ、Tab で直し案の「採用」へ、Enter で採用。
+  await page.locator("#board").focus();
+  await page.keyboard.press("t");
+  await expect(input(page)).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(card).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", {
+      name: "直し案を採用: 告知文を 12/1 までに出す",
+    }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(card.locator(".team-note-text")).toHaveText(
+    "告知文を 12/1 までに出す",
+  );
+  await expect(card.locator(".team-note-suggestion")).toHaveCount(0);
+  let state = await server.list();
+  expect(state.notes[0]).toMatchObject({
+    text: "告知文を 12/1 までに出す",
+    rev: note.rev + 1,
+    suggestions: [],
+  });
+
+  // 添付は付箋の下に折りたたまれ、Enter で開いて「残す」。
+  const attachments = card.locator(".team-note-attachments");
+  await expect(attachments.locator("summary")).toHaveText(
+    "添付 1（採用待ち 1）",
+  );
+  await expect(attachments.locator(".team-note-link")).toBeHidden();
+  await attachments.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  const link = attachments.locator(".team-note-link");
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", "https://docs.example/draft");
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  await page.keyboard.press("Tab");
+  await expect(link).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "添付を残す: 告知文の下書き" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(attachments.locator("summary")).toHaveText("添付 1");
+  // 描き直しの後も開いたまま。
+  await expect(link).toBeVisible();
+  state = await server.list();
+  expect(state.notes[0].attachments[0].state).toBe("kept");
+
+  // 提案付箋をキーボードで採用すると、通常の付箋になる。
+  await proposal
+    .getByRole("button", { name: "提案を採用: 受付係を決める" })
+    .focus();
+  // ボタンの上で 1 文字ショートカット（F: 全画面）が発火しない。
+  await page.keyboard.press("f");
+  expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#team-note-proposals")).toBeHidden();
+  await expect(open(page)).toHaveText([
+    "受付係を決める",
+    "告知文を 12/1 までに出す",
+  ]);
+  await expect(noteCard(page).first()).toBeFocused();
+  state = await server.list();
+  expect(state.proposals).toEqual([]);
+  await noOverflow(page);
+  expect(server.posts.map((p) => p.op)).toEqual(["accept", "accept", "accept"]);
+});
+
+test("却下は案を消すだけで本文を変えない。案の後に本文が変わっていれば採用を止める", async ({
+  page,
+}) => {
+  const server = await realNotes(page);
+  const note = await seedM1(server);
+  await setup(page);
+  const card = noteCard(page).first();
+  // 画面を開いた後で、別の人が本文を直した。
+  await server.human({
+    op: "edit",
+    id: note.id,
+    rev: note.rev,
+    text: "別の人の直し",
+  });
+  await card
+    .getByRole("button", { name: "直し案を採用: 告知文を 12/1 までに出す" })
+    .click();
+  const status = page.locator("#team-note-status");
+  await expect(status).toContainText("他の人が先にこの付箋を変更しました");
+  await expect(card.locator(".team-note-text")).toHaveText("別の人の直し");
+  // 最新では本文が案の before と違うので、採用できず理由を文字で示す。
+  await expect(card.locator(".team-note-stale")).toHaveText(
+    "本文が変わったため採用できません。却下してください。",
+  );
+  const accept = card.getByRole("button", {
+    name: "直し案を採用: 告知文を 12/1 までに出す",
+  });
+  await expect(accept).toBeDisabled();
+  await card
+    .getByRole("button", { name: "直し案を却下: 告知文を 12/1 までに出す" })
+    .focus();
+  await page.keyboard.press("Enter");
+  await expect(card.locator(".team-note-suggestion")).toHaveCount(0);
+  await expect(card.locator(".team-note-text")).toHaveText("別の人の直し");
+  // 提案付箋の却下は消すだけ。
+  await proposalsList(page)
+    .getByRole("button", { name: "提案を却下: 受付係を決める" })
+    .press("Enter");
+  await expect(page.locator("#team-note-proposals")).toBeHidden();
+  await expect(open(page)).toHaveText(["別の人の直し"]);
+  const state = await server.list();
+  expect(state.proposals).toEqual([]);
+  expect(state.notes[0].text).toBe("別の人の直し");
+});
+
+test("採否の結果が分からないときは再送せず、最新の取得を人に任せる", async ({
+  page,
+}) => {
+  const server = await realNotes(page);
+  await seedM1(server);
+  await setup(page);
+  server.failNext((route) => route.abort("connectionreset"));
+  await proposalsList(page)
+    .getByRole("button", { name: "提案を採用: 受付係を決める" })
+    .click();
+  const status = page.locator("#team-note-status");
+  await expect(status).toContainText("保存結果を確認できません");
+  await page.waitForTimeout(300);
+  expect(server.posts).toHaveLength(1);
+  await status.getByRole("button", { name: "最新を取得" }).click();
+  // 送れていなかったので、提案は採用待ちのまま。
+  await expect(proposalsList(page).locator(".team-note.proposal")).toHaveCount(
+    1,
+  );
+  expect(server.posts).toHaveLength(1);
+});
+
+test("添付は http/https だけをリンクにし、それ以外や文は文字としてだけ見せる", async ({
+  page,
+}) => {
+  // サーバーは危険な URL を受け付けないが、画面も単独で守る（多層防御）。
+  const attachment = (
+    id: string,
+    kind: string,
+    value: string,
+    label?: string,
+  ) => ({
+    id,
+    kind,
+    value,
+    ...(label ? { label } : {}),
+    state: "kept",
+    by: "assistant",
+    at: 0,
+  });
+  await page.route("**/api/team-notes", (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        rev: 1,
+        notes: [
+          {
+            id: "n_xss000001",
+            text: "<img src=x onerror=window.__xss=1>",
+            done: false,
+            rev: 1,
+            suggestions: [
+              {
+                id: "s_xss000001",
+                before: "<img src=x onerror=window.__xss=1>",
+                after: "<script>window.__xss=2</script>",
+                by: "assistant",
+                at: 0,
+              },
+            ],
+            attachments: [
+              attachment(
+                "a_xss000001",
+                "url",
+                "javascript:window.__xss=3",
+                "押して",
+              ),
+              attachment("a_xss000002", "url", "data:text/html,<b>x</b>"),
+              attachment(
+                "a_xss000003",
+                "text",
+                "<img src=x onerror=window.__xss=4>",
+              ),
+              attachment(
+                "a_xss000004",
+                "url",
+                "https://docs.example/ok",
+                "資料",
+              ),
+            ],
+          },
+        ],
+        proposals: [],
+      },
+    }),
+  );
+  await setup(page);
+  const card = noteCard(page).first();
+  await card.locator(".team-note-attachments summary").click();
+  const links = card.locator(".team-note-attachments a");
+  await expect(links).toHaveCount(1);
+  await expect(links).toHaveAttribute("href", "https://docs.example/ok");
+  await expect(links).toHaveAttribute("target", "_blank");
+  await expect(links).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(card.locator(".team-note-attachment-text")).toHaveText([
+    "javascript:window.__xss=3",
+    "data:text/html,<b>x</b>",
+    "<img src=x onerror=window.__xss=4>",
+  ]);
+  await expect(card.locator("img, script, b")).toHaveCount(0);
+  await expect(card.locator("ins")).toHaveText(
+    "<script>window.__xss=2</script>",
+  );
+  expect(await page.evaluate(() => (window as any).__xss)).toBeUndefined();
 });

@@ -4083,3 +4083,141 @@ main > #board-scroll {
 [data-theme="dark"] .team-note-remove {
   color: var(--muted);
 }
+
+/* ---- 付箋への AI の直し案・添付・提案（採否は人だけ） ---- */
+.team-note-suggestion,
+.team-note-attachments {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 2px 0 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.team-note-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.team-note-diff {
+  display: inline;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.team-note-diff del {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.team-note-diff ins {
+  text-decoration: none;
+  font-weight: 600;
+  background: var(--selected);
+  border-radius: 2px;
+}
+.team-note-arrow {
+  margin: 0 4px;
+  color: var(--muted);
+}
+.team-note-stale {
+  margin: 4px 0 0;
+  color: var(--error, #a72a35);
+}
+.team-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.team-note-action {
+  min-height: 24px;
+  padding: 1px 10px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.team-note-action.accept {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-primary, #ffffff);
+}
+.team-note-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.team-note-action:focus-visible,
+.team-note-attachments summary:focus-visible,
+.team-note-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.team-note-attachments summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.team-note-attachment-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.team-note-attachment {
+  min-width: 0;
+}
+.team-note-attachment.pending {
+  padding-left: 6px;
+  border-left: 2px solid var(--accent);
+}
+.team-note-link {
+  overflow-wrap: anywhere;
+}
+.team-note-attachment-text {
+  margin: 2px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.team-note-proposals {
+  margin-top: 14px;
+}
+.team-note-proposals-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.team-note.proposal {
+  grid-template-columns: auto 1fr;
+  border-style: dashed;
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: none;
+  transform: none;
+}
+.team-note.proposal::before {
+  display: none;
+}
+.team-note.proposal .team-note-actions {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+[data-theme="dark"] .team-note-action.accept {
+  color: var(--canvas, #181b21);
+}
