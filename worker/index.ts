@@ -59,7 +59,12 @@ export function createWorker(auth = authenticate, api = handleApi) {
             throw new AccessError(404, "not_found");
           url.pathname = url.pathname.slice(env.PUBLIC_PATH.length);
           request = new Request(url, request);
-          if (url.pathname.startsWith("/api/")) {
+          // 無効な付箋の経路は DO も GitHub も呼ばず 404 で終わる。画面が読み込みごとに
+          // 1 回確かめるだけなので、共有の public-read 枠を使わせない。
+          const disabledTeamNotes =
+            url.pathname === "/api/team-notes" &&
+            env.TEAM_NOTES_ENABLED !== "true";
+          if (url.pathname.startsWith("/api/") && !disabledTeamNotes) {
             if (!env.PUBLIC_LIMITER)
               throw new AccessError(503, "rate_limit_not_configured");
             // Approximate per-location limit; shared key prevents easy evasion by client identity spoofing.

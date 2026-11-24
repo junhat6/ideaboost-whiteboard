@@ -23,6 +23,7 @@
   let mode = "loading";
   let notes = [];
   let busy = false;
+  let inflight = Promise.resolve();
   let editingId = null;
   let lastRemoved = null;
   let seq = 0;
@@ -93,13 +94,14 @@
     try {
       data = await response.json();
     } catch {
-      /* 静的サーバーなど JSON でない応答 */
+      /* 前段の 502/524 の HTML など JSON でない応答 */
     }
     if (!response.ok || !data || data.ok === false) {
       const e = new Error((data && data.error) || "http_" + response.status);
       e.status = response.status;
       e.code = data && data.error;
-      e.ambiguous = !!(data && data.ambiguous);
+      // JSON で答えなかった POST は、DO で反映済みかどうか分からない（api-adapter.js と同じ扱い）。
+      e.ambiguous = !!(data && data.ambiguous) || (!data && method === "POST");
       e.data = data;
       throw e;
     }
@@ -196,8 +198,25 @@
 
   // 棚は HTML で hidden のまま始め、付箋が使えると分かってから出す。
   // 無効な本番（404）ではボードの幅も見た目も棚の導入前と変わらない。
+  // 棚が現れるとボードの幅が変わり、ボードは描き直される。進行中の native drag の
+  // カードを DOM から外さないよう、ドラッグ中なら終わる（dragend/drop）まで後へ回す。
+  let revealDeferred = false;
   function reveal() {
     if (!shelf.hidden) return;
+    if (document.querySelector("#board .dragging")) {
+      if (revealDeferred) return;
+      revealDeferred = true;
+      const after = () => {
+        document.removeEventListener("dragend", after, true);
+        document.removeEventListener("drop", after, true);
+        revealDeferred = false;
+        // ボード側の drop 処理（clearDrag）が終わってから出す。
+        setTimeout(reveal, 0);
+      };
+      document.addEventListener("dragend", after, true);
+      document.addEventListener("drop", after, true);
+      return;
+    }
     shelf.hidden = false;
     window.dispatchEvent(new Event("resize"));
   }
@@ -265,6 +284,8 @@
       return true;
     }
     busy = true;
+    let release;
+    inflight = new Promise((resolve) => (release = resolve));
     shelf.setAttribute("aria-busy", "true");
     try {
       const data = await api("POST", { requestId: requestId(), ...body });
@@ -278,6 +299,7 @@
       busy = false;
       shelf.removeAttribute("aria-busy");
       render();
+      release();
     }
   }
 
@@ -333,6 +355,9 @@
       render();
       return setStatus(messages.invalid_text, "error");
     }
+    // blur で他の書き込みと重なったら、終わるのを待ってから順に送る。rev は編集を
+    // 始めたときの値のままなので、間に同じ付箋が変わっていれば競合として止まる。
+    while (busy) await inflight;
     await write({ op: "edit", id: note.id, rev: note.rev, text }, (data) =>
       replace(data?.note || { ...note, text, rev: note.rev + 1 }),
     );

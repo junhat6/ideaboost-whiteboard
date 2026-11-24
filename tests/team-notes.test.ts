@@ -284,6 +284,28 @@ test("付箋が無効な Worker は全メソッドで 404 を返し、DO へ転�
   const worker = createWorker(async () => {
     throw Error("must not require Access");
   });
+  let limited = 0;
+  const limitedEnv = (enabled: string | undefined) => ({
+    ...publicEnv(notes, enabled),
+    PUBLIC_LIMITER: {
+      limit: async () => {
+        limited++;
+        return { success: true };
+      },
+    },
+  });
+  // 無効な経路の確認は、共有の public-read 枠を使わない。
+  assert.equal(
+    (await worker.fetch(workerRequest(), limitedEnv(undefined))).status,
+    404,
+  );
+  assert.equal(limited, 0);
+  assert.equal(
+    (await worker.fetch(workerRequest(), limitedEnv("true"))).status,
+    200,
+  );
+  assert.equal(limited, 1);
+  forwarded = 0;
   for (const enabled of [undefined, "false", "TRUE", "1"])
     for (const method of ["GET", "POST"]) {
       const r = await worker.fetch(

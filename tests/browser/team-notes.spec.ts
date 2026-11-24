@@ -158,30 +158,40 @@ test("その場で直す。Escape は取り消し、他の人の先行変更は�
   await expect(open(page)).toHaveText(["告知文を Slack に出す"]);
 });
 
-test("保存結果が分からない書き込みは自動で再送せず、最新の取得を人に任せる", async ({
-  page,
-}) => {
-  const server = await fakeNotes(page);
-  await setup(page);
-  server.failNext((route) => route.abort("connectionreset"));
-  await input(page).fill("お礼メール");
-  await input(page).press("Enter");
-  const status = page.locator("#team-note-status");
-  await expect(status).toContainText("保存結果を確認できません");
-  await expect(input(page)).toHaveValue("お礼メール");
-  await page.waitForTimeout(300);
-  expect(server.posts).toHaveLength(1);
-  // 実際には保存されていた場合、最新を取得すれば 1 枚だけ見える。
-  server.notes.unshift({
-    id: "n_fake999999",
-    text: "お礼メール",
-    done: false,
-    rev: 1,
+// 前段（Cloudflare）の 502/524 は HTML で返る。DO で反映済みかもしれないので切断と同じ扱い。
+for (const failure of ["切断", "JSON でない 502"] as const)
+  test(`保存結果が分からない書き込み（${failure}）は自動で再送せず、最新の取得を人に任せる`, async ({
+    page,
+  }) => {
+    const server = await fakeNotes(page);
+    await setup(page);
+    server.failNext((route) =>
+      failure === "切断"
+        ? route.abort("connectionreset")
+        : route.fulfill({
+            status: 502,
+            contentType: "text/html",
+            body: "<html><body>Bad gateway</body></html>",
+          }),
+    );
+    await input(page).fill("お礼メール");
+    await input(page).press("Enter");
+    const status = page.locator("#team-note-status");
+    await expect(status).toContainText("保存結果を確認できません");
+    await expect(input(page)).toHaveValue("お礼メール");
+    await page.waitForTimeout(300);
+    expect(server.posts).toHaveLength(1);
+    // 実際には保存されていた場合、最新を取得すれば 1 枚だけ見える。
+    server.notes.unshift({
+      id: "n_fake999999",
+      text: "お礼メール",
+      done: false,
+      rev: 1,
+    });
+    await status.getByRole("button", { name: "最新を取得" }).click();
+    await expect(open(page)).toHaveText(["お礼メール"]);
+    expect(server.posts).toHaveLength(1);
   });
-  await status.getByRole("button", { name: "最新を取得" }).click();
-  await expect(open(page)).toHaveText(["お礼メール"]);
-  expect(server.posts).toHaveLength(1);
-});
 
 test("静的プレビューの見本はサンプル表示と明示し、保存しない", async ({
   page,
@@ -232,6 +242,67 @@ test("Worker で付箋が無効（404）なら棚を出さず、ボードは棚�
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await page.waitForTimeout(200);
   expect(reads).toBe(1);
+});
+
+test("ドラッグ中に棚が現れてもカードを DOM から外さず、そのまま落とせる", async ({
+  page,
+}) => {
+  // 有効な本番で付箋の GET が遅いと、読み込み直後のドラッグ中に棚が現れる。
+  // 棚が出るとボードは描き直されるので、ドラッグが終わるまで後へ回すこと。
+  const f = await setup(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/team-notes", async (route) => {
+    await gate;
+    return route.fallback();
+  });
+  await page.reload();
+  await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await expect(shelf(page)).toBeHidden();
+  const source = page.locator('[data-task="t0-0-1"]'),
+    target = page.locator('[data-lane="p0"][data-status="Doing"]');
+  const box = (await source.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    box.x + box.width / 2 + 18,
+    box.y + box.height / 2 + 6,
+    {
+      steps: 8,
+    },
+  );
+  await expect(source).toHaveClass(/dragging/);
+  const dragged = await source.elementHandle();
+  try {
+    release();
+    await expect(shelf(page)).toHaveAttribute("data-mode", "sample");
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect(
+      await dragged!.evaluate(
+        (el) => el.isConnected && el.classList.contains("dragging"),
+      ),
+    ).toBe(true);
+    await expect(shelf(page)).toBeHidden();
+    const drop = (await target.boundingBox())!;
+    for (const dx of [0, 1])
+      await page.mouse.move(
+        drop.x + drop.width / 2 + dx,
+        drop.y + drop.height / 2,
+        { steps: 8 },
+      );
+    await page.mouse.up();
+    await expect(target.locator('[data-task="t0-0-1"]')).toHaveCount(1);
+    await expect.poll(f.posts).toBe(1);
+    // ドラッグが終わってから棚が現れ、ボードは残りの幅に収まる。
+    await expect(shelf(page)).toBeVisible();
+  } finally {
+    await page.mouse.up();
+  }
 });
 
 test("棚はたためて、全画面では隠れ、ボードは残りの幅に収まる", async ({

@@ -20,6 +20,9 @@
 
 - Worker の変数 `TEAM_NOTES_ENABLED` が `"true"` のときだけ `/api/team-notes` を開く。未設定・それ以外は、認証・Origin 検査の後、問い合わせ文字列の検査より前に `404 not_found` を返し、DO へ転送しない。本番の `wrangler.jsonc` は `"false"`。理由: develop は release ループで毎時本番へ出るため、ログイン必須化（#10）前に匿名で書ける付箋を出さない。
 - 画面は `/api/team-notes` の GET 結果で有効かを知る。棚は HTML で `hidden` のまま始め、200 なら出し、404 なら出さずに定期取得もしない。board API に flag を載せる案は採らなかった。理由: GitHub 境界（`server/github.mjs`）と board の DO 読み取りに付箋の都合を持ち込まずに済み、無効時は Worker の 404 だけで画面も API も同じ根拠で閉じるため。代わりに有効時は最初の GET が返るまで棚が出ず、1 回だけボード幅が変わる。
+- 棚が現れるとボードの幅が変わり描き直されるため、進行中の native drag があれば dragend/drop まで棚の表示を後へ回す（ドラッグ中のカードを DOM から外さない）。
+- 無効時の確認の GET は、public-temporary でも共有の public-read の rate limit を使わない（DO も GitHub も呼ばずに 404 で終わるため）。有効時は従来どおり rate limit を通す。
+- POST に JSON でない応答（前段の 502/524 の HTML など）が返ったら、DO で反映済みかもしれないので結果不明として扱い、自動で再送しない（`api-adapter.js` と同じ）。
 - ローカルで有効にするときは `.dev.vars` に `TEAM_NOTES_ENABLED=true` を書く（git に入らない）。本番で有効にするのは #10 の後に人が決める。
 
 ## 採用しなかった案
@@ -37,5 +40,5 @@
 ## 検証
 
 - `tests/team-notes.test.ts`: requestId の二重適用防止と再利用拒否、rev 競合、剥がす・戻す、本文と件数の検証、Worker の Origin 検査と検証済み利用者、転送失敗時の結果不明。
-- 無効時: `tests/team-notes.test.ts` で未設定・`"false"` などの GET/POST が 404 で DO へ転送しないこと、チームモードでは認証が先に走ること。`tests/browser/team-notes.spec.ts` で 404 なら棚が出ず、ボードが棚の導入前と同じ全幅（main の padding 8px の内側）であること。
+- 無効時: `tests/team-notes.test.ts` で未設定・`"false"` などの GET/POST が 404 で DO へ転送しないこと、チームモードでは認証が先に走ること。`tests/browser/team-notes.spec.ts` で 404 なら棚が出ず、ボードが棚の導入前と同じ全幅（main の padding 8px の内側）であること、ドラッグ中に棚が現れてもカードが DOM から外れずに落とせること、JSON でない 502 を結果不明として扱い再送しないこと。
 - `tests/browser/team-notes.spec.ts`（1920×1080・2560×1440）: Enter と複数行での貼り付け、キーボードだけでの済み・剥がす・元に戻す、その場での編集と Escape、競合時の最新表示、結果不明時に再送しないこと、サンプル表示、棚の折りたたみ、全画面で隠れること、ボードが残りの幅に収まること。

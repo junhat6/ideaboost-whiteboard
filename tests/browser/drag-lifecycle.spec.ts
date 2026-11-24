@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
-import { setup } from "./fixtures";
+import { setup, shelfSettled } from "./fixtures";
 
 const card = (page: Page, id: string) => page.locator(`[data-task="${id}"]`);
 const cell = (page: Page, status: string, lane = "p0") =>
@@ -61,6 +61,8 @@ async function overflowFixture(page: Page, count = 12) {
   );
   await page.reload();
   await expect(cell(page, "ToDo").locator(".task")).toHaveCount(count);
+  // 棚が現れるとボードが描き直される。測る前に表示が決まるのを待つ。
+  await shelfSettled(page);
   return f;
 }
 
@@ -108,6 +110,7 @@ test("同列と別PBIへのnative dropは書込せず、続く同PBIの別付箋
   const f = await setup(page);
   f.board.tasks.find((task) => task.id === "t0-1-0")!.status = "壁打ち中";
   await page.reload();
+  await shelfSettled(page);
   await card(page, "t0-1-0").dragTo(cell(page, "Doing"));
   await cleanGesture(page);
   expect(f.posts()).toBe(0);
