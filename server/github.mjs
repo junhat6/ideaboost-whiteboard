@@ -299,6 +299,26 @@ export function validateMutation(v) {
 export function githubWritesDisabled(env = {}) {
   return env.GITHUB_WRITES !== undefined && env.GITHUB_WRITES !== "enabled";
 }
+/**
+ * GitHub へ送る要求が確実に読み取りかを判定する。書き込み停止中は、これが false のものを全て止める。
+ * GraphQL は文書を構文解析せず、疑わしいものは書き込みとみなす（誤って止めてよい、fail closed）:
+ * query が文字列でない・`query` で始まらない・mutation / subscription という語がどこかにある
+ * （大文字小文字・コメント・文字列の中を問わない）・query と variables 以外の項目（operationName など）がある。
+ * 例: `query A { … } mutation B { … }` に operationName "B" を付けると B が実行されるため、止める。
+ */
+export function isGithubRead(method, path, body) {
+  if (method === "GET") return true;
+  if (path !== "/graphql" || method !== "POST") return false;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  if (Object.keys(body).some((k) => k !== "query" && k !== "variables"))
+    return false;
+  const { query } = body;
+  return (
+    typeof query === "string" &&
+    /^\s*query\b/.test(query) &&
+    !/\b(?:mutation|subscription)\b/i.test(query)
+  );
+}
 function assertGithubWritable(env) {
   // GitHub を呼ぶ前に止めるので、書き込みは 1 件も起きず、結果不明（uncertain）にもならない。
   if (githubWritesDisabled(env))
@@ -405,14 +425,8 @@ export function createHandler({
     { method = "GET", body, withHeaders = false } = {},
   ) {
     // 送り先でも書き込みを止める（ADR 017）。経路の判定を通らない将来の呼び出し（/mcp など）も
-    // ここを必ず通る。読み取りと分かるもの（GET と `query` で始まる GraphQL）以外は書き込みとみなす。
-    // installation token の取得（access_tokens）は fetcher を直接使うのでここを通らない。
-    const read =
-      method === "GET" ||
-      (path === "/graphql" &&
-        method === "POST" &&
-        /^\s*query\b/.test(body?.query ?? ""));
-    if (!read) assertGithubWritable(env);
+    // ここを必ず通る。installation token の取得（access_tokens）は fetcher を直接使うのでここを通らない。
+    if (!isGithubRead(method, path, body)) assertGithubWritable(env);
     const t = await token(env);
     let r;
     try {

@@ -24,7 +24,7 @@
 2. **変数で書き込みを止める**: `GITHUB_WRITES` が置かれていて値が `"enabled"` でなければ、GitHub への書き込みを 403 `github_writes_disabled` で止める。止める場所は 3 か所で、同じ判定（`githubWritesDisabled`）を使う。
    - 経路（Worker）: `worker/index.ts` は `POST /api/issues/:n` と `/comments` を `MUTATIONS` の DO に入れる前に止める。DO の queue・要求記録にも残らない。
    - 経路（`handleApi`）: `server/github.mjs` は同じ POST を、本文を読む前・GitHub を読む前に止める。DO を経由した要求もここを通る。
-   - 送り先（`api()`）: GitHub へ送る唯一の口。GET と `query` で始まる GraphQL だけを読み取りとみなし、それ以外（REST の PATCH/POST/DELETE、GraphQL の mutation、判別できない GraphQL）は token を取る前に止める。installation token の取得（access_tokens）は `api()` を通らないので止まらない。`gql()` も `api()` を通る。
+   - 送り先（`api()`）: GitHub へ送る唯一の口。GET と、確実に読み取りと言える GraphQL（`isGithubRead`）だけを通し、それ以外（REST の PATCH/POST/DELETE、GraphQL の mutation、判別できない GraphQL）は token を取る前に止める。GraphQL は構文解析せず、疑わしいものを書き込みとみなす（誤って止めてよい、fail closed）: query が文字列でない、`query` で始まらない、mutation / subscription という語が文書のどこかにある（大文字小文字・コメント・文字列の中を問わない）、query と variables 以外の項目（operationName など）がある。理由: `query A { … } mutation B { … }` に operationName `B` を付けると、先頭が `query` でも mutation が実行される。今の読み取りは全て `query` で始まり、operationName を付けず、名前の中の `Mutation`（`MutationContext`）は語の境界で区別するので止まらない。installation token の取得（access_tokens）は `api()` を通らないので止まらない。`gql()` も `api()` を通る。
    - 送り先でも止める理由: M2 の `/mcp` などが `save()` やコメントの write を経路を通さずに呼ぶと、経路の判定だけでは素通りする。送り先で止めれば、MCP 経由でも同じ判定を必ず通る。そのため、GitHub へ `api()` を通さずに fetch するコードを足さない（今 `fetcher` を直接使うのは token の取得だけ）。経路でも止めるのは、GitHub を読む前に、結果不明でない明確な 403 を返すため。
    - 何も送らずに止めるので、結果不明（ambiguous）ではない。利用者に再取得を求める必要もない。
    - 未設定の本番だけが従来どおり書ける。値の綴り違い（`"disable"`・空文字など）も止める側に倒す。
@@ -67,6 +67,6 @@ runbook の 9 章に手順を置いた。dev の初回 deploy、workers.dev へ�
 
 ## 検証
 
-- `server/github-writes.test.mjs`: `GITHUB_WRITES` の値ごとの判定、停止中は Issue の変更・Status・コメントを GitHub へ 1 件も送らず 403、未設定なら従来どおり書けること。送り先（`api()`/`gql()` を経路を通さずに直接呼ぶ）でも、REST の PATCH/POST/DELETE・GraphQL の mutation・`query` で始まらない GraphQL を token の取得も含めて何も送らずに止め、読み取りは止めないこと。未設定なら同じ呼び出しが従来どおり書けること。
+- `server/github-writes.test.mjs`: `GITHUB_WRITES` の値ごとの判定、停止中は Issue の変更・Status・コメントを GitHub へ 1 件も送らず 403、未設定なら従来どおり書けること。送り先（`api()`/`gql()` を経路を通さずに直接呼ぶ）でも、REST の PATCH/POST/DELETE・GraphQL の mutation・`query` で始まらない GraphQL を token の取得も含めて何も送らずに止め、読み取りは止めないこと。未設定なら同じ呼び出しが従来どおり書けること。operationName で後ろの mutation を選ぶ文書・複数 operation・subscription・大文字・コメントや文字列の中の mutation・文字列でない query・想定外の項目も止め、未設定なら同じものを従来どおり送ること。本番の設定で読み取りと書き込みの経路を動かして送られた GraphQL を全て集め、読み取りは全て通り、止まるのは実際の mutation だけであること。
 - `tests/dev-env.test.ts`: `wrangler.jsonc` の `env.dev` が別名・付箋有効・書き込み停止で、GitHub の資格・公開モード・rate limit を持たないこと。本番は付箋無効のまま。dev の Worker は付箋を通し、Issue の変更を DO に入れずに 403。Access 未設定なら全ルート 503、public-temporary にしても API は 503。
 - 一度だけの確認（`.validation/` に記録、git に入れない）: `wrangler deploy --dry-run` を本番と `--env dev` で実行し、本番の設定が変更前と同一。ローカルの `wrangler dev --env dev` へ curl で、Access 未設定の全 503、付箋 API の 200、Issue の変更とコメントの 403。
