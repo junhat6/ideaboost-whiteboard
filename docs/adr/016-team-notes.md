@@ -24,6 +24,7 @@
 - 無効時の確認の GET は、public-temporary でも共有の public-read の rate limit を使わない（DO も GitHub も呼ばずに 404 で終わるため）。有効時は従来どおり rate limit を通す。
 - POST に JSON でない応答（前段の 502/524 の HTML など）が返ったら、DO で反映済みかもしれないので結果不明として扱い、自動で再送しない（`api-adapter.js` と同じ）。
 - ローカルで有効にするときは `.dev.vars` に `TEAM_NOTES_ENABLED=true` を書く（git に入らない）。本番で有効にするのは #10 の後に人が決める。
+- 実際の AI クライアントで試すための dev 環境（別 Worker・付箋有効・GitHub へ書かない）は [ADR 017](017-dev-environment.md)。
 
 ## 採用しなかった案
 

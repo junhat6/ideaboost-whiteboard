@@ -235,14 +235,124 @@ service token で通った要求にも Access は `Cf-Access-Jwt-Assertion` を�
 
 ## 9. dev 環境
 
-<!-- TODO(M2.5): 別 Worker 名の dev 環境の手順を足す。
-- dev 用 Worker（本番と別名）の deploy 手順と、本番の secret・Durable Object と混ざらないことの確認
-- dev 用の Access アプリとポリシー（許可する人の範囲）
-- dev 用の secret（GitHub App 鍵を共有するか別にするか、service token）
-- 8 章の managed OAuth の検証をここで行う手順
--->
+付箋とリモート MCP を、実際の AI クライアントから試すための別 Worker（`ideaboost-whiteboard-dev`）。設計と理由は [ADR 017](../adr/017-dev-environment.md)。この章は人がやる手順で、agent は deploy・Access・secret の登録をしない。
 
-TODO（M2.5 で追加）: 別 Worker 名の dev 環境について、deploy・Access・secret の手順を書く。
+dev の性質（設定ファイル `wrangler.jsonc` の `env.dev` で固定済み）:
+
+- 本番と別の Worker 名なので、Durable Object（付箋・要求記録）も本番と別。dev で貼った付箋は本番に出ない
+- 付箋は有効（`TEAM_NOTES_ENABLED: "true"`）
+- GitHub へは書かない（`GITHUB_WRITES: "disabled"`。Issue の変更・コメントは 403）。GitHub App の鍵も無いのでボードは読み込めず、`github_not_configured` が出る。これは仕様
+- チームモードのみ。Access の設定が揃うまで、HTML を含む全ルートが 503（`access_not_configured`）。public-temporary は使わない
+
+### 9.0 承認が要る項目
+
+1 章と同じく、次の項目は 1 つずつオーナーの承認を取ってから行い、#8 にコメントで記録する（値は書かない）。
+
+| # | 項目 | 承認で確かめること |
+| --- | --- | --- |
+| D-A1 | dev Worker の初回 deploy | Cloudflare の同じアカウントに Worker が 1 つ増えること。無料枠に収まること |
+| D-A2 | dev の Access アプリとポリシー | 許可する人（本番のメンバーと同じか、その一部） |
+| D-A3 | dev の secret 4 つの登録 | 下の 9.3 の一覧 |
+| D-A4 | dev での managed OAuth の有効化（8 章を試すとき） | 許可する redirect URI |
+
+GitHub App の鍵を dev に登録しない。dev でボードも読みたくなったら、読み取り専用の別の GitHub App を作る案を別に承認する（ADR 017）。
+
+### 9.1 deploy（D-A1）
+
+1. develop の最新を手元に取り、`npm ci` と `npm run check` を通す
+2. 次のコマンドを**そのまま**使う。`--env dev` を落とすと本番へ deploy される（`npm run deploy` は `--env=""` で本番を明示している）
+
+   ```sh
+   npx wrangler deploy --env dev --dry-run
+   ```
+
+   dry-run は Worker 名を表示しない（wrangler 4.152 で確認）。代わりに bindings の表で見分ける。
+
+   | 行 | dev（進んでよい） | 本番（止める） |
+   | --- | --- | --- |
+   | Environment Variable | `TEAM_NOTES_ENABLED ("true")` と `GITHUB_WRITES ("disabled")` の 2 行だけ | `GITHUB_APP_ID`・`GITHUB_INSTALLATION_ID`・`TEAM_NOTES_ENABLED ("false")` |
+   | Rate Limit | 無い | `PUBLIC_LIMITER` がある |
+
+   表が dev の列と一致したら、同じ `--env dev` で deploy する。
+
+   ```sh
+   npx wrangler deploy --env dev
+   ```
+
+3. 表示された workers.dev のホストを控える（以下 `<dev host>`）。ホスト名が `ideaboost-whiteboard-dev.` で始まることを確かめる（workers.dev のホスト名は Worker 名から作られるので、本番と取り違えていればここで分かる）。リポジトリ・Issue・チャットに書かない
+4. 確認: ログインしていないブラウザで `<dev host>/` を開き、503（`access_not_configured`）が返る。この時点では誰も読めず書けない
+
+`--keep-vars` は付けない。dev の vars は `wrangler.jsonc` が正本で、Access の値は secret として登録する（deploy で消えない）。
+
+### 9.2 Access（D-A2）
+
+3 章と同じ手順を dev の Worker に対して行う。
+
+1. Workers & Pages → `ideaboost-whiteboard-dev` → Settings → Domains & Routes で、`workers.dev` の行の **Enable Cloudflare Access** を押す
+2. 自動で作られた Access アプリを開き、AUD タグを控える（9.3 で使う）
+3. ポリシーは members（Allow・Emails）だけにする。dev には CI の service token は要らない（CI は dev を deploy もスモークもしない）
+4. 「Everyone」やメールのドメイン全体を Include にしない
+
+### 9.3 secret の登録（D-A3）
+
+dev の Worker に 4 つの値を **secret** として入れる。vars にしない理由: `wrangler deploy --env dev` は `wrangler.jsonc` に無い vars を消すが、secret は残る。また、メールの一覧をリポジトリに置かずに済む。
+
+```sh
+npx wrangler secret put ACCESS_TEAM_DOMAIN --env dev   # <team>.cloudflareaccess.com
+npx wrangler secret put ACCESS_AUD --env dev           # 9.2 で控えた AUD
+npx wrangler secret put ALLOWED_EMAILS --env dev       # 9.2 の許可一覧と同じ集合（カンマ区切り）
+npx wrangler secret put APP_ORIGIN --env dev           # https://<dev host>（末尾の / なし）
+```
+
+- 値はプロンプトに貼り、コマンド引数・シェル履歴・チャットに出さない
+- 登録しないもの: `GITHUB_APP_PRIVATE_KEY`・`GITHUB_APP_ID`・`GITHUB_INSTALLATION_ID`・`AUTH_MODE`・`PUBLIC_PATH`・`GITHUB_WRITES`（`wrangler.jsonc` で固定。上書きしない）
+
+確認（結果は #8 にコメント。URL・メールは書かない）。画面ではなく curl で、状態コードと `error` を見る。ログインした状態の要求には `cloudflared access curl` を使う（Access のトークンを付けて送る。`cloudflared` の導入が要る）。
+
+```sh
+D=https://<dev host>
+
+# 1. ログインなしでは Access で止まる（アプリの HTML・JSON は返らない）
+curl -s -o /dev/null -w '%{http_code}\n' "$D/"                 # 302（Access のログインへ）。401/403 でもよい
+curl -s "$D/api/team-notes" | head -c 200                       # アプリの JSON（"ok":…）が返らない
+
+# 2. 許可メンバーとしてログインする（ブラウザが開く）
+cloudflared access login "$D"
+
+# 3. チームモード・GitHub 未設定
+cloudflared access curl "$D/api/health"        # 200、"accessMode":"team"、"configured":false
+
+# 4. 付箋は有効。ボードは GitHub を読まない（仕様）
+cloudflared access curl "$D/api/team-notes"    # 200、"ok":true
+cloudflared access curl "$D/api/team-notes" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' \
+  -d '{"requestId":"req_devcheck_000001","op":"create","texts":["dev の確認"]}'
+                                               # 200、"createdBy" がログインした人の ID（public-anonymous ではない）
+cloudflared access curl "$D/api/board"         # 503、"error":"github_not_configured"
+
+# 5. GitHub へは書けない（存在しない番号を使う。どの番号でも DO にも GitHub にも届かない）
+cloudflared access curl "$D/api/issues/999999999" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' -d '{}'
+                                               # 403、"error":"github_writes_disabled"
+cloudflared access curl "$D/api/issues/999999999/comments" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' -d '{}'
+                                               # 403、"error":"github_writes_disabled"
+```
+
+- [ ] 1〜5 の結果がコメントのとおり
+- [ ] 本番の `/api/team-notes` は 404 のまま（付箋は本番に出ない。本番の URL はここに書かない）
+- [ ] 確認で貼った付箋は、画面の棚で剥がしてよい（dev のデータなので残っても本番には影響しない）
+
+### 9.4 managed OAuth と MCP の検証（D-A4）
+
+8.1 の手順を、本番ではなくこの dev の Access アプリで行う（8.1.1 の「検証用の別名 Worker」がこれ）。8.3 の未確認事項は dev で確かめてから本番の判断に使う。MCP 経由でも GitHub へは書けない（GitHub への送り口 `api()` が同じ `GITHUB_WRITES` の判定で止める。MCP の実装は GitHub へ直接 fetch せず、必ず `api()`/`gql()` を使う）。
+
+### 9.5 切り戻し・片付け
+
+- 一時的に止める: Access のポリシーから全員を外すか、dev の secret `ALLOWED_EMAILS` を削除する（`npx wrangler secret delete ALLOWED_EMAILS --env dev`）。全ルートが 503 に戻る
+- 片付ける: `npx wrangler delete --env dev`。dev の Worker と、その Durable Object（dev の付箋）が消える。**`--env dev` を落とすと本番の Worker を消すコマンドになる**。実行前に表示される Worker 名が `ideaboost-whiteboard-dev` であることを確かめる
+- dev の Access アプリは、Worker を消した後に Zero Trust → Access → Applications から削除する
+- 本番には触らないので、本番の切り戻し（7 章）とは独立している
 
 ## 10. 確認チェックリスト
 

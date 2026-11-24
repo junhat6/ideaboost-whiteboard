@@ -292,6 +292,38 @@ export function validateMutation(v) {
   )
     throw new ApiError(400, "no_changes");
 }
+/**
+ * dev など、実チームの Issue へ書いてはいけない Worker では GITHUB_WRITES を置く。
+ * 未設定（本番）だけが従来どおり書ける。値が "enabled" 以外なら、綴り違いも含めて止める（fail closed）。
+ */
+export function githubWritesDisabled(env = {}) {
+  return env.GITHUB_WRITES !== undefined && env.GITHUB_WRITES !== "enabled";
+}
+/**
+ * GitHub へ送る要求が確実に読み取りかを判定する。書き込み停止中は、これが false のものを全て止める。
+ * GraphQL は文書を構文解析せず、疑わしいものは書き込みとみなす（誤って止めてよい、fail closed）:
+ * query が文字列でない・`query` で始まらない・mutation / subscription という語がどこかにある
+ * （大文字小文字・コメント・文字列の中を問わない）・query と variables 以外の項目（operationName など）がある。
+ * 例: `query A { … } mutation B { … }` に operationName "B" を付けると B が実行されるため、止める。
+ */
+export function isGithubRead(method, path, body) {
+  if (method === "GET") return true;
+  if (path !== "/graphql" || method !== "POST") return false;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  if (Object.keys(body).some((k) => k !== "query" && k !== "variables"))
+    return false;
+  const { query } = body;
+  return (
+    typeof query === "string" &&
+    /^\s*query\b/.test(query) &&
+    !/\b(?:mutation|subscription)\b/i.test(query)
+  );
+}
+function assertGithubWritable(env) {
+  // GitHub を呼ぶ前に止めるので、書き込みは 1 件も起きず、結果不明（uncertain）にもならない。
+  if (githubWritesDisabled(env))
+    throw new ApiError(403, "github_writes_disabled");
+}
 export function createHandler({
   fetch: fetcher = globalThis.fetch,
   crypto: crypt = globalThis.crypto,
@@ -392,6 +424,9 @@ export function createHandler({
     path,
     { method = "GET", body, withHeaders = false } = {},
   ) {
+    // 送り先でも書き込みを止める（ADR 017）。経路の判定を通らない将来の呼び出し（/mcp など）も
+    // ここを必ず通る。installation token の取得（access_tokens）は fetcher を直接使うのでここを通らない。
+    if (!isGithubRead(method, path, body)) assertGithubWritable(env);
     const t = await token(env);
     let r;
     try {
@@ -1778,7 +1813,11 @@ export function createHandler({
         }),
     });
   }
-  return async function handleApi(request, env = {}) {
+  // GitHub への送り口。経路を通らずに save()・コメントの write を呼ぶ将来の呼び出しも、
+  // この api()/gql() を通る。試験はここで送り先の書き込み停止を確かめる。
+  const github = Object.freeze({ api, gql });
+  return Object.assign(handleApi, { github });
+  async function handleApi(request, env = {}) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) return null;
     try {
@@ -2158,6 +2197,8 @@ export function createHandler({
         commentMatch || url.pathname.match(/^\/api\/issues\/([1-9]\d{0,8})$/);
       if (request.method !== "POST" || !match || url.search)
         throw new ApiError(404, "not_found");
+      // GitHub への書き込みは全てこの POST /api/issues/:n(/comments) から入る。停止中は GitHub を読む前に止める。
+      assertGithubWritable(env);
       if (
         !/^application\/json(?:;|$)/i.test(
           request.headers.get("content-type") ?? "",
@@ -2264,6 +2305,6 @@ export function createHandler({
         e.status ?? 502,
       );
     }
-  };
+  }
 }
 export const handleApi = createHandler();

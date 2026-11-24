@@ -1,5 +1,5 @@
 import { authenticate, AccessError, type AuthConfig } from "./auth";
-import { handleApi } from "../server/github.mjs";
+import { handleApi, githubWritesDisabled } from "../server/github.mjs";
 export interface Env extends AuthConfig {
   ASSETS: Fetcher;
   AUTH_MODE?: string;
@@ -10,6 +10,8 @@ export interface Env extends AuthConfig {
   TEAM_NOTES?: DurableObjectNamespace;
   /** "true" のときだけ /api/team-notes を開く。未設定・それ以外は存在しない経路として 404。 */
   TEAM_NOTES_ENABLED?: string;
+  /** 未設定（本番）だけ GitHub へ書ける。dev は "disabled"。"enabled" 以外の値は全て書き込みを止める。 */
+  GITHUB_WRITES?: string;
   ESTIMATE_HOURS_READ_ENABLED?: string;
   ESTIMATE_HOURS_FIELD_ID?: string;
   ESTIMATE_HOURS_NODE_ID?: string;
@@ -124,6 +126,9 @@ export function createWorker(auth = authenticate, api = handleApi) {
           /^\/api\/issues\/([1-9]\d{0,8})(?:\/comments)?$/,
         );
         if (request.method === "POST" && issue) {
+          // dev から実チームの Issue へ書かせない。DO の queue・記録にも入れずに止める。
+          if (githubWritesDisabled(env))
+            throw new AccessError(403, "github_writes_disabled");
           if (!env.MUTATIONS)
             throw new AccessError(503, "mutation_coordinator_not_configured");
           const coordinator = env.MUTATIONS.getByName(
