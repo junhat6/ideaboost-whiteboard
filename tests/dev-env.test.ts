@@ -41,8 +41,15 @@ test("dev は本番と別の Worker で、付箋を開き、GitHub の資格・�
     "PUBLIC_PATH",
   ])
     assert.equal(key in dev.vars, false, key);
-  // 匿名公開の rate limit を持たない → public-temporary にしても API は閉じる。
-  assert.equal(dev.ratelimits, undefined);
+  // 匿名公開の rate limit（PUBLIC_LIMITER）を持たない → public-temporary にしても API は閉じる。
+  // 持つのは MCP 経由の書き込みの、利用者ごとの上限だけ（ADR 016 の M2）。
+  assert.deepEqual(
+    dev.ratelimits.map((r: { name: string }) => r.name),
+    ["MCP_LIMITER"],
+  );
+  // リモート MCP は dev だけで有効。開発用の鍵（ACCESS_DEV_JWKS）は設定ファイルに置かない。
+  assert.equal(dev.vars.TEAM_NOTES_MCP_ENABLED, "true");
+  assert.equal("ACCESS_DEV_JWKS" in dev.vars, false);
   assert.equal(dev.routes ?? dev.route, undefined);
   // 付箋の DO も dev 側に宣言する（env へは継承されない）。
   assert.ok(
@@ -52,6 +59,14 @@ test("dev は本番と別の Worker で、付箋を開き、GitHub の資格・�
   );
   // 本番は従来どおり。付箋無効・GitHub へ書ける。
   assert.equal(config.vars.TEAM_NOTES_ENABLED, "false");
+  assert.equal(config.vars.TEAM_NOTES_MCP_ENABLED, "false");
+  assert.equal("ACCESS_DEV_JWKS" in config.vars, false);
+  assert.equal(
+    (config.ratelimits ?? []).some(
+      (r: { name: string }) => r.name === "MCP_LIMITER",
+    ),
+    false,
+  );
   assert.equal("GITHUB_WRITES" in config.vars, false);
 });
 

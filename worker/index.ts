@@ -1,5 +1,6 @@
 import { authenticate, AccessError, type AuthConfig } from "./auth";
 import { handleApi, githubWritesDisabled } from "../server/github.mjs";
+import { handleMcp, MCP_BODY_MAX } from "./mcp";
 export interface Env extends AuthConfig {
   ASSETS: Fetcher;
   AUTH_MODE?: string;
@@ -10,6 +11,10 @@ export interface Env extends AuthConfig {
   TEAM_NOTES?: DurableObjectNamespace;
   /** "true" のときだけ /api/team-notes を開く。未設定・それ以外は存在しない経路として 404。 */
   TEAM_NOTES_ENABLED?: string;
+  /** "true" かつ付箋も有効なときだけ /mcp（リモート MCP）を開く。本番の wrangler.jsonc では "false"。 */
+  TEAM_NOTES_MCP_ENABLED?: string;
+  /** MCP 経由の書き込みの、利用者ごとのレート制限。無ければ MCP の書き込みは閉じる。 */
+  MCP_LIMITER?: RateLimit;
   /** 未設定（本番）だけ GitHub へ書ける。dev は "disabled"。"enabled" 以外の値は全て書き込みを止める。 */
   GITHUB_WRITES?: string;
   ESTIMATE_HOURS_READ_ENABLED?: string;
@@ -37,6 +42,69 @@ function secure(response: Response) {
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com https://github.com/user-attachments/ https://user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com; media-src https://github.com/user-attachments/ https://user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com; connect-src 'self'; worker-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   );
   return r;
+}
+/** application/json と text/event-stream の両方を受け取れる、という MCP の Accept。 */
+function acceptsMcp(accept: string) {
+  const types = accept
+    .toLowerCase()
+    .split(",")
+    .map((t) => t.split(";")[0].trim());
+  return (
+    (types.includes("application/json") || types.includes("*/*")) &&
+    (types.includes("text/event-stream") || types.includes("*/*"))
+  );
+}
+/**
+ * リモート MCP（ADR 016 の M2）。認証（チームモードの Access の JWT）を通った要求だけが来る。
+ * MCP クライアントはボードの Origin を送らないので、POST の Origin 一致の代わりに、
+ * ブラウザの単純リクエストでは作れないヘッダー（JSON の Content-Type・MCP の Accept）を必須にし、
+ * CORS を一切許可しない。他サイトの Origin が付いた要求は、MCP 仕様（DNS rebinding 対策）どおり 403。
+ */
+async function routeMcp(request: Request, env: Env, user: { id: string }) {
+  // 匿名の MCP は作らない。付箋か MCP のどちらかが無効なら、存在しない経路と同じ 404。
+  if (
+    env.AUTH_MODE === "public-temporary" ||
+    env.TEAM_NOTES_ENABLED !== "true" ||
+    env.TEAM_NOTES_MCP_ENABLED !== "true"
+  )
+    throw new AccessError(404, "not_found");
+  if (request.method !== "POST")
+    // 状態なしの MCP なので GET（SSE の待ち受け）・DELETE も使わない。OPTIONS にも CORS の許可を返さない。
+    return new Response(null, { status: 405, headers: { Allow: "POST" } });
+  const origin = request.headers.get("Origin");
+  if (
+    (origin !== null && origin !== env.APP_ORIGIN) ||
+    request.headers.get("Sec-Fetch-Site") === "cross-site"
+  )
+    throw new AccessError(403, "origin_mismatch");
+  if (
+    !/^application\/json(?:;|$)/i.test(
+      request.headers.get("content-type") ?? "",
+    )
+  )
+    throw new AccessError(415, "json_required");
+  if (!acceptsMcp(request.headers.get("accept") ?? ""))
+    throw new AccessError(406, "mcp_accept_required");
+  if (new URL(request.url).search) throw new AccessError(400, "invalid_query");
+  if (Number(request.headers.get("content-length") ?? 0) > MCP_BODY_MAX)
+    throw new AccessError(413, "body_too_large");
+  if (!env.TEAM_NOTES) throw new AccessError(503, "team_notes_not_configured");
+  const notes = env.TEAM_NOTES.getByName(
+    "engineer-first/idea-boost:team-notes",
+  );
+  const response = await handleMcp(request, {
+    notes,
+    limiter: env.MCP_LIMITER,
+    user,
+  });
+  // SDK が何を付けても、CORS の許可はブラウザへ返さない。
+  const headers = new Headers(response.headers);
+  const cors: string[] = [];
+  headers.forEach((_, key) => {
+    if (key.toLowerCase().startsWith("access-control-")) cors.push(key);
+  });
+  for (const key of cors) headers.delete(key);
+  return new Response(response.body, { status: response.status, headers });
 }
 export function createWorker(auth = authenticate, api = handleApi) {
   return {
@@ -85,6 +153,8 @@ export function createWorker(auth = authenticate, api = handleApi) {
         } else {
           user = await auth(request, env);
         }
+        if (new URL(request.url).pathname === "/mcp")
+          return secure(await routeMcp(request, env, user));
         if (!["GET", "HEAD", "POST"].includes(request.method))
           return secure(new Response(null, { status: 405 }));
         if (

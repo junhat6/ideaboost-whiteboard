@@ -12,7 +12,7 @@
 
 - Durable Object の namespace は Worker（script）ごとに作られる。dev は別名の Worker なので、`IssueCoordinator`・`HistoryCoordinator`・`TeamNotesCoordinator` の保存先は本番と別になる。dev の付箋は本番に出ず、本番の付箋・要求記録も dev から見えない。
 - `durable_objects` と `vars` は wrangler の env へ継承されないため、`env.dev` に書き直した。`migrations`（v1〜v3）はトップレベルのものが継承され、dev の Worker の初回 deploy で 3 つの class が dev 側に新しく作られる。今後 migration を足すときはトップレベルに 1 回書けば、本番と dev のそれぞれが次の deploy で適用する（tag は Worker ごとに記録される）。
-- `ratelimits`（`PUBLIC_LIMITER`）も継承されない。dev には置かない（下記）。
+- `ratelimits`（`PUBLIC_LIMITER`）も継承されない。dev には置かない（下記）。dev の `ratelimits` は、M2 で足した MCP の書き込みの利用者ごとの上限 `MCP_LIMITER` だけ（ADR 018）。
 - `routes` は書かない。dev は自分の workers.dev ホストだけで動く。本番 URL・アカウント ID・48 桁 path・secret は dev 側に写さない。
 - 本番の設定値は変えていない。`wrangler` で解決した本番の設定（名前・DO・migrations・ratelimits・assets・vars）を変更の前後で比べ、同一であることを確かめた（変更記録）。wrangler は「トップレベルの vars・ratelimits が env.dev に無い」という警告を出すが、これは意図どおり（本番の値を dev へ写さないため）。
 
@@ -44,7 +44,7 @@ dev でボードも読みたくなったら、読み取り専用（`issues: read
 ## 認証の前提（fail closed）
 
 - dev は `AUTH_MODE` を持たず、チームモードで動く。`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS`・`APP_ORIGIN` のどれかが欠けると、HTML を含む全ルートが 503 `access_not_configured`。Access を設定する前に deploy されても、匿名では何も読めず書けない。
-- **dev で public-temporary は使わない**。付箋とリモート MCP の目的は「誰が書いたか」を区別することで、匿名の主体では検証にならない。誤って `AUTH_MODE=public-temporary` を入れても、dev には `PUBLIC_LIMITER` が無いので `/api/*` は 503 `rate_limit_not_configured` で閉じる（`PUBLIC_PATH` が無ければ全体が 503）。ただし `PUBLIC_PATH` と `APP_ORIGIN` まで入れた場合、`/b/<path>/` の HTML・CSS・JS（データを含まない画面の外枠）は匿名で見える。中身（付箋・Issue）は API が閉じているので出ない。
+- **dev で public-temporary は使わない**。付箋とリモート MCP の目的は「誰が書いたか」を区別することで、匿名の主体では検証にならない。誤って `AUTH_MODE=public-temporary` を入れても、dev には `PUBLIC_LIMITER` が無いので（`MCP_LIMITER` は別の binding で、匿名公開の枠にはならない） `/api/*` は 503 `rate_limit_not_configured` で閉じる（`PUBLIC_PATH` が無ければ全体が 503）。ただし `PUBLIC_PATH` と `APP_ORIGIN` まで入れた場合、`/b/<path>/` の HTML・CSS・JS（データを含まない画面の外枠）は匿名で見える。中身（付箋・Issue）は API が閉じているので出ない。
 - Access の許可一覧は本番のメンバーと同じか、その一部にする。dev の付箋はチームの外に見せない前提で扱う。
 
 ## 自動では deploy しない
@@ -68,5 +68,5 @@ runbook の 9 章に手順を置いた。dev の初回 deploy、workers.dev へ�
 ## 検証
 
 - `server/github-writes.test.mjs`: `GITHUB_WRITES` の値ごとの判定、停止中は Issue の変更・Status・コメントを GitHub へ 1 件も送らず 403、未設定なら従来どおり書けること。送り先（`api()`/`gql()` を経路を通さずに直接呼ぶ）でも、REST の PATCH/POST/DELETE・GraphQL の mutation・`query` で始まらない GraphQL を token の取得も含めて何も送らずに止め、読み取りは止めないこと。未設定なら同じ呼び出しが従来どおり書けること。operationName で後ろの mutation を選ぶ文書・複数 operation・subscription・大文字・コメントや文字列の中の mutation・文字列でない query・想定外の項目も止め、未設定なら同じものを従来どおり送ること。本番の設定で読み取りと書き込みの経路を動かして送られた GraphQL を全て集め、読み取りは全て通り、止まるのは実際の mutation だけであること。
-- `tests/dev-env.test.ts`: `wrangler.jsonc` の `env.dev` が別名・付箋有効・書き込み停止で、GitHub の資格・公開モード・rate limit を持たないこと。本番は付箋無効のまま。dev の Worker は付箋を通し、Issue の変更を DO に入れずに 403。Access 未設定なら全ルート 503、public-temporary にしても API は 503。
+- `tests/dev-env.test.ts`: `wrangler.jsonc` の `env.dev` が別名・付箋有効・書き込み停止で、GitHub の資格・公開モード・匿名公開の rate limit（`PUBLIC_LIMITER`）を持たず、rate limit は `MCP_LIMITER` だけであること。本番は付箋無効のまま。dev の Worker は付箋を通し、Issue の変更を DO に入れずに 403。Access 未設定なら全ルート 503、public-temporary にしても API は 503。
 - 一度だけの確認（`.validation/` に記録、git に入れない）: `wrangler deploy --dry-run` を本番と `--env dev` で実行し、本番の設定が変更前と同一。ローカルの `wrangler dev --env dev` へ curl で、Access 未設定の全 503、付箋 API の 200、Issue の変更とコメントの 403。

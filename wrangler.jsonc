@@ -35,6 +35,8 @@
     "GITHUB_INSTALLATION_ID": "175301060",
     // チームの付箋は匿名で書けるため、ログイン必須化（#10）までは本番で無効（ADR 016）。
     "TEAM_NOTES_ENABLED": "false",
+    // リモート MCP（/mcp）も本番では無効（ADR 016 の M2）。有効にするのはログイン必須化と managed OAuth の確認の後。
+    "TEAM_NOTES_MCP_ENABLED": "false",
   },
   // 付箋とリモート MCP を実際の AI クライアントで試す dev（ADR 017）。CI・release は deploy しない。
   // 人が `wrangler deploy --env dev` するときだけ使う。本番の値・URL・secret はここへ写さない。
@@ -50,12 +52,21 @@
           { "name": "TEAM_NOTES", "class_name": "TeamNotesCoordinator" },
         ],
       },
-      // ratelimits（PUBLIC_LIMITER）は置かない。dev は public-temporary を使わず、
+      // ratelimits の PUBLIC_LIMITER は置かない。dev は public-temporary を使わず、
       // 誤って AUTH_MODE=public-temporary にしても API は 503 で閉じる。
+      // MCP_LIMITER は MCP 経由の書き込みの、利用者ごとの上限（ADR 016 の M2）。本番には置かない。
+      "ratelimits": [
+        {
+          "name": "MCP_LIMITER",
+          "namespace_id": "8160002",
+          "simple": { "limit": 20, "period": 60 },
+        },
+      ],
       "workers_dev": true,
       "preview_urls": false,
       "vars": {
         "TEAM_NOTES_ENABLED": "true",
+        "TEAM_NOTES_MCP_ENABLED": "true",
         // 実チームの Issue へ書かない。GitHub App の ID・鍵も置かないので読み取りもしない。
         "GITHUB_WRITES": "disabled",
       },
