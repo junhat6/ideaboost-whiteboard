@@ -17,14 +17,33 @@ const allowed = new Map([
   ["/team-notes.js", "team-notes.js"],
   ["/styles.css", "styles.css"],
 ]);
+// 付箋の棚の見本。本番の Worker は sample を返さない（無効なら 404 で棚を隠す）。
+const teamNotesSample = JSON.stringify({
+  ok: true,
+  sample: true,
+  notes: [
+    "ハッカソン告知文を考える",
+    "会場の電源と延長コードを確認",
+    "スポンサーへのお礼メール",
+  ].map((text, i) => ({
+    id: "n_sample" + String(i).padStart(4, "0"),
+    text,
+    done: false,
+    rev: 1,
+  })),
+});
 http
   .createServer(async (req, res) => {
-    const file = allowed.get(
-      new URL(req.url, "http://localhost").pathname.replace(
-        /^\/b\/[a-f0-9]{48}/,
-        "",
-      ),
+    const pathname = new URL(req.url, "http://localhost").pathname.replace(
+      /^\/b\/[a-f0-9]{48}/,
+      "",
     );
+    if (pathname === "/api/team-notes" && req.method === "GET") {
+      res.setHeader("content-type", "application/json");
+      res.end(teamNotesSample);
+      return;
+    }
+    const file = allowed.get(pathname);
     if (!file) {
       res.writeHead(404);
       res.end();

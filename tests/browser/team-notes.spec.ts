@@ -183,7 +183,7 @@ test("保存結果が分からない書き込みは自動で再送せず、最�
   expect(server.posts).toHaveLength(1);
 });
 
-test("付箋の API が無いページではサンプル表示と明示し、保存しない", async ({
+test("静的プレビューの見本はサンプル表示と明示し、保存しない", async ({
   page,
 }) => {
   await setup(page);
@@ -195,6 +195,43 @@ test("付箋の API が無いページではサンプル表示と明示し、保
   await input(page).fill("試しに貼る");
   await input(page).press("Enter");
   await expect(open(page).first()).toHaveText("試しに貼る");
+});
+
+test("Worker で付箋が無効（404）なら棚を出さず、ボードは棚の導入前と同じ全幅のまま", async ({
+  page,
+}) => {
+  // ログイン必須化（#10）までは本番で無効。無効な本番で棚の残骸や T の反応が出ず、
+  // ボードの寸法が棚の導入前（main の padding 8px の内側いっぱい）と変わらないこと。
+  let reads = 0;
+  await page.route("**/api/team-notes", (route) => {
+    reads++;
+    return route.fulfill({
+      status: 404,
+      json: { ok: false, error: "not_found" },
+    });
+  });
+  await setup(page);
+  await expect.poll(() => reads).toBe(1);
+  await expect(shelf(page)).toBeHidden();
+  const viewport = page.viewportSize()!;
+  expect(
+    await page
+      .locator("#board-scroll")
+      .evaluate((el) => el.getBoundingClientRect().toJSON()),
+  ).toMatchObject({
+    x: 8,
+    y: 8,
+    width: viewport.width - 16,
+    height: viewport.height - 16,
+  });
+  await page.locator("#board").focus();
+  await page.keyboard.press("t");
+  await expect(input(page)).not.toBeFocused();
+  await expect(shelf(page)).toBeHidden();
+  // 無効と分かった後は定期取得もしない。
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.waitForTimeout(200);
+  expect(reads).toBe(1);
 });
 
 test("棚はたためて、全画面では隠れ、ボードは残りの幅に収まる", async ({

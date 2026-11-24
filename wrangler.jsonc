@@ -30,5 +30,10 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": false },
-  "vars": { "GITHUB_APP_ID": "5473658", "GITHUB_INSTALLATION_ID": "175301060" },
+  "vars": {
+    "GITHUB_APP_ID": "5473658",
+    "GITHUB_INSTALLATION_ID": "175301060",
+    // チームの付箋は匿名で書けるため、ログイン必須化（#10）までは本番で無効（ADR 016）。
+    "TEAM_NOTES_ENABLED": "false",
+  },
 }

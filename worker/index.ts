@@ -8,6 +8,8 @@ export interface Env extends AuthConfig {
   MUTATIONS?: DurableObjectNamespace;
   HISTORY?: DurableObjectNamespace;
   TEAM_NOTES?: DurableObjectNamespace;
+  /** "true" のときだけ /api/team-notes を開く。未設定・それ以外は存在しない経路として 404。 */
+  TEAM_NOTES_ENABLED?: string;
   ESTIMATE_HOURS_READ_ENABLED?: string;
   ESTIMATE_HOURS_FIELD_ID?: string;
   ESTIMATE_HOURS_NODE_ID?: string;
@@ -150,6 +152,10 @@ export function createWorker(auth = authenticate, api = handleApi) {
           );
         }
         if (new URL(request.url).pathname === "/api/team-notes") {
+          // ログイン必須化（#10）までは本番で匿名に書かせない。無効時は DO へ転送せず、
+          // 問い合わせ文字列の検査より先に、存在しない経路と同じ 404 を返す。
+          if (env.TEAM_NOTES_ENABLED !== "true")
+            throw new AccessError(404, "not_found");
           if (new URL(request.url).search)
             throw new AccessError(400, "invalid_query");
           if (!env.TEAM_NOTES)

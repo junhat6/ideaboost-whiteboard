@@ -7,6 +7,7 @@ import {
   CREATE_BATCH_MAX,
 } from "../worker/team-notes.ts";
 import { createWorker } from "../worker/index.ts";
+import { AccessError } from "../worker/auth.ts";
 
 class MemoryLedger implements Ledger {
   rows = new Map<string, unknown>();
@@ -204,8 +205,10 @@ test("本文と件数を検証し、不正な要求では何も保存しない",
 });
 
 const path = "/b/" + "a".repeat(48);
-const publicEnv = (notes?: object) =>
+// 第 2 引数を省くと有効。undefined を明示すると変数が無い Worker になる。
+const publicEnv = (notes?: object, ...flag: [string | undefined] | []) =>
   ({
+    TEAM_NOTES_ENABLED: flag.length ? flag[0] : "true",
     AUTH_MODE: "public-temporary",
     APP_ORIGIN: "https://board.example",
     PUBLIC_PATH: path,
@@ -267,4 +270,51 @@ test("DO への転送が失敗した書き込みは、結果不明として再�
     error: "notes_outcome_unresolved",
     ambiguous: true,
   });
+});
+
+test("付箋が無効な Worker は全メソッドで 404 を返し、DO へ転送しない", async () => {
+  // ログイン必須化（#10）前に、匿名で書ける付箋を本番へ出さないための契約。
+  let forwarded = 0;
+  const notes = {
+    fetch: async () => {
+      forwarded++;
+      return Response.json({ ok: true, notes: [] });
+    },
+  };
+  const worker = createWorker(async () => {
+    throw Error("must not require Access");
+  });
+  for (const enabled of [undefined, "false", "TRUE", "1"])
+    for (const method of ["GET", "POST"]) {
+      const r = await worker.fetch(
+        workerRequest(method),
+        publicEnv(notes, enabled),
+      );
+      assert.equal(r.status, 404, `${enabled} ${method}`);
+      assert.deepEqual(await r.json(), { ok: false, error: "not_found" });
+    }
+  // 問い合わせ文字列の検査（400）より先に閉じ、経路の存在を示さない。
+  const query = await worker.fetch(
+    new Request(
+      "https://board.example" + path + "/api/team-notes?x=1",
+      workerRequest(),
+    ),
+    publicEnv(notes, undefined),
+  );
+  assert.equal(query.status, 404);
+  assert.equal(forwarded, 0);
+
+  // チームモードでは無効でも認証が先に走り、未認証は 404 ではなく拒否される（fail closed）。
+  const teamEnv = { ...publicEnv(notes, undefined), AUTH_MODE: undefined };
+  const teamRequest = () => new Request("https://board.example/api/team-notes");
+  const denied = await createWorker(async () => {
+    throw new AccessError(401, "sign_in_required");
+  }).fetch(teamRequest(), teamEnv);
+  assert.equal(denied.status, 401);
+  const member = await createWorker(async () => ({
+    id: "member",
+    email: "",
+  })).fetch(teamRequest(), teamEnv);
+  assert.equal(member.status, 404);
+  assert.equal(forwarded, 0);
 });

@@ -19,23 +19,13 @@
   const BATCH = 20;
   const COLLAPSE_KEY = "ideaboost.teamShelf.collapsed";
 
-  let mode = "loading"; // loading | api | sample | error
+  // loading | api | sample | error | off（Worker で無効。棚を出さない）
+  let mode = "loading";
   let notes = [];
   let busy = false;
   let editingId = null;
   let lastRemoved = null;
   let seq = 0;
-
-  const sample = [
-    "ハッカソン告知文を考える",
-    "会場の電源と延長コードを確認",
-    "スポンサーへのお礼メール",
-  ].map((text, i) => ({
-    id: "n_sample" + String(i).padStart(4, "0"),
-    text,
-    done: false,
-    rev: 1,
-  }));
 
   const requestId = () =>
     "tn_" +
@@ -204,18 +194,32 @@
     notes = sortNotes(notes.map((n) => (n.id === note.id ? note : n)));
   }
 
+  // 棚は HTML で hidden のまま始め、付箋が使えると分かってから出す。
+  // 無効な本番（404）ではボードの幅も見た目も棚の導入前と変わらない。
+  function reveal() {
+    if (!shelf.hidden) return;
+    shelf.hidden = false;
+    window.dispatchEvent(new Event("resize"));
+  }
+
   async function load() {
     try {
       const data = await api("GET");
       notes = sortNotes(data.notes || []);
-      mode = "api";
-      if (statusEl.classList.contains("stale")) setStatus("");
+      if (data.sample === true && mode !== "api") {
+        // 静的プレビュー（scripts/preview.mjs）だけが返す見本。保存しない。
+        mode = "sample";
+        setStatus("サンプル表示です。付箋は保存されません。", "sample");
+      } else {
+        mode = "api";
+        if (statusEl.classList.contains("stale")) setStatus("");
+      }
     } catch (e) {
       if (e.status === 404 && mode !== "api") {
-        // このページに付箋の API が無い（サンプル表示）。ブラウザー内だけで動かす。
-        mode = "sample";
-        notes = sample.map((n) => ({ ...n }));
-        setStatus("サンプル表示です。付箋は保存されません。", "sample");
+        // Worker で付箋が無効（TEAM_NOTES_ENABLED が "true" でない）。棚を出さない。
+        mode = "off";
+        shelf.dataset.mode = mode;
+        return;
       } else if (mode === "loading") {
         mode = "error";
         setStatus("付箋を読み込めませんでした。", "error", {
@@ -234,6 +238,7 @@
       }
     }
     render();
+    reveal();
   }
 
   function failWrite(e) {
@@ -466,6 +471,7 @@
   document.addEventListener("keydown", (e) => {
     if (
       e.key.toLowerCase() !== "t" ||
+      shelf.hidden ||
       e.repeat ||
       e.ctrlKey ||
       e.metaKey ||
