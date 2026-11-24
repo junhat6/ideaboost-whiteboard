@@ -62,3 +62,11 @@ Cloudflare OAuthとGitHub sudo本人確認は完了。指定アカウントだ�
 詳細はBURNDOWN.md。日次indexだけをチャートへ読み、保存済み原観測を後日の見積で書き換えない。保持180日・1日96観測を超える時は履歴制限を明示。永久保管や過去イベント再現を保証しない。
 
 公開性の確認不能（optional queryのfallback等）は503、一致した正規fieldのORG_ONLY確認は403。いずれも記録を返さず、既存履歴を消去しない。再公開を正規readで確認できた場合のみ保管済み履歴を再び閲覧可能にする。
+
+## 会議まとめ（ADR 015）の有効化 — 未承認・未実施
+
+既定は無効（`/api/meetings` は `ai:false` を返し、生成は 503）。公開モードでは常に 404。有効化はいずれも明示承認が必要。
+
+1. AI（貼り付けで使えるようになる）: Anthropic API の従量課金契約を承認 → 標準入力で `npx wrangler secret put ANTHROPIC_API_KEY --name ideaboost-whiteboard` → `vars` に `MEETINGS_AI_ENABLED: "true"`。モデルを変える時だけ `MEETINGS_MODEL`。
+2. 議事録の日付選択: GitHub App 5473658 に Repository permission `Contents: Read-only` を追加し org owner が再承認 → installation 175301060 の対象に `engineer-first/meeting-logger` を追加 → `vars` に `MEETINGS_LOGGER_READ_ENABLED: "true"`。トークンは `meeting-logger` 限定・`contents:read` のみで別発行され、ボードの書き込み権限とは混ざらない。
+3. 確認は読み取りだけで行う: チームモードで「会議まとめ」→ 直近の日付を議事録のみで整理 → 文字起こし込みで整理。実 Issue への書き込みは発生しない。

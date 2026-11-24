@@ -171,6 +171,42 @@ export function pemToPkcs8(pem) {
     ]);
   return data;
 }
+// GitHub App JWT. Installation tokens are always narrowed per caller
+// (repositories + permissions); this only proves the App identity.
+export async function appJwt(
+  env,
+  { crypto: crypt = globalThis.crypto, now = () => Date.now() } = {},
+) {
+  const t = Math.floor(now() / 1000),
+    head = b64(bytes(JSON.stringify({ alg: "RS256", typ: "JWT" }))),
+    body = b64(
+      bytes(
+        JSON.stringify({
+          iat: t - 60,
+          exp: t + 540,
+          iss: String(env.GITHUB_APP_ID),
+        }),
+      ),
+    );
+  let privateKey;
+  try {
+    privateKey = await crypt.subtle.importKey(
+      "pkcs8",
+      pemToPkcs8(env.GITHUB_APP_PRIVATE_KEY),
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+  } catch {
+    throw new ApiError(503, "invalid_private_key");
+  }
+  const sig = await crypt.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    privateKey,
+    bytes(head + "." + body),
+  );
+  return `${head}.${body}.${b64(new Uint8Array(sig))}`;
+}
 export function validateMutation(v) {
   if (
     !v ||
@@ -324,39 +360,12 @@ export function createHandler({
     }
   }
   async function issueToken(env, key) {
-    const t = Math.floor(now() / 1000),
-      head = b64(bytes(JSON.stringify({ alg: "RS256", typ: "JWT" }))),
-      body = b64(
-        bytes(
-          JSON.stringify({
-            iat: t - 60,
-            exp: t + 540,
-            iss: String(env.GITHUB_APP_ID),
-          }),
-        ),
-      );
-    let privateKey;
-    try {
-      privateKey = await crypt.subtle.importKey(
-        "pkcs8",
-        pemToPkcs8(env.GITHUB_APP_PRIVATE_KEY),
-        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-        false,
-        ["sign"],
-      );
-    } catch {
-      throw new ApiError(503, "invalid_private_key");
-    }
-    const sig = await crypt.subtle.sign(
-      "RSASSA-PKCS1-v1_5",
-      privateKey,
-      bytes(head + "." + body),
-    );
+    const jwt = await appJwt(env, { crypto: crypt, now });
     const r = await fetcher(
       `${BASE}/app/installations/${env.GITHUB_INSTALLATION_ID}/access_tokens`,
       {
         method: "POST",
-        headers: headers(`${head}.${body}.${b64(new Uint8Array(sig))}`),
+        headers: headers(jwt),
         body: JSON.stringify({
           repositories: [REPO],
           permissions: {

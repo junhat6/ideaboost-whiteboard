@@ -4632,6 +4632,13 @@ window.Whiteboard = {
   statusColumn,
   goal,
   getSnapshot: () => clone(state),
+  // 会議まとめのPBIチップから、ボード上と同じエディターを開く。
+  openPbi(number) {
+    const lane = state.lanes?.find((l) => l.number === number);
+    if (!lane || document.querySelector("dialog[open]")) return false;
+    openIssue("PBI", lane.id);
+    return true;
+  },
   beginConnection,
   setConnectionError(message) {
     initialLoading = false;

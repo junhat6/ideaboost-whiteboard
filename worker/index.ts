@@ -1,5 +1,6 @@
 import { authenticate, AccessError, type AuthConfig } from "./auth";
 import { handleApi } from "../server/github.mjs";
+import { handleMeetings } from "../server/meetings.mjs";
 export interface Env extends AuthConfig {
   ASSETS: Fetcher;
   AUTH_MODE?: string;
@@ -15,6 +16,10 @@ export interface Env extends AuthConfig {
   GITHUB_APP_ID?: string;
   GITHUB_INSTALLATION_ID?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
+  MEETINGS_AI_ENABLED?: string;
+  MEETINGS_LOGGER_READ_ENABLED?: string;
+  MEETINGS_MODEL?: string;
+  ANTHROPIC_API_KEY?: string;
 }
 function secure(response: Response) {
   const r = new Response(response.body, response);
@@ -33,7 +38,11 @@ function secure(response: Response) {
   );
   return r;
 }
-export function createWorker(auth = authenticate, api = handleApi) {
+export function createWorker(
+  auth = authenticate,
+  api = handleApi,
+  meetings = handleMeetings,
+) {
   return {
     async fetch(request: Request, env: Env): Promise<Response> {
       try {
@@ -148,6 +157,9 @@ export function createWorker(auth = authenticate, api = handleApi) {
             ).fetch(internal),
           );
         }
+        // 会議まとめは読み取り専用でIssue mutationを持たないため、DO queueを通さない。
+        const meeting = await meetings(internal, env);
+        if (meeting) return secure(meeting);
         const result = await api(internal, env);
         if (result) return secure(result);
         if (request.method === "POST")
