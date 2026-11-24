@@ -1,6 +1,6 @@
 # IdeaBoost 開発規約
 
-作業とドキュメントは日本語。UI変更前に DESIGN.md を読み、矛盾があれば理由とともに更新する。
+作業とドキュメントは日本語。UI変更前に DESIGN.md を読み、矛盾があれば理由とともに更新する。DESIGN.md には判断の原則だけを書き、領域ごとの細かい振る舞い・計測値・経緯は docs/UI-BEHAVIOR.md（その領域を変える時に読む）・ADR・試験へ置く。
 
 ## 境界
 - GitHub engineer-first/idea-boost と組織 Project 3 / view 16 の専用アプリ。
