@@ -43,15 +43,17 @@ function secure(response: Response) {
   );
   return r;
 }
-/** application/json と text/event-stream の両方を受け取れる、という MCP の Accept。 */
+/**
+ * application/json と text/event-stream の両方を明示した、という MCP の Accept。
+ * `*\/*` だけの要求は通さない（SDK も 406 にする。Worker で先に同じ 406 を返し、拒否の形をそろえる）。
+ */
 function acceptsMcp(accept: string) {
   const types = accept
     .toLowerCase()
     .split(",")
     .map((t) => t.split(";")[0].trim());
   return (
-    (types.includes("application/json") || types.includes("*/*")) &&
-    (types.includes("text/event-stream") || types.includes("*/*"))
+    types.includes("application/json") && types.includes("text/event-stream")
   );
 }
 /**
@@ -89,10 +91,24 @@ async function routeMcp(request: Request, env: Env, user: { id: string }) {
   if (Number(request.headers.get("content-length") ?? 0) > MCP_BODY_MAX)
     throw new AccessError(413, "body_too_large");
   if (!env.TEAM_NOTES) throw new AccessError(503, "team_notes_not_configured");
+  // JSON-RPC の batch（配列の本文）は受け付けない。2025-06-18 以降の MCP 仕様に batch は無く、
+  // 2025 版の経路（SDK の legacy）で受けると、1 回の要求で道具を何十回も呼べてしまう
+  // （制限の無い notes_list を並べれば DO の全件読みが重なる）。1 要求 1 メッセージに限る。
+  const body = await request.text();
+  if (new TextEncoder().encode(body).byteLength > MCP_BODY_MAX)
+    throw new AccessError(413, "body_too_large");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // 構文の誤りは SDK が JSON-RPC の parse error として返す。
+  }
+  if (Array.isArray(parsed))
+    throw new AccessError(400, "mcp_batch_not_supported");
   const notes = env.TEAM_NOTES.getByName(
     "engineer-first/idea-boost:team-notes",
   );
-  const response = await handleMcp(request, {
+  const response = await handleMcp(new Request(request, { body }), {
     notes,
     limiter: env.MCP_LIMITER,
     user,

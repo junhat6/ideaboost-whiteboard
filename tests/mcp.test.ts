@@ -450,6 +450,7 @@ test("Origin の例外は /mcp だけ。他サイトの Origin、JSON でない�
     "application/json",
     "text/event-stream",
     "text/html",
+    "*/*",
   ])
     assert.equal(
       await status({
@@ -556,4 +557,56 @@ test("済みの付箋の直し案は notes_list に done とともに出し、�
     value: "議事録",
   });
   assert.equal(attach.isError, false);
+});
+
+test("JSON-RPC の batch（配列の本文）は SDK に渡さず 400 で拒否し、DO へ何も送らない", async () => {
+  const notes = notesDo();
+  const note = await seed(notes);
+  const before = notes.seen.length;
+  const list = (id: number) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name: "notes_list", arguments: {} },
+  });
+  const suggest = {
+    jsonrpc: "2.0",
+    id: 99,
+    method: "tools/call",
+    params: {
+      name: "note_suggest",
+      arguments: {
+        requestId: requestId(),
+        id: note.id,
+        before: note.text,
+        after: "案",
+      },
+    },
+  };
+  for (const body of [
+    Array.from({ length: 100 }, (_, i) => list(i + 1)),
+    [list(1)],
+    [suggest],
+    [],
+  ]) {
+    const response = await worker().fetch(mcpRequest(body), teamEnv(notes));
+    assert.equal(response.status, 400);
+    assert.equal(
+      ((await response.json()) as any).error,
+      "mcp_batch_not_supported",
+    );
+  }
+  assert.equal(notes.seen.length, before, "DO へ何も届かない");
+  // 1 件ずつなら従来どおり。JSON として読めない本文は SDK の parse error（batch の拒否ではない）。
+  assert.equal((await call(notes, "notes_list", {})).isError, false);
+  const broken = await worker().fetch(
+    new Request(ORIGIN + "/mcp", {
+      method: "POST",
+      headers: MCP_HEADERS,
+      body: "[{",
+    }),
+    teamEnv(notes),
+  );
+  assert.notEqual(broken.status, 200);
+  assert.equal((await rpc(broken)).error.code, -32700);
 });
