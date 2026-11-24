@@ -16,6 +16,7 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "design:lint": "designmd lint DESIGN.md",
     "deploy": "wrangler deploy",
+    "release": "node scripts/release.mjs",
     "worktree:setup": "node scripts/worktree/setup.mjs",
     "worktree:archive": "node scripts/worktree/archive.mjs",
     "worktree:ports": "node -e \"import('./scripts/worktree/ports.mjs').then(m => console.log(m.localPorts()))\"",

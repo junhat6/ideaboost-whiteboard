@@ -1,0 +1,43 @@
+# ロードマップ（v1 / v2 / v3）
+
+2026-11-25 0:30 JST 策定。版の付け方と出し方は [RELEASE.md](RELEASE.md)、ループが拾う仕事は GitHub Issues（`loop:finish`）。この文書を書き換えてよいのは人と replan ループだけ（replan は項目の追加・分割まで。範囲を狭める・消すのは人）。
+
+## 分け方の基準
+
+| 版 | 基準 |
+| --- | --- |
+| v1 | **2026-11-25 9:00 JST に本番で使えるもの。** すでに本番で動き、full CI と本番 smoke で確かめられる範囲だけ。締切まで約 8.5 時間のため、新機能は入れない |
+| v2 | 着手済み（別セッションで実装中）か、方針がオーナーと決まっているもの。ただし本番で有効にするには人の承認（秘密・App 権限・認証方式）が要る |
+| v3 | 構想段階。v2 の利用結果を見て形を決めるもの |
+
+## v1 — チームのボードとして毎日使える（2026-11-25 リリース）
+
+本番 main `34cb121` 時点の機能に、開発を止めない仕組みを足したもの。
+
+- ボード: engineer-first/idea-boost の Project 3 / view 16 を、6 PBI × 4 状態列で俯瞰。セル内 4 枚＋続きのページ送り、PBI 担当者、N/P と全体俯瞰、全画面（f）、45 秒更新。
+- 操作: 付箋のドラッグで Status 変更、Issue の詳細と同一面の Markdown 編集（原文保持・undo・IME）、コメント投稿と遅延メディア、Close（理由選択）、Issue 番号コピー。
+- 安全: Issue ごとの Durable Object による直列化、revision と raw Status の楽観的競合検出、部分保存・結果不明を自動再送しない、public-temporary の固定 path/host/Origin/rate limit。
+- 見積とバーンダウン: 作業見積の読み取り、学校日基準のバーンダウン（観測履歴 DO）、最近 Close した PBI の明示 opt-in。
+- 開発の仕組み: develop＝幹 / main＝本番の列車方式、リリース時だけの full CI、`npm run release`、Orca automation のループ（[loop/README.md](loop/README.md)）。
+
+v1 で**出さない**もの: 会議まとめ（PR #5、未 merge・本番有効化に承認が必要）、チーム付箋（実装中）、ログイン必須化。
+
+## v2 — 会議とチームの「Issue にならない仕事」を扱う
+
+| 項目 | 状態 | 本番で有効にする条件（人の判断） |
+| --- | --- | --- |
+| 会議まとめ（議事録・文字起こしの AI 整理、ADR 015 予定） | PR #5（別セッション、`feature/meeting-digest`）。main と衝突中。develop 向けに付け替えて取り込む | `OPENAI_API_KEY` の Worker secret 登録、GitHub App への `Contents: Read-only` 追加と meeting-logger のインストール |
+| チーム付箋（棚に一言で貼る・TeamNotes DO・リモート MCP で手元の AI が読み、赤ペン/提案を返す） | 別セッション（worktree `junhat6/team-notes`）で実装中。会議まとめの後に rebase する合意 | リモート MCP の公開範囲。下のログイン必須化が前提 |
+| アプリ全体のログイン必須化（Preview 許可メンバーだけ） | 方針はオーナー承認済み。切り替え前に手順書を見せて最終確認する約束 | Access 設定・allowlist の登録（外部認証設定のため明示承認が必要）。メールはファイル・git・ログに書かない |
+| 全画面閲覧モードと通常モードの分離 | 付箋の棚と合わせて設計 | なし |
+
+## v3 — ボードから仕事を生み出す
+
+- 付箋の Issue 化: 「Issue にする」ラベル/ボタン → GitHub Actions か押下時に AI が下書きを作り、人が確定する。
+- 対面ミーティング AI との連携（Obsidian の構想ノート、デモ m1 採用）。会議まとめ・付箋とつなぐ。
+- public-temporary の廃止（ログイン必須化が定着した後）。
+- 会議・付箋・バーンダウンを横断した振り返り。
+
+## 人の判断待ち（ループは待たずに他を進める）
+
+`needs-human` ラベルの Issue に集める。v2 の本番有効化条件は全てここに入る。課金・契約、秘密の登録・移行、GitHub App 権限の追加、認証方式の切り替え、実チームへの告知は agent が行わない。
