@@ -204,45 +204,199 @@ service token で通った要求にも Access は `Cf-Access-Jwt-Assertion` を�
 - Worker のコードの版を古い版へ rollback しない（[OPERATIONS.md](../OPERATIONS.md): 共有調停のない旧版へ戻すと同時保存の保証が失われる）。切り戻しは変数と Access の設定だけで行う
 - service token を消すのは、漏えいが疑われるときだけ（その場合は GitHub secret も同時に消す）
 
-## 8. リモート MCP の認証（#8 の前提。有効にするときの追加手順）
+## 8. リモート MCP の認証（#8。有効にするときの追加手順）
 
-この章は「見出しと未確認事項」まで。ログイン必須化を単独で入れて安定させた後に、別の手順書として詳しく書く。
+Worker 側の `/mcp` は実装済み（[ADR 018](../adr/018-remote-mcp.md)）。本番では `TEAM_NOTES_MCP_ENABLED: "false"` で 404、dev（9 章）では有効。この章は、Access 側の設定と本番で有効にする手順。どれも外部設定・secret・本番の変更なので、agent は行わない。
+
+Worker が既に行っていること（設定は不要）:
+
+- `/mcp` も他の経路と同じく Access の JWT（`Cf-Access-Jwt-Assertion`）と許可一覧で認証する。public-temporary では 404
+- `/mcp` だけは POST の Origin 一致を求めない。代わりに `Content-Type: application/json` と MCP の `Accept`（`application/json` と `text/event-stream`）を必須にし、CORS を許可しない。他サイトの Origin が付いていれば 403
+- MCP 経由の書き込みは、利用者ごとに `MCP_LIMITER` を通す。binding が無ければ書き込みを閉じる
+- 道具は `notes_list`・`note_suggest`・`note_attach`・`note_propose` の 4 つだけ。採否・削除の道具は無い
 
 ### 8.1 第一候補: Access の managed OAuth
 
 - ボードと同じ Access アプリで managed OAuth を有効にする。未ログインの MCP クライアントには Access が 401 と `WWW-Authenticate` を返し、OAuth の案内（authorization server metadata）を出す。ログイン後、オリジンにはブラウザと同じ `Cf-Access-Jwt-Assertion` が届くので、Worker の `authenticate()` と許可一覧をそのまま使える
-- 追加の手順（見出しのみ）:
-  - 8.1.1 検証用の別名 Worker で managed OAuth を有効にする（本番では試さない）
-  - 8.1.2 許可する redirect URI を設定する（各クライアントの callback、ループバックの扱い）
-  - 8.1.3 `/mcp` を POST の Origin 検査の例外にし、代わりに `Content-Type: application/json` と MCP のヘッダーを必須にする（CORS は許可しない）
-  - 8.1.4 MCP 経由の書き込みにユーザーごとのレート制限を設ける
-  - 8.1.5 各クライアント（claude.ai・Claude Code・Codex・ChatGPT・Antigravity）から読み取りの道具を 1 つ呼んで確かめる
-  - 8.1.6 本番の Access アプリで有効にする（承認が要る）
+- 手順:
+  - 8.1.1 dev の Access アプリ（9.2）で managed OAuth を有効にする（本番では先に試さない）
+  - 8.1.2 許可する redirect URI を設定する（claude.ai と claude.com の callback、ChatGPT の 2 形式、ループバックは `allow_any_on_loopback`）
+  - 8.1.3 8.3 の未確認事項を dev で確かめる（9.4）
+  - 8.1.4 各クライアント（claude.ai・Claude Code・Codex・ChatGPT・Antigravity）から `notes_list` を呼び、`note_propose` で提案付箋を 1 枚出し、画面に出ることを確かめる
+  - 8.1.5 本番で有効にする（8.4、承認が要る）
 
 ### 8.2 第二候補: Worker で OAuth 認可サーバーを持つ
 
 - `@cloudflare/workers-oauth-provider` で Worker が DCR・CIMD・トークン発行を担い、ログインは Access for SaaS（OIDC）に任せる。8.1 で通らないクライアントがあるときに切り替える
 - 代償: コードが大きい（同意画面・トークンの保存・上流との連携）。Access for SaaS の client secret など、新しい secret と承認が要る
 
-### 8.3 未確認事項（実機で確かめるまで決めない）
+### 8.3 未確認事項（実機の Access で確かめるまで決めない）
 
 - managed OAuth が workers.dev のホストで使えるか
-- RFC 9728（protected resource metadata）を、claude.ai と ChatGPT の要件どおりに返すか（401 の `resource_metadata`、`resource` の一致）
+- RFC 9728（protected resource metadata）: 未ログインの MCP クライアントへの 401 の `WWW-Authenticate` に `resource_metadata` が入るか。Access が `/.well-known/oauth-protected-resource` を返すか。その `resource` が利用者の入れた URL（`https://<host>/mcp`）と一致するか（claude.ai と ChatGPT が要求する）
+  - Access が返す → Worker は何もしない
+  - Access が返さない → Worker に `/.well-known/oauth-protected-resource` を足し（MCP のフラグが有効なときだけ開く、ADR 018）、そのパスだけ Access のポリシーで Bypass にする。Bypass の追加は承認が要る
 - CIMD（Client ID Metadata Document）に対応するか（docs に記載がない）
 - managed OAuth を有効にした後も、ブラウザのログイン（302 でのリダイレクト）が今まで通り動くか
 - ChatGPT で書き込みの道具を使えるのは Business / Enterprise / Edu のプランだけという制約が、メンバーのプランで問題になるか
 - Antigravity の OAuth 対応（公式 docs とコミュニティの報告が食い違う）
 
+### 8.4 本番で有効にする（承認が要る）
+
+前提: ログイン必須化（1〜7 章）が済み、8.1.4 が dev で通っていること。
+
+1. `wrangler.jsonc` のトップレベルに `MCP_LIMITER`（利用者ごとの上限。dev と同じ 20 回 / 60 秒から始める）を足し、`TEAM_NOTES_ENABLED` と `TEAM_NOTES_MCP_ENABLED` を `"true"` にする PR を出す。本番の dry-run の bindings 表で、増えたのがこの 3 行だけであることを確かめる
+2. 本番の Access アプリで managed OAuth を有効にし、8.1.2 と同じ redirect URI を設定する
+3. 10 章の「MCP」を確かめる
+4. 切り戻し: `TEAM_NOTES_MCP_ENABLED` を `"false"` に戻して deploy すると `/mcp` は 404 に戻る（付箋の棚は残る）
+
 ## 9. dev 環境
 
-<!-- TODO(M2.5): 別 Worker 名の dev 環境の手順を足す。
-- dev 用 Worker（本番と別名）の deploy 手順と、本番の secret・Durable Object と混ざらないことの確認
-- dev 用の Access アプリとポリシー（許可する人の範囲）
-- dev 用の secret（GitHub App 鍵を共有するか別にするか、service token）
-- 8 章の managed OAuth の検証をここで行う手順
--->
+付箋とリモート MCP を、実際の AI クライアントから試すための別 Worker（`ideaboost-whiteboard-dev`）。設計と理由は [ADR 017](../adr/017-dev-environment.md)。この章は人がやる手順で、agent は deploy・Access・secret の登録をしない。
 
-TODO（M2.5 で追加）: 別 Worker 名の dev 環境について、deploy・Access・secret の手順を書く。
+dev の性質（設定ファイル `wrangler.jsonc` の `env.dev` で固定済み）:
+
+- 本番と別の Worker 名なので、Durable Object（付箋・要求記録）も本番と別。dev で貼った付箋は本番に出ない
+- 付箋は有効（`TEAM_NOTES_ENABLED: "true"`）
+- GitHub へは書かない（`GITHUB_WRITES: "disabled"`。Issue の変更・コメントは 403）。GitHub App の鍵も無いのでボードは読み込めず、`github_not_configured` が出る。これは仕様
+- チームモードのみ。Access の設定が揃うまで、HTML を含む全ルートが 503（`access_not_configured`）。public-temporary は使わない
+
+### 9.0 承認が要る項目
+
+1 章と同じく、次の項目は 1 つずつオーナーの承認を取ってから行い、#8 にコメントで記録する（値は書かない）。
+
+| # | 項目 | 承認で確かめること |
+| --- | --- | --- |
+| D-A1 | dev Worker の初回 deploy | Cloudflare の同じアカウントに Worker が 1 つ増えること。無料枠に収まること |
+| D-A2 | dev の Access アプリとポリシー | 許可する人（本番のメンバーと同じか、その一部） |
+| D-A3 | dev の secret 4 つの登録 | 下の 9.3 の一覧 |
+| D-A4 | dev での managed OAuth の有効化（8 章を試すとき） | 許可する redirect URI |
+
+GitHub App の鍵を dev に登録しない。dev でボードも読みたくなったら、読み取り専用の別の GitHub App を作る案を別に承認する（ADR 017）。
+
+### 9.1 deploy（D-A1）
+
+1. develop の最新を手元に取り、`npm ci` と `npm run check` を通す
+2. 次のコマンドを**そのまま**使う。`--env dev` を落とすと本番へ deploy される（`npm run deploy` は `--env=""` で本番を明示している）
+
+   ```sh
+   npx wrangler deploy --env dev --dry-run
+   ```
+
+   dry-run は Worker 名を表示しない（wrangler 4.152 で確認）。代わりに bindings の表で見分ける。
+
+   | 行 | dev（進んでよい） | 本番（止める） |
+   | --- | --- | --- |
+   | Environment Variable | `TEAM_NOTES_ENABLED ("true")`・`TEAM_NOTES_MCP_ENABLED ("true")`・`GITHUB_WRITES ("disabled")` の 3 行だけ | `GITHUB_APP_ID`・`GITHUB_INSTALLATION_ID`・`TEAM_NOTES_ENABLED ("false")`・`TEAM_NOTES_MCP_ENABLED ("false")` |
+   | Rate Limit | `MCP_LIMITER` だけ | `PUBLIC_LIMITER` がある |
+
+   表が dev の列と一致したら、同じ `--env dev` で deploy する。
+
+   ```sh
+   npx wrangler deploy --env dev
+   ```
+
+3. 表示された workers.dev のホストを控える（以下 `<dev host>`）。ホスト名が `ideaboost-whiteboard-dev.` で始まることを確かめる（workers.dev のホスト名は Worker 名から作られるので、本番と取り違えていればここで分かる）。リポジトリ・Issue・チャットに書かない
+4. 確認: ログインしていないブラウザで `<dev host>/` を開き、503（`access_not_configured`）が返る。この時点では誰も読めず書けない
+
+`--keep-vars` は付けない。dev の vars は `wrangler.jsonc` が正本で、Access の値は secret として登録する（deploy で消えない）。
+
+### 9.2 Access（D-A2）
+
+3 章と同じ手順を dev の Worker に対して行う。
+
+1. Workers & Pages → `ideaboost-whiteboard-dev` → Settings → Domains & Routes で、`workers.dev` の行の **Enable Cloudflare Access** を押す
+2. 自動で作られた Access アプリを開き、AUD タグを控える（9.3 で使う）
+3. ポリシーは members（Allow・Emails）だけにする。dev には CI の service token は要らない（CI は dev を deploy もスモークもしない）
+4. 「Everyone」やメールのドメイン全体を Include にしない
+
+### 9.3 secret の登録（D-A3）
+
+dev の Worker に 4 つの値を **secret** として入れる。vars にしない理由: `wrangler deploy --env dev` は `wrangler.jsonc` に無い vars を消すが、secret は残る。また、メールの一覧をリポジトリに置かずに済む。
+
+```sh
+npx wrangler secret put ACCESS_TEAM_DOMAIN --env dev   # <team>.cloudflareaccess.com
+npx wrangler secret put ACCESS_AUD --env dev           # 9.2 で控えた AUD
+npx wrangler secret put ALLOWED_EMAILS --env dev       # 9.2 の許可一覧と同じ集合（カンマ区切り）
+npx wrangler secret put APP_ORIGIN --env dev           # https://<dev host>（末尾の / なし）
+```
+
+- 値はプロンプトに貼り、コマンド引数・シェル履歴・チャットに出さない
+- 登録しないもの: `GITHUB_APP_PRIVATE_KEY`・`GITHUB_APP_ID`・`GITHUB_INSTALLATION_ID`・`AUTH_MODE`・`PUBLIC_PATH`・`GITHUB_WRITES`（`wrangler.jsonc` で固定。上書きしない）
+
+確認（結果は #8 にコメント。URL・メールは書かない）。画面ではなく curl で、状態コードと `error` を見る。ログインした状態の要求には `cloudflared access curl` を使う（Access のトークンを付けて送る。`cloudflared` の導入が要る）。
+
+```sh
+D=https://<dev host>
+
+# 1. ログインなしでは Access で止まる（アプリの HTML・JSON は返らない）
+curl -s -o /dev/null -w '%{http_code}\n' "$D/"                 # 302（Access のログインへ）。401/403 でもよい
+curl -s "$D/api/team-notes" | head -c 200                       # アプリの JSON（"ok":…）が返らない
+
+# 2. 許可メンバーとしてログインする（ブラウザが開く）
+cloudflared access login "$D"
+
+# 3. チームモード・GitHub 未設定
+cloudflared access curl "$D/api/health"        # 200、"accessMode":"team"、"configured":false
+
+# 4. 付箋は有効。ボードは GitHub を読まない（仕様）
+cloudflared access curl "$D/api/team-notes"    # 200、"ok":true
+cloudflared access curl "$D/api/team-notes" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' \
+  -d '{"requestId":"req_devcheck_000001","op":"create","texts":["dev の確認"]}'
+                                               # 200、"createdBy" がログインした人の ID（public-anonymous ではない）
+cloudflared access curl "$D/api/board"         # 503、"error":"github_not_configured"
+
+# 5. GitHub へは書けない（存在しない番号を使う。どの番号でも DO にも GitHub にも届かない）
+cloudflared access curl "$D/api/issues/999999999" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' -d '{}'
+                                               # 403、"error":"github_writes_disabled"
+cloudflared access curl "$D/api/issues/999999999/comments" -X POST \
+  -H "Origin: $D" -H 'content-type: application/json' -d '{}'
+                                               # 403、"error":"github_writes_disabled"
+```
+
+- [ ] 1〜5 の結果がコメントのとおり
+- [ ] 本番の `/api/team-notes` は 404 のまま（付箋は本番に出ない。本番の URL はここに書かない）
+- [ ] 確認で貼った付箋は、画面の棚で剥がしてよい（dev のデータなので残っても本番には影響しない）
+
+### 9.4 managed OAuth と MCP の検証（D-A4）
+
+dev では `/mcp` が有効（`TEAM_NOTES_MCP_ENABLED: "true"`、`MCP_LIMITER` は 20 回 / 60 秒）。8.1 の手順を、本番ではなくこの dev の Access アプリで行う。8.3 の未確認事項は dev で確かめてから本番の判断に使う。MCP の道具は付箋（DO）にだけ書き、GitHub へは何も送らない。
+
+managed OAuth を有効にする前に、Access のトークンを付けた要求で `/mcp` を確かめる（9.3 のログインの後）。
+
+```sh
+D=https://<dev host>
+
+# 1. 道具の一覧が 4 つ（notes_list・note_suggest・note_attach・note_propose）
+cloudflared access curl "$D/mcp" -X POST \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# 2. 提案付箋を 1 枚出す（requestId は毎回新しく作る）。画面の「AI の提案（採用待ち）」に出る
+cloudflared access curl "$D/mcp" -X POST \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"note_propose","arguments":{"requestId":"req_devcheck_mcp_0001","text":"dev の MCP の確認"}}}'
+
+# 3. 他サイトの Origin・JSON でない本文は拒否される
+cloudflared access curl "$D/mcp" -X POST -H 'Origin: https://example.com' \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{}'
+                                               # 403、"error":"origin_mismatch"
+cloudflared access curl "$D/mcp" -X POST -H 'content-type: text/plain' \
+  -H 'accept: application/json, text/event-stream' -d '{}'
+                                               # 415、"error":"json_required"
+```
+
+- [ ] 1〜3 の結果がコメントのとおり。2 の提案付箋が画面に出て、人が採用・却下できる
+- [ ] managed OAuth を有効にした後、8.1.4 の各クライアントから `notes_list` が呼べる。結果と 8.3 の未確認事項の答えを #15 にコメントする（URL・メールは書かない）
+
+### 9.5 切り戻し・片付け
+
+- 一時的に止める: Access のポリシーから全員を外すか、dev の secret `ALLOWED_EMAILS` を削除する（`npx wrangler secret delete ALLOWED_EMAILS --env dev`）。全ルートが 503 に戻る
+- 片付ける: `npx wrangler delete --env dev`。dev の Worker と、その Durable Object（dev の付箋）が消える。**`--env dev` を落とすと本番の Worker を消すコマンドになる**。実行前に表示される Worker 名が `ideaboost-whiteboard-dev` であることを確かめる
+- dev の Access アプリは、Worker を消した後に Zero Trust → Access → Applications から削除する
+- 本番には触らないので、本番の切り戻し（7 章）とは独立している
 
 ## 10. 確認チェックリスト
 
@@ -274,7 +428,8 @@ TODO（M2.5 で追加）: 別 Worker 名の dev 環境について、deploy・Ac
 ### MCP（8 章を有効にしたときだけ）
 
 - [ ] 未ログインの MCP クライアントが 401 と OAuth の案内を受け取る
-- [ ] ログイン後、許可メンバーとして読み取りの道具が呼べる。許可外のアドレスでは 403
+- [ ] ログイン後、許可メンバーとして `notes_list` が呼べる。許可外のアドレスでは 403
+- [ ] `note_propose` で出した提案付箋が画面に出て、人だけが採用・却下できる（MCP に採否の道具が無い）
 - [ ] ブラウザでのログインが managed OAuth の有効化の前後で変わらない
 
 ### 切り戻しの準備

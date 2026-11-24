@@ -65,6 +65,7 @@ for (const theme of ["light", "dark"] as const)
       "GET /api/board",
       "GET /api/current-sprint",
       "GET /api/health",
+      "GET /api/team-notes",
     ]);
     Object.assign(f.board.tasks[0], { status: "完了", state: "OPEN" });
     Object.assign(f.board.tasks[1], {
@@ -93,6 +94,8 @@ for (const theme of ["light", "dark"] as const)
       "GET /api/current-sprint",
       "GET /api/health",
       "GET /api/health",
+      "GET /api/team-notes",
+      "GET /api/team-notes",
     ]);
     const initialRequestCount = requests.length;
     if (theme === "dark") {
@@ -211,9 +214,7 @@ for (const theme of ["light", "dark"] as const)
         await page.mouse.move(0, 0);
         await expect(page.locator("#detail-status")).toHaveValue("完了");
         await expect(page.locator("#close-issue")).toBeEnabled();
-        await expect(page.locator("#close-issue")).toHaveText(
-          "IssueをClose",
-        );
+        await expect(page.locator("#close-issue")).toHaveText("IssueをClose");
         await expect(
           page.locator("#close-issue svg.octicon-issue-closed"),
         ).toHaveCount(1);

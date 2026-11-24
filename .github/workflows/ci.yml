@@ -175,7 +175,8 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Deployment credential is not configured"; exit 1; }
           npx --no-install wrangler deployments list --name ideaboost-whiteboard --json
-          npx --no-install wrangler deploy --name ideaboost-whiteboard --keep-vars --tag "$GITHUB_SHA" --message "GitHub Actions $GITHUB_RUN_ID"
+          # env.dev（ADR 017）があるため、トップレベル（本番）を明示する。dev は CI から deploy しない。
+          npx --no-install wrangler deploy --env="" --name ideaboost-whiteboard --keep-vars --tag "$GITHUB_SHA" --message "GitHub Actions $GITHUB_RUN_ID"
           npx --no-install wrangler deployments list --name ideaboost-whiteboard --json
       - name: Read-only production health and asset verification
         run: node scripts/deployment-check.mjs smoke

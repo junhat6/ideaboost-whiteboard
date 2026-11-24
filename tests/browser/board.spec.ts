@@ -532,6 +532,12 @@ test("polling applies upstream fields, a new child and closed PBI without naviga
   page.on("framenavigated", () => navigations++);
   const target = s.board.tasks[0];
   await page.locator(`[data-open="${target.id}"]`).click();
+  // クリック位置に残ったポインタが詳細のボタンに重なるとツールチップが出て、
+  // Escape はまずそれを閉じる（意図した動作）。詳細の Escape を確かめるため、
+  // 上端のツールバーにも触れない左下の背景へ退避する。
+  const parkPointer = () =>
+    page.mouse.move(2, (page.viewportSize()?.height ?? 1080) - 2);
+  await parkPointer();
   Object.assign(target, {
     title: "外部で更新されたタイトル",
     body: "外部で更新された本文",
@@ -569,6 +575,7 @@ test("polling applies upstream fields, a new child and closed PBI without naviga
   await page.locator("#operations").click();
   await page.clock.fastForward(300);
   await page.locator('[data-pbi="p0"]').first().click();
+  await parkPointer();
   s.board.lanes = s.board.lanes.filter((i) => i.id !== "p0");
   s.board.tasks = s.board.tasks.filter((i) => i.lane !== "p0");
   await page.clock.fastForward(46000);
@@ -783,6 +790,8 @@ test("shared snapshot paints actual cards then refreshes immediately, with age a
     }
     if (req.url().endsWith("/health"))
       return route.fulfill({ json: { configured: true } });
+    if (req.url().endsWith("/team-notes"))
+      return route.fulfill({ status: 404 });
     if (req.headers()["x-board-snapshot"] === "1")
       return route.fulfill({
         json: { ...data, readState: { kind: "snapshot", ageMs: 20000 } },

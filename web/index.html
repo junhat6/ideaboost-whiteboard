@@ -137,6 +137,81 @@
       ><button id="retry-sync" type="button">再試行</button>
     </div>
     <main>
+      <aside
+        id="team-shelf"
+        class="team-shelf"
+        aria-label="チームの付箋"
+        aria-keyshortcuts="T"
+        hidden
+      >
+        <div class="team-shelf-head">
+          <button
+            id="team-shelf-toggle"
+            class="team-shelf-toggle"
+            type="button"
+            aria-controls="team-shelf-body"
+            aria-expanded="true"
+            aria-label="付箋の棚をたたむ"
+            title="付箋の棚をたたむ"
+          >
+            <span aria-hidden="true">‹</span>
+          </button>
+          <h2 class="team-shelf-title">チームの付箋</h2>
+          <span id="team-note-count" class="team-note-count">0</span>
+        </div>
+        <div id="team-shelf-body" class="team-shelf-body">
+          <textarea
+            id="team-note-input"
+            class="team-note-input"
+            rows="1"
+            maxlength="4000"
+            placeholder="一言書いて Enter（T）"
+            aria-label="付箋を一言で貼る（Enter で貼る、Shift+Enter で改行、複数行は行ごとに貼る）"
+          ></textarea>
+          <div
+            id="team-note-status"
+            class="team-note-status"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+          <p id="team-note-empty" class="team-note-empty" hidden>
+            まだ付箋はありません。Issue にするほどでもない仕事を一言で貼れます。
+          </p>
+          <ul
+            id="team-note-list"
+            class="team-note-list"
+            aria-label="未完了の付箋"
+          ></ul>
+          <section
+            id="team-note-proposals"
+            class="team-note-proposals"
+            aria-labelledby="team-note-proposals-title"
+            hidden
+          >
+            <h3
+              id="team-note-proposals-title"
+              class="team-note-proposals-title"
+            >
+              AI の提案（採用待ち）
+              <span id="team-note-proposal-count">0</span>
+            </h3>
+            <ul
+              id="team-note-proposal-list"
+              class="team-note-list"
+              aria-label="AI の提案（採用待ち）"
+            ></ul>
+          </section>
+          <details id="team-note-done-wrap" class="team-note-done" hidden>
+            <summary>済み <span id="team-note-done-count">0</span></summary>
+            <ul
+              id="team-note-done"
+              class="team-note-list"
+              aria-label="済みの付箋"
+            ></ul>
+          </details>
+        </div>
+      </aside>
       <div id="board-scroll" role="region" aria-label="PBI別タスクボード">
         <div id="board" role="table" aria-label="チームの作業状況"></div>
       </div>
@@ -555,5 +630,6 @@
     <script src="app.js"></script>
     <script src="ui-tools.js"></script>
     <script src="api-adapter.js"></script>
+    <script src="team-notes.js"></script>
   </body>
 </html>

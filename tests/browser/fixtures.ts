@@ -75,6 +75,8 @@ export async function setup(
   let sprintReads = 0;
   await page.route("**/api/**", async (route) => {
     const p = new URL(route.request().url()).pathname.slice(prefix.length);
+    // 付箋の棚は各試験が個別に route する。無ければ静的プレビューの見本（サンプル表示）になる。
+    if (p === "/api/team-notes") return route.fallback();
     if (p === "/api/health")
       return route.fulfill({
         json: {
@@ -137,6 +139,7 @@ export async function setup(
   });
   await page.goto(prefix + "/");
   await expect(page.locator(".pbi-title")).toHaveCount(6);
+  await shelfSettled(page);
   return {
     board,
     posts: () => posts,
@@ -191,4 +194,21 @@ export async function closeReadHarness(page: Page) {
   });
   await page.locator("#editor-options").click();
   await page.locator("#markdown-source").click();
+}
+
+/**
+ * 付箋の棚は GET の結果で出るか決まり、出るとボードを描き直す。寸法や要素を
+ * 測る前に、棚の表示が決まり描き直しが終わるのを待つ（アプリの準備完了の待ち）。
+ */
+export async function shelfSettled(page: Page) {
+  await expect(page.locator("#team-shelf")).not.toHaveAttribute(
+    "data-mode",
+    "loading",
+  );
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
 }

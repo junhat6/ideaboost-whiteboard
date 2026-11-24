@@ -97,6 +97,7 @@ test("all HTML, static and API routes are gated, including nonmember", async () 
     "/styles.css",
     "/api/board",
     "/api/health",
+    "/mcp",
   ]) {
     assert.equal((await worker.fetch(req(path), bindings)).status, 401);
     assert.equal(
@@ -170,4 +171,68 @@ test("worker replaces spoofed identity and sets security headers", async () => {
     /frame-ancestors 'none'/,
   );
   assert.equal(r.headers.get("Cache-Control"), "private, no-store");
+});
+test("リモート MCP も Access の JWT が無い・不正なら閉じ（許可外は上の経路一覧で確かめる）、ローカル専用の鍵は https の本番・dev では全ルート 503", async () => {
+  const worker = createWorker();
+  const mcpEnv = {
+    ...env,
+    TEAM_NOTES_ENABLED: "true",
+    TEAM_NOTES_MCP_ENABLED: "true",
+    TEAM_NOTES: {
+      getByName: () => ({ fetch: async () => Response.json({ ok: true }) }),
+    },
+    ASSETS: { fetch: async () => new Response("private") },
+  } as any;
+  const post = (jwt?: string, base = "https://board.example") =>
+    new Request(base + "/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...(jwt ? { "Cf-Access-Jwt-Assertion": jwt } : {}),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+  const devKeys = JSON.stringify({
+    keys: [{ ...(await exportJWK(keys.publicKey)), kid: "test", alg: "RS256" }],
+  });
+  // https の APP_ORIGIN（本番・dev の workers.dev）に開発用の鍵が置かれていたら、署名が正しくても閉じる。
+  for (const jwt of [undefined, await token()]) {
+    const response = await worker.fetch(post(jwt), {
+      ...mcpEnv,
+      ACCESS_DEV_JWKS: devKeys,
+    });
+    assert.equal(response.status, 503);
+    assert.equal(
+      ((await response.json()) as any).error,
+      "dev_keys_not_allowed",
+    );
+  }
+  // localhost の wrangler dev だけ、試験用の鍵で署名した JWT を同じ検証（issuer・audience・許可一覧）に通す。
+  const local = {
+    ...mcpEnv,
+    APP_ORIGIN: "http://localhost:8787",
+    ACCESS_DEV_JWKS: devKeys,
+  };
+  const at = "http://localhost:8787";
+  assert.equal((await worker.fetch(post(undefined, at), local)).status, 401);
+  assert.equal(
+    (await worker.fetch(post("fake.fake.fake", at), local)).status,
+    401,
+  );
+  assert.equal(
+    (await worker.fetch(post(await token(), at), local)).status,
+    200,
+  );
+  // 別の鍵で署名した JWT は、開発用の鍵があっても通らない。
+  const other = await generateKeyPair("RS256");
+  const forged = await new SignJWT({ email: env.ALLOWED_EMAILS })
+    .setProtectedHeader({ alg: "RS256", kid: "test" })
+    .setSubject("member")
+    .setIssuer("https://team.cloudflareaccess.com")
+    .setAudience("board")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(other.privateKey);
+  assert.equal((await worker.fetch(post(forged, at), local)).status, 401);
 });
