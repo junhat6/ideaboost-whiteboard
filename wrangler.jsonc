@@ -36,4 +36,29 @@
     // チームの付箋は匿名で書けるため、ログイン必須化（#10）までは本番で無効（ADR 016）。
     "TEAM_NOTES_ENABLED": "false",
   },
+  // 付箋とリモート MCP を実際の AI クライアントで試す dev（ADR 017）。CI・release は deploy しない。
+  // 人が `wrangler deploy --env dev` するときだけ使う。本番の値・URL・secret はここへ写さない。
+  "env": {
+    "dev": {
+      // 別の Worker 名 → Durable Object の namespace も本番と別になる。
+      "name": "ideaboost-whiteboard-dev",
+      // durable_objects と vars は env へ継承されないため、ここで全部を書き直す。
+      "durable_objects": {
+        "bindings": [
+          { "name": "MUTATIONS", "class_name": "IssueCoordinator" },
+          { "name": "HISTORY", "class_name": "HistoryCoordinator" },
+          { "name": "TEAM_NOTES", "class_name": "TeamNotesCoordinator" },
+        ],
+      },
+      // ratelimits（PUBLIC_LIMITER）は置かない。dev は public-temporary を使わず、
+      // 誤って AUTH_MODE=public-temporary にしても API は 503 で閉じる。
+      "workers_dev": true,
+      "preview_urls": false,
+      "vars": {
+        "TEAM_NOTES_ENABLED": "true",
+        // 実チームの Issue へ書かない。GitHub App の ID・鍵も置かないので読み取りもしない。
+        "GITHUB_WRITES": "disabled",
+      },
+    },
+  },
 }

@@ -292,6 +292,18 @@ export function validateMutation(v) {
   )
     throw new ApiError(400, "no_changes");
 }
+/**
+ * dev など、実チームの Issue へ書いてはいけない Worker では GITHUB_WRITES を置く。
+ * 未設定（本番）だけが従来どおり書ける。値が "enabled" 以外なら、綴り違いも含めて止める（fail closed）。
+ */
+export function githubWritesDisabled(env = {}) {
+  return env.GITHUB_WRITES !== undefined && env.GITHUB_WRITES !== "enabled";
+}
+function assertGithubWritable(env) {
+  // GitHub を呼ぶ前に止めるので、書き込みは 1 件も起きず、結果不明（uncertain）にもならない。
+  if (githubWritesDisabled(env))
+    throw new ApiError(403, "github_writes_disabled");
+}
 export function createHandler({
   fetch: fetcher = globalThis.fetch,
   crypto: crypt = globalThis.crypto,
@@ -2158,6 +2170,8 @@ export function createHandler({
         commentMatch || url.pathname.match(/^\/api\/issues\/([1-9]\d{0,8})$/);
       if (request.method !== "POST" || !match || url.search)
         throw new ApiError(404, "not_found");
+      // GitHub への書き込みは全てこの POST /api/issues/:n(/comments) から入る。停止中は GitHub を読む前に止める。
+      assertGithubWritable(env);
       if (
         !/^application\/json(?:;|$)/i.test(
           request.headers.get("content-type") ?? "",
