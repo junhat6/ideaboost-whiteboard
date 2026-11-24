@@ -6,11 +6,13 @@
     "bindings": [
       { "name": "MUTATIONS", "class_name": "IssueCoordinator" },
       { "name": "HISTORY", "class_name": "HistoryCoordinator" },
+      { "name": "TEAM_NOTES", "class_name": "TeamNotesCoordinator" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["IssueCoordinator"] },
     { "tag": "v2", "new_sqlite_classes": ["HistoryCoordinator"] },
+    { "tag": "v3", "new_sqlite_classes": ["TeamNotesCoordinator"] },
   ],
   "compatibility_date": "2026-10-26",
   "ratelimits": [
@@ -28,5 +30,10 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": false },
-  "vars": { "GITHUB_APP_ID": "5473658", "GITHUB_INSTALLATION_ID": "175301060" },
+  "vars": {
+    "GITHUB_APP_ID": "5473658",
+    "GITHUB_INSTALLATION_ID": "175301060",
+    // チームの付箋は匿名で書けるため、ログイン必須化（#10）までは本番で無効（ADR 016）。
+    "TEAM_NOTES_ENABLED": "false",
+  },
 }

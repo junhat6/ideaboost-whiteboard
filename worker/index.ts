@@ -7,6 +7,9 @@ export interface Env extends AuthConfig {
   PUBLIC_LIMITER?: RateLimit;
   MUTATIONS?: DurableObjectNamespace;
   HISTORY?: DurableObjectNamespace;
+  TEAM_NOTES?: DurableObjectNamespace;
+  /** "true" のときだけ /api/team-notes を開く。未設定・それ以外は存在しない経路として 404。 */
+  TEAM_NOTES_ENABLED?: string;
   ESTIMATE_HOURS_READ_ENABLED?: string;
   ESTIMATE_HOURS_FIELD_ID?: string;
   ESTIMATE_HOURS_NODE_ID?: string;
@@ -56,7 +59,12 @@ export function createWorker(auth = authenticate, api = handleApi) {
             throw new AccessError(404, "not_found");
           url.pathname = url.pathname.slice(env.PUBLIC_PATH.length);
           request = new Request(url, request);
-          if (url.pathname.startsWith("/api/")) {
+          // 無効な付箋の経路は DO も GitHub も呼ばず 404 で終わる。画面が読み込みごとに
+          // 1 回確かめるだけなので、共有の public-read 枠を使わせない。
+          const disabledTeamNotes =
+            url.pathname === "/api/team-notes" &&
+            env.TEAM_NOTES_ENABLED !== "true";
+          if (url.pathname.startsWith("/api/") && !disabledTeamNotes) {
             if (!env.PUBLIC_LIMITER)
               throw new AccessError(503, "rate_limit_not_configured");
             // Approximate per-location limit; shared key prevents easy evasion by client identity spoofing.
@@ -147,6 +155,37 @@ export function createWorker(auth = authenticate, api = handleApi) {
               "engineer-first/idea-boost:board-reader",
             ).fetch(internal),
           );
+        }
+        if (new URL(request.url).pathname === "/api/team-notes") {
+          // ログイン必須化（#10）までは本番で匿名に書かせない。無効時は DO へ転送せず、
+          // 問い合わせ文字列の検査より先に、存在しない経路と同じ 404 を返す。
+          if (env.TEAM_NOTES_ENABLED !== "true")
+            throw new AccessError(404, "not_found");
+          if (new URL(request.url).search)
+            throw new AccessError(400, "invalid_query");
+          if (!env.TEAM_NOTES)
+            throw new AccessError(503, "team_notes_not_configured");
+          const notes = env.TEAM_NOTES.getByName(
+            "engineer-first/idea-boost:team-notes",
+          );
+          try {
+            return secure(await notes.fetch(internal));
+          } catch {
+            // 転送で失敗しても、DO 側で書き込みが済んでいる可能性がある。再送を促さない。
+            return secure(
+              Response.json(
+                {
+                  ok: false,
+                  error:
+                    request.method === "POST"
+                      ? "notes_outcome_unresolved"
+                      : "service_unavailable",
+                  ambiguous: request.method === "POST",
+                },
+                { status: 503 },
+              ),
+            );
+          }
         }
         const result = await api(internal, env);
         if (result) return secure(result);
