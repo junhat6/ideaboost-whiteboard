@@ -44,8 +44,11 @@ AGENTS.md の境界（GitHub 正本・実 Issue をテストで変更しない�
 | `ibw finish` | 30 分ごと | 未着手の `loop:finish` がある・着手中 2 件未満 | [prompts/finish.md](prompts/finish.md) |
 | `ibw release` | 毎時 :40 | 未リリースの commit か出しきれていない昇格 PR がある・open な P0 なし・develop-health 非赤・main の配信が実行中でない | [prompts/release.md](prompts/release.md) |
 | `ibw replan` | 6 時間ごと | 未着手が 2 件未満、または blocked が 3 件以上 | [prompts/replan.md](prompts/replan.md) |
+| `ibw tidy` | 毎時 :50 | 常に見送り（precheck の中で `scripts/loop/prune-worktrees.mjs --apply --precheck` が終わった run の worktree を消す。agent は起きない） | なし |
 
 どれも run ごとに新しい worktree（base `develop`）を作り、指示書を 1 回読んで 1 周だけ回して終わる。指示書を書き換えれば、automation を登録し直さなくても次の周回から反映される。precheck は origin/develop の版を一時ファイルに書き出して実行するので、古い worktree の版に縛られない。
+
+`ibw tidy` が消すのは、automation が作った worktree のうち、run が終わり agent がすべて done になって 60 分たち、未 commit の変更が無く、HEAD が develop に入った（squash マージ済みの PR を含む）ものだけ。確かめられないものは残す。Orca は new-per-run の worktree を run 後も消さないので、これが無いと run のたびに worktree と node_modules がたまる。消す候補の確認だけなら `node scripts/loop/prune-worktrees.mjs`（dry-run）。
 
 ## Issue のラベル
 
