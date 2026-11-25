@@ -80,6 +80,15 @@ test("キーボードだけで PBI を選んで貼り、題が見え、Issue 化
   await page.keyboard.press("Tab");
   await expect(pick(page)).toBeFocused();
   // 選択の上の 1 文字はボードのショートカット（N/P の件数切替など）を起こさない。
+  const rows = await page.locator("#fit-mode").inputValue();
+  // 合成イベントで送る（実キーだと select の先頭文字検索が続く "#2" の入力に混ざるため）。
+  await pick(page).evaluate((el) => {
+    for (const key of ["n", "p"])
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+      );
+  });
+  await expect(page.locator("#fit-mode")).toHaveValue(rows);
   await page.keyboard.type("#2");
   await expect(pick(page)).toHaveValue("2");
   await page.keyboard.press("Escape");
@@ -113,20 +122,43 @@ test("キーボードだけで PBI を選んで貼り、題が見え、Issue 化
   await expect(editor).toBeFocused();
   await page.keyboard.press("Home");
   expect(server.posts.filter((p) => p.op === "pbi")).toHaveLength(0);
-  await page.keyboard.press("Enter");
+  // Enter の連打でも送るのは 1 回だけ（2 回目は古い rev で偽の競合になる）。
+  await editor.evaluate((el) => {
+    for (let i = 0; i < 2; i++)
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+  });
   await expect(card(page, id).locator(".team-note-pbi")).toHaveCount(0);
+  await expect(page.locator("#team-note-status")).toBeHidden();
   await expect(card(page, id)).toBeFocused();
   expect(server.posts.filter((p) => p.op === "pbi")).toEqual([
     expect.objectContaining({ id, rev: 1, pbi: null }),
   ]);
 
+  // マウスでは一覧の PBI をクリックして決める。
+  await page.keyboard.press("p");
+  await editor.locator('option[value="3"]').click();
+  await expect(card(page, id).locator(".team-note-pbi")).toHaveText(
+    `#3 ${TITLE(3)}`,
+  );
+  expect(server.posts.filter((p) => p.op === "pbi")[1]).toMatchObject({
+    rev: 2,
+    pbi: 3,
+  });
+
   // Escape は何も送らずに取り消す。
+  await card(page, id).focus();
   await page.keyboard.press("p");
   await expect(editor).toBeFocused();
   await page.keyboard.press("End");
   await page.keyboard.press("Escape");
   await expect(card(page, id)).toBeFocused();
-  expect(server.posts.filter((p) => p.op === "pbi")).toHaveLength(1);
+  expect(server.posts.filter((p) => p.op === "pbi")).toHaveLength(2);
   expect(new Set(server.posts.map((p) => p.requestId)).size).toBe(
     server.posts.length,
   );

@@ -4493,9 +4493,16 @@ main > #board-scroll {
 .team-note:focus .team-note-pbi-button {
   opacity: 1;
 }
-/* PBI 行の入口。左セルの最小構成を崩さないよう、hover・focus のときだけ見せる。 */
+/* PBI 行の入口。左セルの最小構成を崩さないよう、hover・focus のときだけ見せ、
+   見えない間も担当者名の幅を取らないよう、担当者の行の右端に重ねる。 */
+.pbi-context {
+  position: relative;
+}
 .pbi-note-add {
-  flex: none;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   height: 18px;
   padding: 0 5px;
   border: 1px solid var(--input-border, #7d8da8);
@@ -4514,6 +4521,30 @@ main > #board-scroll {
   opacity: 1;
 }
 .team-shelf[hidden] ~ #board-scroll .pbi-note-add,
+.team-shelf:is([data-mode="error"], [data-mode="loading"])
+  ~ #board-scroll
+  .pbi-note-add,
 :root:fullscreen .pbi-note-add {
   display: none;
+}
+
+/* 付箋の操作（メモ・PBI・Issue に・×）は本文の幅を取らないよう、右上に重ねる。
+   hover・focus のときだけ見える（見えない間も幅を取ると、240px の棚で一言が数文字ずつ折り返すため）。 */
+.team-note-tools {
+  position: absolute;
+  top: 6px;
+  right: 4px;
+  z-index: 1;
+  padding: 1px 1px 1px 6px;
+  border-radius: 4px;
+  background: var(--shelf-paper);
+  opacity: 0;
+}
+.team-note.done .team-note-tools {
+  background: var(--surface);
+}
+.team-note:hover .team-note-tools,
+.team-note:focus-within .team-note-tools,
+.team-note:focus .team-note-tools {
+  opacity: 1;
 }

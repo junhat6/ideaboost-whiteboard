@@ -4640,6 +4640,15 @@ window.Whiteboard = {
   statusColumn,
   goal,
   getSnapshot: () => clone(state),
+  /** PBI の番号・題・状態だけ（付箋の棚が描くたびにボード全体を複製しないため）。 */
+  pbiLanes: () =>
+    (state?.lanes || []).map((l) => ({
+      id: l.id,
+      number: l.number,
+      title: l.title,
+      type: l.type,
+      state: l.state,
+    })),
   /** 今ボードに出している PBI の ID（付箋の Issue 化で親 PBI の候補を並べる順に使う）。 */
   visibleLaneIds: () => [...selectedIds()],
   /** 付箋から Issue を作った後に、ボードへ早めに出すための静かな再取得。 */

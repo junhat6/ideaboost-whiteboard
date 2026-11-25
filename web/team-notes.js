@@ -69,7 +69,12 @@
   // ボードに無い番号は「#番号」だけを出す。
   function boardLanes() {
     try {
-      return (window.Whiteboard?.getSnapshot?.()?.lanes || []).filter(
+      // ボード全体を複製しない軽い読み取り（無ければ従来の複製）。
+      const lanes =
+        window.Whiteboard?.pbiLanes?.() ||
+        window.Whiteboard?.getSnapshot?.()?.lanes ||
+        [];
+      return lanes.filter(
         (l) =>
           l.type === "PBI" && Number.isSafeInteger(l.number) && l.number > 0,
       );
@@ -492,11 +497,16 @@
     );
     pbiOptions(select, note.pbi || null, "PBI なし（外す）");
     select.size = Math.min(6, Math.max(2, select.options.length));
+    let done = false;
+    let chosen = false;
+    // Enter の連打・押しっぱなし・ダブルクリックでも 1 回だけ送る（2 回目は古い rev で偽の競合になる）。
     const choose = () => {
+      if (chosen) return;
+      chosen = true;
+      done = true;
       const n = Number(select.value);
       savePbi(note, Number.isSafeInteger(n) && n > 0 ? n : null);
     };
-    let done = false;
     const cancel = () => {
       if (done) return;
       done = true;
@@ -508,8 +518,7 @@
       if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter") {
         e.preventDefault();
-        done = true;
-        choose();
+        if (!e.repeat) choose();
       } else if (e.key === "Escape") {
         e.preventDefault();
         cancel();
@@ -518,7 +527,6 @@
     };
     select.onclick = (e) => {
       if (e.target.tagName !== "OPTION") return;
-      done = true;
       choose();
     };
     select.onblur = () => {
@@ -535,8 +543,10 @@
     render();
   }
 
-  async function savePbi(note, pbi) {
+  async function savePbi(original, pbi) {
     pbiEditingId = null;
+    // 選んでいる間に再取得で変わっていれば、その rev と値で比べる。
+    const note = notes.find((n) => n.id === original.id) || original;
     if ((note.pbi || null) === pbi) {
       render();
       return focusNote(note.id);
@@ -685,6 +695,7 @@
     if (texts.some((t) => [...t].length > MAX))
       return setStatus(messages.invalid_text, "error");
     const pbi = selectedPbi();
+    const sentPick = pbiPick?.value ?? "";
     const ok = await write(
       { op: "create", texts, ...(pbi ? { pbi } : {}) },
       (data) => {
@@ -707,7 +718,8 @@
     if (ok !== false) {
       input.value = "";
       // 選ばなければ今までと同じ付箋になるよう、貼ったら「なし」へ戻す。
-      if (pbiPick) pbiPick.value = "";
+      // 送っている間に別の PBI を選び直していたら、その選択は残す。
+      if (pbiPick && pbiPick.value === sentPick) pbiPick.value = "";
     }
     autosize();
     input.focus();
@@ -900,7 +912,9 @@
     let snapshot = null;
     let visible = [];
     try {
-      snapshot = window.Whiteboard?.getSnapshot?.();
+      snapshot = window.Whiteboard?.pbiLanes
+        ? { lanes: window.Whiteboard.pbiLanes() }
+        : window.Whiteboard?.getSnapshot?.();
       visible = window.Whiteboard?.visibleLaneIds?.() || [];
     } catch {
       /* ボードがまだ読めていなくても、親なしで作れる */
@@ -1235,7 +1249,13 @@
       issueNote = null;
       const id = issueReturn;
       issueReturn = null;
-      if (id) focusNote(id);
+      // close は後から届く。その間に同じ付箋の中で入力（PBI の一覧・本文やメモの編集）を
+      // 始めていれば、フォーカスを奪わない（奪うと blur で入力が閉じる）。
+      const li = id && shelf.querySelector(`[data-note-id="${id}"]`);
+      const active = document.activeElement;
+      const typing =
+        li?.contains(active) && active.matches("select,textarea");
+      if (li && !typing) li.focus();
     });
     document.getElementById("note-issue-close").onclick = closeIssueDialog;
     document.getElementById("note-issue-cancel").onclick = closeIssueDialog;
