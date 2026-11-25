@@ -611,7 +611,7 @@ test("JSON-RPC の batch（配列の本文）は SDK に渡さず 400 で拒否�
   assert.equal((await rpc(broken)).error.code, -32700);
 });
 
-test("notes_list は人が付けた関係する PBI の番号を返す。付いていない付箋には出さない", async () => {
+test("notes_list は人が付けた関係する PBI の番号とメモを返す。無い付箋には出さない", async () => {
   const notes = notesDo();
   const response = await notes.store.fetch(
     new Request(ORIGIN + "/api/team-notes", {
@@ -629,11 +629,31 @@ test("notes_list は人が付けた関係する PBI の番号を返す。付い�
     }),
   );
   assert.equal(response.status, 200);
+  const created = ((await response.json()) as any).notes[0];
+  const memo = await notes.store.fetch(
+    new Request(ORIGIN + "/api/team-notes", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-verified-user-id": "member",
+      },
+      body: JSON.stringify({
+        requestId: requestId(),
+        op: "memo",
+        id: created.id,
+        rev: created.rev,
+        memo: "背景\n気づき",
+      }),
+    }),
+  );
+  assert.equal(memo.status, 200);
   await seed(notes, "PBI なし");
   const list = await call(notes, "notes_list", {});
   const byText = Object.fromEntries(
     list.data.notes.map((n: any) => [n.text, n]),
   );
   assert.equal(byText["PBI 付き"].pbi, 12);
+  assert.equal(byText["PBI 付き"].memo, "背景\n気づき");
   assert.equal("pbi" in byText["PBI なし"], false);
+  assert.equal("memo" in byText["PBI なし"], false);
 });

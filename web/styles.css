@@ -4549,3 +4549,71 @@ main > #board-scroll {
 .team-note:focus .team-note-tools {
   opacity: 1;
 }
+
+/* 詳しいメモ（ADR 021）。一言は短いまま、メモは本文の下に折りたたむ。 */
+.team-note-memo-button {
+  width: auto;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+}
+.team-note:hover .team-note-memo-button,
+.team-note:focus-within .team-note-memo-button,
+.team-note:focus .team-note-memo-button {
+  opacity: 1;
+}
+.team-note-memo {
+  grid-column: 2 / -1;
+  min-width: 0;
+  font-size: 12px;
+}
+.team-note-memo summary {
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.team-note-memo summary:focus-visible,
+.team-note-memo-edit textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.team-note-memo-text {
+  margin: 4px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.team-note-memo-edit {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.team-note-memo-edit textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.team-note-memo-hint {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}

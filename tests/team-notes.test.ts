@@ -9,6 +9,7 @@ import {
   ATTACHMENTS_PENDING_MAX,
   ATTACHMENT_TEXT_MAX,
   PROPOSALS_MAX,
+  MEMO_MAX,
 } from "../worker/team-notes.ts";
 import { createWorker } from "../worker/index.ts";
 import { AccessError } from "../worker/auth.ts";
@@ -935,4 +936,76 @@ test("PBI の番号は正の整数だけ。不正なら何も保存せず、AI �
   assert.equal(ai.status, 403);
   assert.equal(ai.body.error, "human_only");
   assert.deepEqual(await list(s), before);
+});
+
+// ---- 詳しいメモ（ADR 021） ----
+
+test("メモは人が rev を確かめて書き、空で消せる。改行は残し、古い rev は競合", async () => {
+  const s = store();
+  const note = await oneNote(s);
+  const written = await send(
+    s,
+    humanPost({
+      op: "memo",
+      id: note.id,
+      rev: note.rev,
+      memo: "  去年は電源が足りなかった。\r\n延長コードは 3 本\u0007要る。  ",
+    }),
+  );
+  assert.equal(written.status, 200);
+  assert.equal(
+    written.body.note.memo,
+    "去年は電源が足りなかった。\n延長コードは 3 本 要る。",
+  );
+  assert.equal(written.body.note.text, note.text);
+  assert.equal(written.body.note.rev, note.rev + 1);
+  const stale = await send(
+    s,
+    humanPost({ op: "memo", id: note.id, rev: note.rev, memo: "別の画面" }),
+  );
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error, "note_conflict");
+  assert.equal(stale.body.note.memo, written.body.note.memo);
+  const cleared = await send(
+    s,
+    humanPost({
+      op: "memo",
+      id: note.id,
+      rev: written.body.note.rev,
+      memo: " \n ",
+    }),
+  );
+  assert.equal(cleared.status, 200);
+  assert.equal("memo" in cleared.body.note, false);
+});
+
+test("メモは 2000 文字まで。不正な値は何も保存せず、AI はメモを書けない", async () => {
+  const s = store();
+  const note = await oneNote(s);
+  const before = await list(s);
+  for (const memo of ["あ".repeat(MEMO_MAX + 1), 12, null, undefined]) {
+    const r = await send(
+      s,
+      humanPost({ op: "memo", id: note.id, rev: note.rev, memo }),
+    );
+    assert.equal(r.status, 400);
+    assert.equal(r.body.error, "invalid_memo");
+  }
+  const ai = await send(
+    s,
+    aiPost({ op: "memo", id: note.id, rev: note.rev, memo: "AI が書く" }),
+  );
+  assert.equal(ai.status, 403);
+  assert.equal(ai.body.error, "human_only");
+  assert.deepEqual(await list(s), before);
+  const max = await send(
+    s,
+    humanPost({
+      op: "memo",
+      id: note.id,
+      rev: note.rev,
+      memo: "😀".repeat(MEMO_MAX),
+    }),
+  );
+  assert.equal(max.status, 200);
 });

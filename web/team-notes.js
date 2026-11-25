@@ -31,6 +31,10 @@
   let editingId = null;
   // 関係する PBI を選び直している付箋（ADR 020）。
   let pbiEditingId = null;
+  // 詳しいメモを書いている付箋と、メモを開いている付箋（ADR 021）。
+  let memoEditingId = null;
+  const openMemos = new Set();
+  const MEMO_MAX = 2000;
   let lastRemoved = null;
   let seq = 0;
 
@@ -62,6 +66,7 @@
     issue_not_from_note:
       "この付箋から作った Issue として確かめられませんでした。最新を取得してください。",
     invalid_pbi: "PBI の番号を確かめられませんでした。選び直してください。",
+    invalid_memo: `メモは ${MEMO_MAX} 文字までです。`,
   };
 
   // ---- 関係する PBI（ADR 020） ----
@@ -419,6 +424,15 @@
       li.append(text);
     }
     const tools = el("span", "team-note-tools");
+    if (editingId !== note.id && memoEditingId !== note.id) {
+      const memo = el("button", "team-note-memo-button", "メモ");
+      memo.type = "button";
+      memo.tabIndex = -1;
+      memo.setAttribute("aria-label", "詳しいメモを書く（M）");
+      memo.title = "詳しいメモを書く（M）";
+      memo.onclick = () => startMemoEdit(note);
+      tools.append(memo);
+    }
     if (editingId !== note.id && pbiEditingId !== note.id) {
       const pick = el("button", "team-note-pbi-button", "PBI");
       pick.type = "button";
@@ -459,6 +473,8 @@
       tag.onclick = () => startPbiEdit(note);
       li.append(tag);
     }
+    if (memoEditingId === note.id) li.append(memoEditor(note));
+    else if (note.memo) li.append(memoBlock(note));
     if (note.issue) {
       const href = issueHref(note.issue);
       if (href) {
@@ -536,9 +552,108 @@
     return select;
   }
 
+  // メモ: 一言の下に折りたたむ。開閉は描き直しをまたいで覚えておく。
+  function memoBlock(note) {
+    const box = el("details", "team-note-memo");
+    box.open = openMemos.has(note.id);
+    box.ontoggle = () => {
+      if (box.open) openMemos.add(note.id);
+      else openMemos.delete(note.id);
+    };
+    box.append(el("summary", "", "メモ"));
+    const body = el("p", "team-note-memo-text", note.memo);
+    body.ondblclick = () => startMemoEdit(note);
+    box.append(body);
+    return box;
+  }
+
+  // メモの編集。Enter は改行、⌘/Ctrl+Enter かフォーカスを外すと保存、Escape で取り消す。
+  function memoEditor(note) {
+    const wrap = el("div", "team-note-memo-edit");
+    const field = document.createElement("textarea");
+    field.value = note.memo || "";
+    field.maxLength = MEMO_MAX;
+    field.rows = 5;
+    field.setAttribute(
+      "aria-label",
+      "詳しいメモ（⌘/Ctrl+Enter で保存、Escape で取り消し）",
+    );
+    field.placeholder =
+      "背景・気づき・Why など（Issue にするとき Why の初期値になる）";
+    const hint = el(
+      "p",
+      "team-note-memo-hint",
+      "⌘/Ctrl+Enter で保存・Escape で取り消し",
+    );
+    let closed = false;
+    field.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        closed = true;
+        saveMemo(note, field.value);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closed = true;
+        memoEditingId = null;
+        render();
+        focusNote(note.id);
+      }
+    };
+    field.onblur = () => {
+      if (!closed && memoEditingId === note.id) {
+        closed = true;
+        saveMemo(note, field.value);
+      }
+    };
+    wrap.append(field, hint);
+    queueMicrotask(() => {
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+    return wrap;
+  }
+
+  function startMemoEdit(note) {
+    if (busy || mode === "loading" || mode === "error") return;
+    editingId = null;
+    pbiEditingId = null;
+    memoEditingId = note.id;
+    render();
+  }
+
+  async function saveMemo(note, value) {
+    memoEditingId = null;
+    const memo = value.replace(/\r\n?/g, "\n").trim();
+    if (memo === (note.memo || "")) {
+      render();
+      return focusNote(note.id);
+    }
+    if ([...memo].length > MEMO_MAX) {
+      render();
+      return setStatus(messages.invalid_memo, "error");
+    }
+    while (busy) await inflight;
+    const ok = await write(
+      { op: "memo", id: note.id, rev: note.rev, memo },
+      (data) => {
+        if (data?.note) return replace(data.note);
+        const next = { ...note, rev: note.rev + 1 };
+        if (memo) next.memo = memo;
+        else delete next.memo;
+        replace(next);
+      },
+    );
+    if (ok && memo) openMemos.add(note.id);
+    if (ok) render();
+    focusNote(note.id);
+  }
+
   function startPbiEdit(note) {
     if (busy || mode === "loading" || mode === "error") return;
     editingId = null;
+    memoEditingId = null;
     pbiEditingId = note.id;
     render();
   }
@@ -727,6 +842,8 @@
 
   function startEdit(note) {
     if (busy) return;
+    pbiEditingId = null;
+    memoEditingId = null;
     editingId = note.id;
     render();
   }
@@ -1054,6 +1171,8 @@
         status: "未整理",
         // 付箋に付けた PBI を親の初期値にする（ADR 020）。open でない PBI は候補に無いので「なし」になる。
         parent: note.pbi ? String(note.pbi) : "",
+        // 人が書いたメモを Why の初期値にする（ADR 021）。下書きがあれば下書きが優先。
+        why: note.memo || "",
         notes: keptAttachments(note),
       },
     );
@@ -1299,7 +1418,7 @@
       const key = JSON.stringify(
         boardLanes().map((l) => [l.number, l.title, l.state]),
       );
-      if (key === laneKey || editingId || pbiEditingId) return;
+      if (key === laneKey || editingId || pbiEditingId || memoEditingId) return;
       laneKey = key;
       render();
     },
@@ -1392,6 +1511,15 @@
       handled();
       startPbiEdit(note);
     } else if (
+      e.key.toLowerCase() === "m" &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      handled();
+      startMemoEdit(note);
+    } else if (
       e.key.toLowerCase() === "z" &&
       (e.metaKey || e.ctrlKey) &&
       !e.shiftKey
@@ -1452,7 +1580,14 @@
   });
 
   const refresh = () => {
-    if (mode !== "api" || busy || editingId || pbiEditingId || document.hidden)
+    if (
+      mode !== "api" ||
+      busy ||
+      editingId ||
+      pbiEditingId ||
+      memoEditingId ||
+      document.hidden
+    )
       return;
     load();
   };

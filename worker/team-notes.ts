@@ -45,6 +45,8 @@ export interface TeamNote {
    * 人だけが付け替え・外しをする。DO は GitHub を読まないので、PBI かどうかはここでは確かめない。
    */
   pbi?: number;
+  /** 人が書く詳しいメモ（ADR 021）。一言とは別の複数行。AI は書き換えない。 */
+  memo?: string;
 }
 export interface NoteIssueLink {
   number: number;
@@ -78,6 +80,7 @@ export const PROPOSALS_MAX = 20;
 export const ATTACHMENT_TEXT_MAX = 2000;
 export const ATTACHMENT_URL_MAX = 2000;
 export const ATTACHMENT_LABEL_MAX = 100;
+export const MEMO_MAX = 2000;
 const REMOVED_KEEP = 50;
 const REQUESTS_KEEP = 500;
 const BODY_MAX = 16000;
@@ -115,6 +118,17 @@ export function normalizeAttachmentText(value: unknown): string | null {
     .trim();
   if (!text || [...text].length > ATTACHMENT_TEXT_MAX) return null;
   return text;
+}
+
+/** 付箋のメモ。改行とタブは残し、それ以外の制御文字は空白にする。空なら ""（メモを消す）、不正なら null。 */
+export function normalizeMemo(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const memo = value
+    .replace(/\r\n?/g, "\n")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, " ")
+    .trim();
+  return [...memo].length > MEMO_MAX ? null : memo;
 }
 
 /** 添付の URL。http/https だけ、利用者名・パスワード入りは拒否。正規化した文字列か null。 */
@@ -159,7 +173,9 @@ type Op =
   // 人だけ: 付箋から作った Issue を結び付け、済みにする（ADR 019）。
   | { op: "issue"; id: string; number: number; url: string }
   // 人だけ: 関係する PBI の付け替え・外し（null）。rev で競合を検出する（ADR 020）。
-  | { op: "pbi"; id: string; rev: number; pbi: number | null };
+  | { op: "pbi"; id: string; rev: number; pbi: number | null }
+  // 人だけ: 詳しいメモを書く・消す（空文字）。rev で競合を検出する（ADR 021）。
+  | { op: "memo"; id: string; rev: number; memo: string };
 
 /** AI（Worker の内部の入口）だけが使える op。それ以外は人だけ。 */
 export const AI_OPS = new Set(["suggest", "attach", "propose"]);
@@ -263,6 +279,12 @@ export function parseOp(data: unknown): Op | string {
         rev: rev as number,
         pbi: d.pbi as number | null,
       };
+    case "memo": {
+      if (!validId || !validRev) return "invalid_fields";
+      const memo = normalizeMemo(d.memo);
+      if (memo === null) return "invalid_memo";
+      return { op: "memo", id: d.id as string, rev: rev as number, memo };
+    }
     case "propose": {
       const text = normalizeText(d.text);
       if (text === null) return "invalid_text";
@@ -581,7 +603,8 @@ export class TeamNotesStore {
       op.op === "done" ||
       op.op === "remove" ||
       op.op === "restore" ||
-      op.op === "pbi"
+      op.op === "pbi" ||
+      op.op === "memo"
     ) {
       const current = await this.storage.get<TeamNote>("note:" + op.id);
       const isRemoved = meta.removed.includes(op.id);
@@ -599,6 +622,10 @@ export class TeamNotesStore {
           updatedAt: at,
         };
         if (op.op === "edit") note.text = op.text;
+        if (op.op === "memo") {
+          if (op.memo) note.memo = op.memo;
+          else delete note.memo;
+        }
         if (op.op === "pbi") {
           if (op.pbi === null) delete note.pbi;
           else note.pbi = op.pbi;
