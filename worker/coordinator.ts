@@ -1,5 +1,12 @@
 import { validateComment } from "../server/comments.mjs";
 import { validateMutation } from "../server/github.mjs";
+import { validateNoteIssue } from "../server/note-issue.mjs";
+/** 付箋の Issue 化（ADR 019）。この DO は付箋ごとに 1 つ（名前に付箋 ID を含む）。 */
+const NOTE_ISSUE_PATH = /^\/api\/team-notes\/(n_[a-z0-9]{8,32})\/issue$/;
+interface IssueReceipt {
+  number: number;
+  url: string;
+}
 /** Persist only request digests and outcomes, never GitHub Issue content or credentials. */
 interface RecordEntry {
   digest: string;
@@ -7,6 +14,9 @@ interface RecordEntry {
   status?: number;
   startedAt: number;
   commentReceipt?: { id: number; url: string };
+  issueReceipt?: IssueReceipt;
+  /** 部分保存だったときの理由と、済んでいない段（Issue の内容は含まない）。 */
+  issueOutcome?: { error: string; failed: string[] };
 }
 export interface LedgerValues {
   get<T>(key: string): Promise<T | undefined>;
@@ -57,6 +67,10 @@ export class MutationCoordinator {
     private storage: Ledger,
     private api: (request: Request) => Promise<Response | null>,
   ) {}
+  /** この付箋から作った Issue の受領（ADR 019）。付箋へ結び付ける前に Worker が照合する。 */
+  async issued(): Promise<IssueReceipt | null> {
+    return (await this.storage.get<IssueReceipt>("issued")) ?? null;
+  }
   fetch(request: Request): Promise<Response> {
     if (this.waiting >= 32)
       return Promise.resolve(json("mutation_queue_full", 429));
@@ -76,12 +90,12 @@ export class MutationCoordinator {
   private async execute(request: Request): Promise<Response> {
     const user = request.headers.get("x-verified-user-id");
     if (!user) return json("sign_in_required", 401);
+    const path = new URL(request.url).pathname;
+    const noteIssue = NOTE_ISSUE_PATH.exec(path);
     if (
       new URL(request.url).search ||
       request.method !== "POST" ||
-      !/^\/api\/issues\/[1-9]\d{0,8}(?:\/comments)?$/.test(
-        new URL(request.url).pathname,
-      )
+      (!noteIssue && !/^\/api\/issues\/[1-9]\d{0,8}(?:\/comments)?$/.test(path))
     )
       return json("not_found", 404);
     if (request.headers.get("origin") !== new URL(request.url).origin)
@@ -103,8 +117,10 @@ export class MutationCoordinator {
       return json("invalid_json", 400);
     }
     try {
-      if (new URL(request.url).pathname.endsWith("/comments"))
-        validateComment(data);
+      if (noteIssue) {
+        if (validateNoteIssue(data).noteId !== noteIssue[1])
+          throw new Error("invalid_note");
+      } else if (path.endsWith("/comments")) validateComment(data);
       else validateMutation(data);
     } catch (error) {
       return json(
@@ -129,6 +145,26 @@ export class MutationCoordinator {
           commentReceipt: prior.commentReceipt,
         });
       }
+      if (prior.phase === "completed" && prior.issueReceipt) {
+        // 部分保存だった要求の再送は、部分保存だったことを落とさずに返す（未完了の段は GitHub で確かめる）。
+        const partial = prior.status !== 200;
+        return Response.json(
+          {
+            ok: !partial,
+            alreadyProcessed: true,
+            issue: prior.issueReceipt,
+            ...(partial
+              ? {
+                  error: prior.issueOutcome?.error ?? "partial_issue",
+                  failed: prior.issueOutcome?.failed ?? [],
+                  partial: true,
+                  ambiguous: false,
+                }
+              : {}),
+          },
+          { status: prior.status ?? 200 },
+        );
+      }
       return json(
         prior.phase === "pending"
           ? "mutation_outcome_unresolved"
@@ -139,6 +175,15 @@ export class MutationCoordinator {
     }
     // A crash after writing intent cannot be distinguished from a successful remote write.
     // Fence subsequent mutations until an operator reconciles it; never expire/replay it automatically.
+    // 1 枚の付箋から Issue は 1 件だけ。別の requestId で押し直しても二重に作らず、前の Issue を返す。
+    if (noteIssue) {
+      const issued = await this.storage.get<IssueReceipt>("issued");
+      if (issued)
+        return Response.json(
+          { ok: false, error: "note_already_issued", issue: issued },
+          { status: 409 },
+        );
+    }
     if (await this.storage.get<string>("active"))
       return json("mutation_outcome_unresolved", 409, true);
     const count = (await this.storage.get<number>("count")) ?? 0;
@@ -158,9 +203,19 @@ export class MutationCoordinator {
     const outcome = (await response.clone().json()) as {
       ambiguous?: boolean;
       comment?: { id: number; url: string };
+      issue?: IssueReceipt;
+      error?: string;
+      failed?: unknown;
     };
     // An upstream timeout can still complete after our readback. Keep the fence on uncertainty.
     if (outcome.ambiguous) return response;
+    const issued =
+      noteIssue &&
+      Number.isSafeInteger(outcome.issue?.number) &&
+      typeof outcome.issue?.url === "string"
+        ? // Issue の内容（タイトルなど）は残さない。番号と URL だけ。
+          { number: outcome.issue!.number, url: outcome.issue!.url }
+        : null;
     await this.storage.transaction(async (tx) => {
       await tx.put(key, {
         ...record,
@@ -174,7 +229,22 @@ export class MutationCoordinator {
               },
             }
           : {}),
+        ...(noteIssue && issued ? { issueReceipt: issued } : {}),
+        ...(noteIssue && issued && !response.ok
+          ? {
+              issueOutcome: {
+                error: String(outcome.error ?? "partial_issue").slice(0, 64),
+                failed: Array.isArray(outcome.failed)
+                  ? outcome.failed
+                      .filter((x): x is string => typeof x === "string")
+                      .slice(0, 8)
+                  : [],
+              },
+            }
+          : {}),
       });
+      // 部分保存（Project への追加の失敗など）でも Issue はできているので、受領を残す。
+      if (issued) await tx.put("issued", issued);
       await tx.delete("active");
     });
     return response;

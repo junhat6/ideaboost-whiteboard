@@ -38,7 +38,18 @@ export interface TeamNote {
   attachments?: Attachment[];
   /** AI の提案付箋。人が採用するまで通常の一覧（ids）に入らない。 */
   proposal?: boolean;
+  /** この付箋から作った GitHub Issue（ADR 019）。付けると済みになる。 */
+  issue?: NoteIssueLink;
 }
+export interface NoteIssueLink {
+  number: number;
+  url: string;
+  by: string;
+  at: number;
+}
+/** 付箋に結び付けられる Issue の URL。このリポジトリの Issue だけ。 */
+export const issueUrl = (number: number) =>
+  `https://github.com/engineer-first/idea-boost/issues/${number}`;
 interface Meta {
   rev: number;
   ids: string[];
@@ -135,7 +146,9 @@ type Op =
       value: string;
       label?: string;
     }
-  | { op: "propose"; text: string };
+  | { op: "propose"; text: string }
+  // 人だけ: 付箋から作った Issue を結び付け、済みにする（ADR 019）。
+  | { op: "issue"; id: string; number: number; url: string };
 
 /** AI（Worker の内部の入口）だけが使える op。それ以外は人だけ。 */
 export const AI_OPS = new Set(["suggest", "attach", "propose"]);
@@ -211,6 +224,20 @@ export function parseOp(data: unknown): Op | string {
       }
       return "invalid_attachment";
     }
+    case "issue":
+      if (
+        !validId ||
+        !Number.isSafeInteger(d.number) ||
+        (d.number as number) < 1 ||
+        d.url !== issueUrl(d.number as number)
+      )
+        return "invalid_issue";
+      return {
+        op: "issue",
+        id: d.id as string,
+        number: d.number as number,
+        url: d.url as string,
+      };
     case "propose": {
       const text = normalizeText(d.text);
       if (text === null) return "invalid_text";
@@ -479,6 +506,29 @@ export class TeamNotesStore {
           changed.push(note);
           body = { ok: true, note };
         }
+      }
+    } else if (op.op === "issue") {
+      const current = await this.storage.get<TeamNote>("note:" + op.id);
+      if (!current || !meta.ids.includes(op.id)) {
+        status = 404;
+        body = { ok: false, error: "note_not_found" };
+      } else if (current.issue && current.issue.number !== op.number) {
+        // 1 枚の付箋に結び付く Issue は 1 件だけ。
+        status = 409;
+        body = { ok: false, error: "note_already_issued", note: current };
+      } else if (current.issue) {
+        // 同じ Issue をもう一度結び付ける（別の画面からの押し直し）は何も変えない。
+        body = { ok: true, note: current };
+      } else {
+        const note: TeamNote = {
+          ...current,
+          done: true,
+          issue: { number: op.number, url: op.url, by: user, at },
+          rev: current.rev + 1,
+          updatedAt: at,
+        };
+        changed.push(note);
+        body = { ok: true, note };
       }
     } else if (op.op === "create") {
       if (meta.ids.length + op.texts.length > NOTES_MAX) {

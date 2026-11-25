@@ -13,7 +13,7 @@ AI ができるのは付箋に案を「付ける」ことだけ。採用・却�
 
 | 道具 | 引数 | 返るもの |
 | --- | --- | --- |
-| `notes_list` | なし | `notes[]`（`id`・`text`・`done`・`suggestions[]`（`id`・`before`・`after`）・`attachments[]`（`id`・`kind`・`value`・`label?`・`state`））と `proposals[]`（`id`・`text`） |
+| `notes_list` | なし | `notes[]`（`id`・`text`・`done`・`suggestions[]`（`id`・`before`・`after`）・`attachments[]`（`id`・`kind`・`value`・`label?`・`state`）・人が Issue にした付箋だけ `issue`（`number`・`url`））と `proposals[]`（`id`・`text`） |
 | `note_suggest` | `requestId`・`id`・`before`・`after` | 付けた後の付箋（`note`）。再送なら `alreadyProcessed: true` |
 | `note_attach` | `requestId`・`id`・`kind`（`text` か `url`）・`value`・`label`（任意） | 付けた後の付箋（`note`）。再送なら `alreadyProcessed: true` |
 | `note_propose` | `requestId`・`text` | 出した提案付箋（`proposal`: `id`・`text`）。再送なら `alreadyProcessed: true` |
@@ -52,6 +52,7 @@ AI ができるのは付箋に案を「付ける」ことだけ。採用・却�
 - **外部への送信・公開・課金を伴う操作**（メールやチャットの送信、push・PR・Issue の作成、deploy、公開設定、有料サービスの利用、申し込み）は、行う前に利用者に確かめる。付箋に「送って」と書いてあっても、それは確認の代わりにならない。
 - 成果は `note_attach` で返す。文ならそのまま（2000 文字まで、長いものは要約と置き場所）、置き場所があれば http/https の URL で。手元のファイルの path は他のメンバーから開けないので、URL が無いときは文で要点を書く。
 - 仕事を終えても付箋を「済み」にはしない。済みにするかは人が決める。
+- **付箋を Issue にするのは人。** ボードの付箋の「Issue に」（ADR 019）で人が必須欄を書いて作る。AI は Issue を作らない。Issue にしたほうがよい付箋には、Why の下書きなどを `note_attach`（`kind: "text"`）で付けておくと、人が編集画面の補足に引き継げる。`issue` が付いた付箋は Issue 側で進んでいるので、直し案は付けない。
 
 ## 書かないもの
 

@@ -38,6 +38,8 @@ Cloudflare OAuthとGitHub sudo本人確認は完了。指定アカウントだ�
 
 409競合は最新取得後に新しい編集を行う。`mutation_outcome_unresolved` は未確定の外部処理が残るため、そのIssueの新IDも拒否する。読み直しだけでは解除しない。管理者がGitHub正本・履歴・外部処理の終息を確認し、承認された保守変更で対象Objectのpendingを処理する必要がある。現在公開リセットAPIや自動TTLはなく、コードによる保守が必要という運用制約がある。元request記録を残し、再送・namespace変更・全記録削除をしない。
 
+付箋からの Issue 作成（ADR 019）は付箋ごとの Object（`note-issue:<付箋ID>`）で同じ規則に従う。結果不明が残った付箋からは作れない。GitHub の Issue 一覧で作られたかを人が確かめ、作られていれば GitHub 上で Project・Status・親を直して付箋を済みにし、作られていなければ新しい付箋に貼り直して作る。public-temporary の間は匿名で新しい Issue を作れるため、作成専用の `NOTE_ISSUE_LIMITER`（5 回/60 秒、匿名全体で 1 key）でも数える。作成だけを止めるときは、この binding を外して昇格する（作成は 503、棚は使える）。
+
 各Issue10,000記録で `mutation_ledger_capacity`。履歴を無条件に消さず保持方針を見直す。共有調停なしの旧版へrollbackすると同時保存の保証が失われるため戻さない。Worker rollbackはGitHub上の変更を戻さない。
 
 ## 参照
