@@ -192,6 +192,9 @@
   // 描き直しの間に立てる。フォーカスのある欄を外すと blur が同期で起きるので、
   // それを「人がフォーカスを外した」と区別する（isConnected では区別できない）。
   let rendering = false;
+  // 次に作る編集欄がフォーカスを取ってよいか（開いたとき・開き直したときだけ）。
+  // 描き直しで作り直した欄は、もともとフォーカスがあったときだけ戻す（ほかの入力を横取りしない）。
+  let claimFocus = false;
   const EDIT_FIELDS = ".team-note-edit, .team-note-memo-edit textarea";
   function render() {
     // 書いている欄の値とカーソルを、作り直した欄へ引き継ぐ（ほかの書き込みの後の描き直しで、
@@ -203,12 +206,14 @@
       start: f.selectionStart,
       end: f.selectionEnd,
       readOnly: f.readOnly,
+      focused: f === document.activeElement,
     }));
     rendering = true;
     try {
       renderNow();
     } finally {
       rendering = false;
+      claimFocus = false;
     }
     if (!live.length) return;
     // 新しい欄は自分の microtask でフォーカスとカーソルを置くので、その後に戻す。
@@ -220,6 +225,7 @@
         );
         if (!field || field.readOnly || l.readOnly) continue;
         field.value = l.value;
+        if (l.focused) field.focus();
         field.setSelectionRange(l.start, l.end);
       }
     });
@@ -454,10 +460,13 @@
         if (editingId === note.id) saveEdit(note, field.value);
       };
       li.append(field);
-      queueMicrotask(() => {
-        field.focus();
-        field.setSelectionRange(field.value.length, field.value.length);
-      });
+      if (claimFocus) {
+        claimFocus = false;
+        queueMicrotask(() => {
+          field.focus();
+          field.setSelectionRange(field.value.length, field.value.length);
+        });
+      }
     } else {
       const text = document.createElement("span");
       text.className = "team-note-text";
@@ -590,7 +599,10 @@
     select.onblur = () => {
       if (pbiEditingId === note.id) cancel();
     };
-    queueMicrotask(() => select.focus());
+    if (claimFocus) {
+      claimFocus = false;
+      queueMicrotask(() => select.focus());
+    }
     return select;
   }
 
@@ -690,10 +702,13 @@
       if (!closed && memoEditingId === note.id) save();
     };
     wrap.append(field, hint);
-    queueMicrotask(() => {
-      field.focus();
-      field.setSelectionRange(field.value.length, field.value.length);
-    });
+    if (claimFocus) {
+      claimFocus = false;
+      queueMicrotask(() => {
+        field.focus();
+        field.setSelectionRange(field.value.length, field.value.length);
+      });
+    }
     return wrap;
   }
 
@@ -701,6 +716,7 @@
     if (busy || mode === "loading" || mode === "error") return;
     editingId = null;
     pbiEditingId = null;
+    claimFocus = true;
     memoEditingId = note.id;
     render();
   }
@@ -717,6 +733,7 @@
     }
     if ([...memo].length > MEMO_MAX) {
       memoDrafts.set(note.id, value);
+      claimFocus = true;
       memoEditingId = note.id;
       render();
       return setStatus(messages.invalid_memo, "error");
@@ -750,6 +767,7 @@
     };
     if (!notes.some((n) => n.id === note.id)) return giveUp();
     memoDrafts.set(note.id, memo);
+    claimFocus = true;
     memoEditingId = note.id;
     render();
     if (
@@ -765,6 +783,7 @@
     if (busy || mode === "loading" || mode === "error") return;
     editingId = null;
     memoEditingId = null;
+    claimFocus = true;
     pbiEditingId = note.id;
     render();
   }
@@ -987,6 +1006,7 @@
     if (busy) return;
     pbiEditingId = null;
     memoEditingId = null;
+    claimFocus = true;
     editingId = note.id;
     render();
   }
@@ -1520,8 +1540,11 @@
       // close は後から届く。その間に棚のどこかで入力（PBI の一覧・本文やメモの編集・一言入力）を
       // 始めていれば、フォーカスを奪わない（奪うと blur で入力が閉じる）。
       const li = id && shelf.querySelector(`[data-note-id="${id}"]`);
-      const typing = shelfTyping();
-      if (li && !typing) li.focus();
+      // 戻すのは、フォーカスが本文全体か元の付箋の中（ブラウザが戻した先）にあるときだけ。
+      // その間に人が別の付箋へ移っていれば、そこを奪わない。
+      const active = document.activeElement;
+      const lost = !active || active === document.body || li?.contains(active);
+      if (li && lost && !shelfTyping()) li.focus();
     });
     document.getElementById("note-issue-close").onclick = closeIssueDialog;
     document.getElementById("note-issue-cancel").onclick = closeIssueDialog;

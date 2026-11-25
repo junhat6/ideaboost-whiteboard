@@ -95,6 +95,9 @@ test("キーボードだけで PBI を選んで貼り、題が見え、Issue 化
   await expect(input(page)).toBeFocused();
   await page.keyboard.press("Enter");
 
+  await expect
+    .poll(() => server.posts.some((p) => p.op === "create"))
+    .toBe(true);
   const created = server.posts.find((p) => p.op === "create")!;
   expect(created).toMatchObject({ texts: ["会場の電源を確認する"], pbi: 2 });
   const id = server.notes[0].id;

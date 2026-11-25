@@ -358,6 +358,11 @@ test("ほかの書き込み（Issue 作成の結果の結び付け）で描き�
   await page.keyboard.press(SAVE);
   await expect(page.locator("#note-issue-submit")).toHaveText("作成中…");
   await page.keyboard.press("Escape");
+  // close は後から届き、フォーカスを元の付箋へ戻す。それを待ってから別の付箋へ移る。
+  await expect(page.locator("#note-issue-dialog")).toBeHidden();
+  await expect(
+    page.locator('#team-note-list [data-note-id="n_fake000002"]'),
+  ).toBeFocused();
 
   await card(page).focus();
   await page.keyboard.press("m");
@@ -374,4 +379,65 @@ test("ほかの書き込み（Issue 作成の結果の結び付け）で描き�
   await page.keyboard.type("。");
   await expect(field(page)).toHaveValue("元を追記した長い文。");
   expect(server.posts.filter((p) => p.op === "memo")).toHaveLength(0);
+});
+
+test("開き直した書きかけの欄は、描き直しで一言入力の打鍵を横取りしない", async ({
+  page,
+}) => {
+  const server = await fakeShelf(page, [
+    { id: ID, text: "告知文", done: false, rev: 1, memo: "元" },
+    { id: "n_fake000002", text: "お礼メール", done: false, rev: 1 },
+  ]);
+  await setup(page);
+  // 付箋 B から Issue を作り始め、結果を止めておく（返ると結び付けの書き込みが描き直しを起こす）。
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route("**/api/team-notes/*/issue", async (route) => {
+    await gate;
+    return route.fulfill({
+      json: {
+        ok: true,
+        issue: {
+          number: 43,
+          url: "https://github.com/engineer-first/idea-boost/issues/43",
+        },
+      },
+    });
+  });
+  const b = page.locator('#team-note-list [data-note-id="n_fake000002"]');
+  await b.focus();
+  await page.keyboard.press("i");
+  await page.locator('#note-issue-form textarea[name="why"]').fill("お礼");
+  await page.keyboard.press(SAVE);
+  await expect(page.locator("#note-issue-submit")).toHaveText("作成中…");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#note-issue-dialog")).toBeHidden();
+  await expect(b).toBeFocused();
+
+  // 付箋 A のメモが結果不明になり、書きかけの欄が開いたまま残る。
+  server.failNext((route) => route.abort("connectionreset"));
+  await card(page).focus();
+  await page.keyboard.press("m");
+  await expect(field(page)).toBeFocused();
+  await page.keyboard.type("X");
+  await page.keyboard.press(SAVE);
+  await expect(page.locator("#team-note-status")).toContainText(
+    "保存結果を確認できません",
+  );
+  await expect(field(page)).toHaveValue("元X");
+
+  // 一言入力で打っている途中に結果が返り、描き直しが起きても、打鍵は一言入力に入る。
+  await input(page).focus();
+  await page.keyboard.type("新しい一言を");
+  release();
+  await expect
+    .poll(() => server.posts.some((p) => p.op === "issue"))
+    .toBe(true);
+  await expect(
+    page.locator('#team-note-done [data-note-id="n_fake000002"]'),
+  ).toHaveCount(1);
+  await page.keyboard.type("打つ");
+  await expect(input(page)).toBeFocused();
+  await expect(input(page)).toHaveValue("新しい一言を打つ");
+  await expect(field(page)).toHaveValue("元X");
 });
