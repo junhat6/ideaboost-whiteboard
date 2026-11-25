@@ -93,6 +93,8 @@ function view(note: TeamNote) {
     ...(note.issue
       ? { issue: { number: note.issue.number, url: note.issue.url } }
       : {}),
+    // 人が付けた関係する PBI の番号（ADR 020）。AI は読むだけで、付け替えない。
+    ...(note.pbi ? { pbi: note.pbi } : {}),
   };
 }
 
@@ -188,7 +190,7 @@ function server(env: McpEnv) {
       title: "付箋の一覧",
       description:
         "チームの付箋の一覧を返す。本文・済みかどうか・保留中の直し案・添付（採用待ち pending と残された kept）と、" +
-        "人の採用を待っている提案付箋（proposals）。済みの付箋の直し案は、人の画面には出ていない（済みを外すと出る）。 " +
+        "人の採用を待っている提案付箋（proposals）。人が付けた関係する PBI の Issue 番号（pbi、読むだけ）と、付箋から作った Issue（issue）も返す。済みの付箋の直し案は、人の画面には出ていない（済みを外すと出る）。 " +
         DATA_NOTICE,
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, openWorldHint: false },

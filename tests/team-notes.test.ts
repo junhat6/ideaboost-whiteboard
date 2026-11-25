@@ -861,3 +861,78 @@ test("チームモード（Access で認証済み）でも、ブラウザの種�
   assert.equal(response.status, 200);
   assert.deepEqual(seen, [[null, "member"]]);
 });
+
+// ---- 関係する PBI（ADR 020） ----
+
+test("関係する PBI は貼るときに任意で付き、人が rev を確かめて付け替え・外しをする。古い rev は競合", async () => {
+  const s = store();
+  const plain = (
+    await send(s, humanPost({ op: "create", texts: ["付けない"] }))
+  ).body.notes[0];
+  assert.equal("pbi" in plain, false);
+  const created = await send(
+    s,
+    humanPost({ op: "create", texts: ["一言 A", "一言 B"], pbi: 12 }),
+  );
+  assert.equal(created.status, 200);
+  assert.deepEqual(
+    created.body.notes.map((n: any) => n.pbi),
+    [12, 12],
+  );
+  const note = created.body.notes[0];
+  const moved = await send(
+    s,
+    humanPost({ op: "pbi", id: note.id, rev: note.rev, pbi: 34 }),
+  );
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.note.pbi, 34);
+  assert.equal(moved.body.note.rev, note.rev + 1);
+  // 付け替える前の rev で送った別の画面は、競合として最新を受け取る。
+  const stale = await send(
+    s,
+    humanPost({ op: "pbi", id: note.id, rev: note.rev, pbi: 56 }),
+  );
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error, "note_conflict");
+  assert.equal(stale.body.note.pbi, 34);
+  const cleared = await send(
+    s,
+    humanPost({ op: "pbi", id: note.id, rev: moved.body.note.rev, pbi: null }),
+  );
+  assert.equal(cleared.status, 200);
+  assert.equal("pbi" in cleared.body.note, false);
+  const listed = (await list(s)).notes.find((n: any) => n.id === note.id);
+  assert.equal("pbi" in listed, false);
+});
+
+test("PBI の番号は正の整数だけ。不正なら何も保存せず、AI は付け替えられない", async () => {
+  const s = store();
+  const note = await oneNote(s);
+  const before = await list(s);
+  for (const pbi of [0, -1, 1.5, "12", true, Number.MAX_SAFE_INTEGER + 1]) {
+    const created = await send(
+      s,
+      humanPost({ op: "create", texts: ["不正"], pbi }),
+    );
+    assert.equal(created.status, 400, String(pbi));
+    assert.equal(created.body.error, "invalid_pbi");
+    const changed = await send(
+      s,
+      humanPost({ op: "pbi", id: note.id, rev: note.rev, pbi }),
+    );
+    assert.equal(changed.status, 400, String(pbi));
+    assert.equal(changed.body.error, "invalid_pbi");
+  }
+  const missing = await send(
+    s,
+    humanPost({ op: "pbi", id: note.id, rev: note.rev }),
+  );
+  assert.equal(missing.body.error, "invalid_pbi");
+  const ai = await send(
+    s,
+    aiPost({ op: "pbi", id: note.id, rev: note.rev, pbi: 12 }),
+  );
+  assert.equal(ai.status, 403);
+  assert.equal(ai.body.error, "human_only");
+  assert.deepEqual(await list(s), before);
+});

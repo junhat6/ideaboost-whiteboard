@@ -1277,6 +1277,8 @@ function renderAfterAsyncChange() {
 }
 function render() {
   boardRenderQueued = false;
+  // 付箋の棚が PBI の題を引き直せるよう知らせる（棚は題が変わったときだけ描き直す）。
+  queueMicrotask(() => window.TeamNotes?.boardChanged?.());
   if (dragged) clearDrag();
   syncUnestimatedToggle();
   renderTypeLegend();
@@ -1385,7 +1387,7 @@ function render() {
             (t) => t.lane === l.id && t.status !== "見送り",
           ),
           done = all.filter((t) => t.status === "完了").length;
-        return `<div class="board-row" role="row"><div class="cell pbi-cell${l.state === "CLOSED" ? " is-closed" : ""}" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="pbi-context">${l.state === "CLOSED" ? '<span class="pbi-closed-label">Close済み</span>' : ""}<div class="pbi-assignees person" aria-label="PBI担当者: ${esc(person(l))}" title="${esc(person(l))}">${assigneeAvatars(l)}<span class="person-name">${esc(person(l))}</span></div><span class="story-points" data-story-points="${esc(l.id)}" hidden></span></div>${progressMarkup(done, all.length)}</div>${columns
+        return `<div class="board-row" role="row"><div class="cell pbi-cell${l.state === "CLOSED" ? " is-closed" : ""}" role="rowheader" data-pbi-row="${esc(l.id)}"><button class="pbi-title" data-pbi="${esc(l.id)}"><span class="pbi-title-text">${esc(l.title)}</span></button><div class="pbi-context">${l.state === "CLOSED" ? '<span class="pbi-closed-label">Close済み</span>' : ""}<div class="pbi-assignees person" aria-label="PBI担当者: ${esc(person(l))}" title="${esc(person(l))}">${assigneeAvatars(l)}<span class="person-name">${esc(person(l))}</span></div><span class="story-points" data-story-points="${esc(l.id)}" hidden></span>${l.state !== "CLOSED" && Number.isSafeInteger(l.number) && l.number > 0 ? `<button type="button" class="pbi-note-add" data-note-for-pbi="${l.number}" aria-label="この PBI の付箋を貼る（#${l.number}）" title="この PBI の付箋を貼る">＋付箋</button>` : ""}</div>${progressMarkup(done, all.length)}</div>${columns
           .map((s) => {
             const list = own.filter((t) => statusColumn(t.status) === s);
             const overflow = list.length > capacity;
@@ -3414,6 +3416,12 @@ function renderIssueList() {
 }
 $("#board").addEventListener("click", (e) => {
   dismissControls();
+  // PBI 行の「＋付箋」は詳細を開かず、その PBI を選んだ状態で棚の一言入力へ移る（ADR 020）。
+  const noteFor = e.target.closest("[data-note-for-pbi]");
+  if (noteFor) {
+    window.TeamNotes?.composeFor?.(Number(noteFor.dataset.noteForPbi));
+    return;
+  }
   const task =
       e.target.closest("[data-open]") || e.target.closest("[data-task]"),
     pbi = e.target.closest("[data-pbi]") || e.target.closest("[data-pbi-row]"),
@@ -4632,6 +4640,15 @@ window.Whiteboard = {
   statusColumn,
   goal,
   getSnapshot: () => clone(state),
+  /** PBI の番号・題・状態だけ（付箋の棚が描くたびにボード全体を複製しないため）。 */
+  pbiLanes: () =>
+    (state?.lanes || []).map((l) => ({
+      id: l.id,
+      number: l.number,
+      title: l.title,
+      type: l.type,
+      state: l.state,
+    })),
   /** 今ボードに出している PBI の ID（付箋の Issue 化で親 PBI の候補を並べる順に使う）。 */
   visibleLaneIds: () => [...selectedIds()],
   /** 付箋から Issue を作った後に、ボードへ早めに出すための静かな再取得。 */

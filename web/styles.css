@@ -4419,3 +4419,133 @@ main > #board-scroll {
 [data-theme="dark"] .note-issue-required {
   color: #ffb4b9;
 }
+
+/* 関係する PBI（ADR 020）。棚の入力欄の下の小さな選択と、付箋の本文の下の番号・題。 */
+.team-note-pbi-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.team-note-pbi-pick span {
+  flex: none;
+}
+.team-note-pbi-pick select,
+.team-note-pbi-edit {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+.team-note-pbi-edit {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: auto;
+  padding: 2px;
+}
+.team-note-pbi-pick select:focus-visible,
+.team-note-pbi-edit:focus-visible,
+.team-note-pbi:focus-visible,
+.pbi-note-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.team-note-pbi {
+  grid-column: 2 / -1;
+  justify-self: start;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.team-note-pbi-button {
+  width: auto;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+}
+.team-note:hover .team-note-pbi-button,
+.team-note:focus-within .team-note-pbi-button,
+.team-note:focus .team-note-pbi-button {
+  opacity: 1;
+}
+/* PBI 行の入口。左セルの最小構成を崩さないよう、hover・focus のときだけ見せる。
+   見えない間は幅 0 で担当者名の幅を取らず、Story points のバッジにも重ねない。 */
+.pbi-note-add {
+  flex: none;
+  width: 0;
+  height: 18px;
+  margin-left: -6px;
+  padding: 0;
+  overflow: hidden;
+  border: 0 solid var(--input-border, #7d8da8);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+}
+.pbi-cell:hover .pbi-note-add,
+.pbi-cell:focus-within .pbi-note-add {
+  width: auto;
+  margin-left: 0;
+  padding: 0 5px;
+  border-width: 1px;
+  opacity: 1;
+}
+.team-shelf[hidden] ~ #board-scroll .pbi-note-add,
+.team-shelf:is([data-mode="error"], [data-mode="loading"])
+  ~ #board-scroll
+  .pbi-note-add,
+:root:fullscreen .pbi-note-add {
+  display: none;
+}
+
+/* 付箋の操作（メモ・PBI・Issue に・×）は本文の幅を取らないよう、右上に重ねる。
+   hover・focus のときだけ見える（見えない間も幅を取ると、240px の棚で一言が数文字ずつ折り返すため）。 */
+.team-note-tools {
+  position: absolute;
+  top: 6px;
+  right: 4px;
+  z-index: 1;
+  padding: 1px 1px 1px 6px;
+  border-radius: 4px;
+  background: var(--shelf-paper);
+  opacity: 0;
+}
+.team-note.done .team-note-tools {
+  background: var(--surface);
+}
+.team-note:hover .team-note-tools,
+.team-note:focus-within .team-note-tools,
+.team-note:focus .team-note-tools {
+  opacity: 1;
+}
