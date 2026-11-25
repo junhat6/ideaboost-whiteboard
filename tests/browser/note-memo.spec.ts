@@ -26,7 +26,12 @@ async function fakeShelf(page: Page, initial: Note[]) {
       next = null;
       return once(route);
     }
-    const note = notes.find((n) => n.id === body.id)!;
+    const note = notes.find((n) => n.id === body.id);
+    if (!note)
+      return route.fulfill({
+        status: 404,
+        json: { ok: false, error: "note_not_found" },
+      });
     if (note.rev !== body.rev)
       return route.fulfill({
         status: 409,
@@ -166,6 +171,11 @@ test("競合・結果不明でも書いたメモを捨てず、最新と並べ�
     "保存結果を確認できません",
   );
   await expect(field(page)).toHaveValue("元のメモを直す");
+  // 案内どおり「最新を取得」を押しても、書きかけを送らない（開き直した欄は ⌘/Ctrl+Enter でだけ送る）。
+  await page
+    .locator("#team-note-status button", { hasText: "最新を取得" })
+    .click();
+  await expect(field(page)).toHaveValue("元のメモを直す");
   const memoPosts = server.posts.filter((p) => p.op === "memo");
   expect(memoPosts).toHaveLength(2);
   expect(memoPosts[1]).toMatchObject({ rev: 2, memo: "元のメモを直す" });
@@ -180,33 +190,80 @@ test("競合・結果不明でも書いたメモを捨てず、最新と並べ�
   });
 });
 
-test("書いている間の再取得で欄を閉じず、送信中の入力は止め、フォーカスを外すと保存する", async ({
+/** 窓へ戻ったときの再取得（GET）を止めておき、編集を始めてから返す。 */
+async function holdNextGet(page: Page, fail = false) {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const handler = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await page.unroute("**/api/team-notes", handler);
+    await gate;
+    return fail ? route.abort("connectionreset") : route.fallback();
+  };
+  await page.route("**/api/team-notes", handler);
+  const done = fail
+    ? page.waitForEvent("requestfailed", (r) =>
+        r.url().includes("/api/team-notes"),
+      )
+    : page.waitForResponse((r) => r.url().includes("/api/team-notes"));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  return async () => {
+    release();
+    await done;
+  };
+}
+
+test("書き始める前に出た再取得が返っても（失敗しても）欄を閉じず、他の人の変更は競合として見せる", async ({
   page,
 }) => {
+  const server = await fakeShelf(page, [
+    { id: ID, text: "告知文", done: false, rev: 1, memo: "元" },
+  ]);
+  await setup(page);
+
+  // 再取得が失敗する経路: 書きかけを保存せず、欄も閉じない。続く打鍵は欄に入る。
+  let finish = await holdNextGet(page, true);
+  await card(page).focus();
+  await page.keyboard.press("m");
+  await page.keyboard.type("あいう");
+  await finish();
+  await page.keyboard.type(" えお");
+  await expect(field(page)).toBeFocused();
+  await expect(field(page)).toHaveValue("元あいう えお");
+  expect(server.posts).toHaveLength(0);
+  await page.keyboard.press("Escape");
+
+  // 再取得が成功し、その間に他の人がメモを書いていた: 見ないまま上書きせず、競合にする。
+  finish = await holdNextGet(page);
+  await card(page).focus();
+  await page.keyboard.press("m");
+  await page.keyboard.type("を追記");
+  server.notes[0].memo = "他の人が書いた大事なメモ";
+  server.notes[0].rev = 2;
+  await finish();
+  await expect(field(page)).toBeFocused();
+  await page.keyboard.press(SAVE);
+  await expect(page.locator("#team-note-status")).toContainText(
+    "他の人が先にこの付箋を変更しました",
+  );
+  await expect(field(page)).toHaveValue("元を追記");
+  await expect(card(page).locator(".team-note-memo-latest p")).toHaveText(
+    "他の人が書いた大事なメモ",
+  );
+  expect(server.posts).toEqual([
+    expect.objectContaining({ op: "memo", rev: 1, memo: "元を追記" }),
+  ]);
+  expect(server.notes[0].memo).toBe("他の人が書いた大事なメモ");
+});
+
+test("送信中は欄を止め、フォーカスを外すと保存する", async ({ page }) => {
   const server = await fakeShelf(page, [
     { id: ID, text: "告知文", done: false, rev: 1 },
   ]);
   await setup(page);
-  // 窓へ戻ったときの再取得を遅らせ、その間に書き始める。
-  let release!: () => void;
-  const gate = new Promise<void>((r) => (release = r));
-  const delayGet = async (route: Route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    await gate;
-    return route.fallback();
-  };
-  await page.route("**/api/team-notes", delayGet);
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await card(page).focus();
   await page.keyboard.press("m");
-  await page.keyboard.type("あいう");
-  release();
-  await page.waitForResponse((r) => r.url().includes("/api/team-notes"));
-  await page.keyboard.type(" えお");
-  await expect(field(page)).toBeFocused();
-  await expect(field(page)).toHaveValue("あいう えお");
-  expect(server.posts).toHaveLength(0);
-  await page.unroute("**/api/team-notes", delayGet);
+  await page.keyboard.type("あいう えお");
 
   // 送信中は欄を止め、後から打った文字が黙って消えないようにする。
   server.failNext(async (route) => {
@@ -233,4 +290,35 @@ test("書いている間の再取得で欄を閉じず、送信中の入力は�
     "あいう えお。",
   );
   expect(server.posts.filter((p) => p.op === "memo")).toHaveLength(2);
+});
+
+test("書いている間に付箋が剥がされたら、書いた文を状態行に残し、棚は止まらない", async ({
+  page,
+}) => {
+  const server = await fakeShelf(page, [
+    { id: ID, text: "告知文", done: false, rev: 1 },
+    { id: "n_fake000002", text: "お礼メール", done: false, rev: 1 },
+  ]);
+  await setup(page);
+  await card(page).focus();
+  await page.keyboard.press("m");
+  await page.keyboard.type("消えると困る長い文");
+  server.notes.splice(0, 1);
+  await page.keyboard.press(SAVE);
+  await expect(page.locator("#team-note-status")).toContainText(
+    "書いたメモ: 消えると困る長い文",
+  );
+  await expect(card(page)).toHaveCount(0);
+  await expect(page.locator(".team-note-memo-edit")).toHaveCount(0);
+  // 棚は止まらず、次の再取得で他の人が貼った付箋が出る。
+  server.notes.unshift({
+    id: "n_fake000003",
+    text: "新しい付箋",
+    done: false,
+    rev: 1,
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(
+    page.locator("#team-note-list .team-note-text", { hasText: "新しい付箋" }),
+  ).toBeVisible();
 });

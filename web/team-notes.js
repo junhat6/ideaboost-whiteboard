@@ -36,6 +36,9 @@
   const openMemos = new Set();
   // 保存できなかった（競合・結果不明）メモの書きかけ。付箋ごとに、この画面を開いている間だけ残す。
   const memoDrafts = new Map();
+  // メモを送るときの基準（人が見た版）。編集を始めたときの付箋で、競合の後は
+  // 「いま保存されているメモ」として見せた版へ進める。編集中に届いた再取得だけでは進めない。
+  const memoBase = new Map();
   const MEMO_MAX = 2000;
   let lastRemoved = null;
   let seq = 0;
@@ -186,7 +189,18 @@
     return [...list].sort((a, b) => Number(a.done) - Number(b.done));
   }
 
+  // 描き直しの間に立てる。フォーカスのある欄を外すと blur が同期で起きるので、
+  // それを「人がフォーカスを外した」と区別する（isConnected では区別できない）。
+  let rendering = false;
   function render() {
+    rendering = true;
+    try {
+      renderNow();
+    } finally {
+      rendering = false;
+    }
+  }
+  function renderNow() {
     const open = notes.filter((n) => !n.done);
     const done = notes.filter((n) => n.done);
     countEl.textContent = String(open.length);
@@ -412,6 +426,7 @@
         e.stopPropagation();
       };
       field.onblur = () => {
+        if (rendering) return;
         if (editingId === note.id) saveEdit(note, field.value);
       };
       li.append(field);
@@ -578,14 +593,16 @@
       `[data-note-id="${memoEditingId}"] .team-note-memo-latest`,
     );
     if (!box) return;
-    const latest =
-      notes.find((n) => n.id === memoEditingId)?.memo || "（メモなし）";
-    box.querySelector("p").textContent = latest;
+    const current = notes.find((n) => n.id === memoEditingId);
+    if (!current) return;
+    box.querySelector("p").textContent = current.memo || "（メモなし）";
+    memoBase.set(current.id, current);
   }
 
   function memoEditor(note) {
     const wrap = el("div", "team-note-memo-edit");
     const draft = memoDrafts.get(note.id);
+    if (!memoBase.has(note.id)) memoBase.set(note.id, note);
     if (draft !== undefined) {
       // 競合・結果不明で保存できなかった書きかけ。最新と見比べて、人が決める。
       const latest = el("div", "team-note-memo-latest");
@@ -635,6 +652,7 @@
         e.preventDefault();
         closed = true;
         memoDrafts.delete(note.id);
+        memoBase.delete(note.id);
         memoEditingId = null;
         render();
         focusNote(note.id);
@@ -642,7 +660,9 @@
     };
     field.onblur = () => {
       // 描き直しで外れたとき・別のアプリへ切り替えたときは保存しない（戻れば続きを書ける）。
-      if (!field.isConnected || !document.hasFocus()) return;
+      // 保存できなかった書きかけを開き直している間は、⌘/Ctrl+Enter でだけ保存する
+      // （「最新を取得」を押した blur で送らない）。
+      if (rendering || !document.hasFocus() || draft !== undefined) return;
       if (!closed && memoEditingId === note.id) save();
     };
     wrap.append(field, hint);
@@ -663,10 +683,11 @@
 
   async function saveMemo(original, value) {
     const memo = value.replace(/\r\n?/g, "\n").trim();
-    const note = notes.find((n) => n.id === original.id) || original;
+    const note = memoBase.get(original.id) || original;
     memoEditingId = null;
     if (memo === (note.memo || "")) {
       memoDrafts.delete(note.id);
+      memoBase.delete(note.id);
       render();
       return focusNote(note.id);
     }
@@ -689,15 +710,28 @@
     );
     if (ok) {
       memoDrafts.delete(note.id);
+      memoBase.delete(note.id);
       if (memo) openMemos.add(note.id);
       render();
       return focusNote(note.id);
     }
     // 競合・結果不明: 打ったメモを捨てず、最新と並べて編集欄を開き直す（再送はしない）。
+    const status = statusEl.querySelector("span");
+    const giveUp = () => {
+      // 開き直す場所が無い（付箋が剥がされた）: 書いた文を状態行に出して手元に残す。
+      memoEditingId = null;
+      memoDrafts.delete(note.id);
+      memoBase.delete(note.id);
+      if (status) status.textContent += " 書いたメモ: " + memo;
+    };
+    if (!notes.some((n) => n.id === note.id)) return giveUp();
     memoDrafts.set(note.id, memo);
     memoEditingId = note.id;
     render();
-    const status = statusEl.querySelector("span");
+    if (
+      !shelf.querySelector(`[data-note-id="${note.id}"] .team-note-memo-edit`)
+    )
+      return giveUp();
     if (status)
       status.textContent +=
         " 書いたメモは消さずに残しています。見比べてから保存し直してください。";
@@ -713,8 +747,9 @@
 
   async function savePbi(original, pbi) {
     pbiEditingId = null;
-    // 選んでいる間に再取得で変わっていれば、その rev と値で比べる。
-    const note = notes.find((n) => n.id === original.id) || original;
+    // 一覧を開いたときの付箋（人が見た版）の rev で送る。開いている間に他の人が変えていれば、
+    // 見ないまま上書きせずに競合として止める（編集中の再取得は描き直さないため）。
+    const note = original;
     if ((note.pbi || null) === pbi) {
       render();
       return focusNote(note.id);
@@ -770,7 +805,22 @@
       proposals = data.proposals || [];
       // 編集中に再取得が返っても、入力欄を作り直さない（書きかけが blur で保存されて閉じ、
       // 続く打鍵が付箋のショートカットになるため）。編集を終えたときに最新で描き直す。
-      if (editingId || pbiEditingId || memoEditingId) {
+      // 編集中の付箋が剥がされていたら、編集を閉じて描き直す（閉じないと棚が止まったままになる）。
+      const editing = editingId || pbiEditingId || memoEditingId;
+      if (editing && !notes.some((n) => n.id === editing)) {
+        // 書いている途中のメモも、保存できなかった書きかけも、状態行に残す。
+        const draft = memoEditingId
+          ? (memoDrafts.get(editing) ??
+            shelf.querySelector(".team-note-memo-edit textarea")?.value.trim())
+          : undefined;
+        editingId = pbiEditingId = memoEditingId = null;
+        memoDrafts.delete(editing);
+        memoBase.delete(editing);
+        setStatus(
+          messages.note_not_found + (draft ? " 書いたメモ: " + draft : ""),
+          "error",
+        );
+      } else if (editing) {
         if (mode === "api" && statusEl.classList.contains("stale"))
           setStatus("");
         refreshMemoLatest();
@@ -806,6 +856,8 @@
           run: load,
         });
       }
+      // 編集中は描き直さない（成功の経路と同じ理由）。
+      if (editingId || pbiEditingId || memoEditingId) return;
     }
     render();
     reveal();
