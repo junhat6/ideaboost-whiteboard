@@ -19,6 +19,7 @@ import {
 } from "./story-points.mjs";
 import { normalizeLinkedPrs } from "./linked-prs.mjs";
 import { createComments, validateComment } from "./comments.mjs";
+import { buildNoteIssueBody, validateNoteIssue } from "./note-issue.mjs";
 import {
   currentSprintAssignmentWindow,
   currentSprintSelection,
@@ -1699,6 +1700,172 @@ export function createHandler({
       };
     return { status: 200, data: { ok: true, issue: actual, board: null } };
   }
+  /**
+   * 付箋から Issue を作る（ADR 019）。必ず付箋ごとの MutationCoordinator を経由して呼ばれる。
+   * 作成（種類・親 PBI を同時に指定）→ Project へ追加 → Status の順。作成より後の失敗は
+   * 「Issue はできた・一部未完了」として番号を返し、自動でやり直さない（部分保存）。
+   */
+  async function createFromNote(env, input) {
+    const context = await gql(
+      env,
+      `query NoteIssueContext {
+        repository(owner:"${OWNER}",name:"${REPO}") { isPrivate }
+        organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} } }
+      }`,
+    );
+    const meta = context?.organization?.projectV2;
+    if (
+      env.AUTH_MODE === "public-temporary" &&
+      (context?.repository?.isPrivate !== false || meta?.public !== true)
+    )
+      throw new ApiError(403, "scope_not_public");
+    if (!meta?.id || !meta.field?.id)
+      throw new ApiError(502, "project_unavailable");
+    const option = meta.field.options?.find((o) => o.name === input.status);
+    if (!option) throw new ApiError(409, "status_option_missing");
+    let parentDatabaseId = null;
+    if (input.parent !== null) {
+      // 親は REST で読む（無い番号は GraphQL だと汎用のエラーになり、利用者に理由を示せないため）。
+      let parent;
+      try {
+        parent = await api(
+          env,
+          `/repos/${OWNER}/${REPO}/issues/${input.parent}`,
+        );
+      } catch (e) {
+        if ([404, 410].includes(e.extra?.upstreamStatus))
+          throw new ApiError(400, "parent_not_pbi");
+        throw e;
+      }
+      if (
+        parent?.number !== input.parent ||
+        // 移管された Issue のリダイレクト先（別リポジトリ）を親にしない。
+        parent.html_url !==
+          `https://github.com/${OWNER}/${REPO}/issues/${input.parent}` ||
+        parent.pull_request ||
+        parent.type?.name !== "PBI" ||
+        !Number.isSafeInteger(parent.id)
+      )
+        throw new ApiError(400, "parent_not_pbi");
+      if (parent.state !== "open") throw new ApiError(400, "parent_closed");
+      parentDatabaseId = parent.id;
+    }
+    let created;
+    try {
+      created = await api(env, `/repos/${OWNER}/${REPO}/issues`, {
+        method: "POST",
+        body: {
+          title: input.title,
+          body: buildNoteIssueBody(input),
+          type: input.type,
+          ...(parentDatabaseId === null
+            ? {}
+            : { parent_issue_id: parentDatabaseId }),
+        },
+      });
+    } catch (e) {
+      return {
+        status: e.status ?? 502,
+        data: {
+          ok: false,
+          error: e.code ?? "github_unavailable",
+          ambiguous: !!e.extra?.uncertain,
+        },
+      };
+    }
+    if (
+      !Number.isSafeInteger(created?.number) ||
+      created.number < 1 ||
+      typeof created.node_id !== "string"
+    )
+      // 201 を受けたが形が読めない。作れたかどうかを番号で示せないので結果不明。
+      return {
+        status: 502,
+        data: { ok: false, error: "github_invalid_response", ambiguous: true },
+      };
+    const issue = {
+      number: created.number,
+      url: `https://github.com/${OWNER}/${REPO}/issues/${created.number}`,
+      title: input.title,
+      type: input.type,
+    };
+    const failed = [];
+    let itemId = null;
+    try {
+      const added = await gql(
+        env,
+        "mutation AddNoteIssue($input:AddProjectV2ItemByIdInput!) { addProjectV2ItemById(input:$input) { item { id } } }",
+        { input: { projectId: meta.id, contentId: created.node_id } },
+      );
+      itemId = added?.addProjectV2ItemById?.item?.id ?? null;
+    } catch {
+      /* 下の読み直しで確かめる */
+    }
+    if (itemId)
+      try {
+        await gql(
+          env,
+          "mutation SetNoteIssueStatus($input:UpdateProjectV2ItemFieldValueInput!) { updateProjectV2ItemFieldValue(input:$input) { projectV2Item { id } } }",
+          {
+            input: {
+              projectId: meta.id,
+              itemId,
+              fieldId: meta.field.id,
+              value: { singleSelectOptionId: option.id },
+            },
+          },
+        );
+      } catch {
+        /* 下の読み直しで確かめる */
+      }
+    // 書き込みの応答ではなく GitHub の現在の状態で、種類・親・Project・Status を確かめる。
+    try {
+      const back = await gql(
+        env,
+        `query NoteIssueReadback($number:Int!) { repository(owner:"${OWNER}",name:"${REPO}") { issue(number:$number) {
+          id issueType { name } parent { number }
+          projectItems(first:20,includeArchived:false) { nodes { isArchived project { id } fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
+        } } }`,
+        { number: created.number },
+      );
+      const actual = back?.repository?.issue;
+      if (actual?.id !== created.node_id) throw new Error("readback");
+      if (actual.issueType?.name !== input.type) failed.push("type");
+      if (input.parent !== null && actual.parent?.number !== input.parent)
+        failed.push("parent");
+      const item = actual.projectItems?.nodes?.find(
+        (n) => n?.isArchived === false && n.project?.id === meta.id,
+      );
+      if (!item) failed.push("project", "status");
+      else if (item.fieldValueByName?.name !== input.status)
+        failed.push("status");
+    } catch {
+      return {
+        status: 502,
+        data: {
+          ok: false,
+          error: "readback_failed",
+          partial: true,
+          ambiguous: false,
+          issue,
+          failed: [],
+        },
+      };
+    }
+    if (failed.length)
+      return {
+        status: 502,
+        data: {
+          ok: false,
+          error: "partial_issue",
+          partial: true,
+          ambiguous: false,
+          issue,
+          failed,
+        },
+      };
+    return { status: 200, data: { ok: true, issue } };
+  }
   async function commentScope(env, number) {
     let after = null,
       issueId = null,
@@ -2187,6 +2354,33 @@ export function createHandler({
         );
         await assertPublic(env);
         return reply({ ...result, fetchedAt: new Date().toISOString() });
+      }
+      const noteIssue = url.pathname.match(
+        /^\/api\/team-notes\/(n_[a-z0-9]{8,32})\/issue$/,
+      );
+      if (noteIssue) {
+        if (request.method !== "POST" || url.search)
+          throw new ApiError(404, "not_found");
+        // 付箋の Issue 化も GitHub への書き込み。停止中（dev）は GitHub を読む前に止める。
+        assertGithubWritable(env);
+        if (
+          !/^application\/json(?:;|$)/i.test(
+            request.headers.get("content-type") ?? "",
+          )
+        )
+          throw new ApiError(415, "json_required");
+        const raw = await request.text();
+        if (raw.length > 70000) throw new ApiError(413, "body_too_large");
+        let input;
+        try {
+          input = validateNoteIssue(JSON.parse(raw));
+        } catch (e) {
+          throw new ApiError(400, e.code ?? "invalid_json");
+        }
+        if (input.noteId !== noteIssue[1])
+          throw new ApiError(400, "invalid_note");
+        const result = await createFromNote(env, input);
+        return reply(result.data, result.status);
       }
       const commentMatch = url.pathname.match(
         /^\/api\/issues\/([1-9]\d{0,8})\/comments$/,

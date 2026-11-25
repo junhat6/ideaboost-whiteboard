@@ -4221,3 +4221,201 @@ main > #board-scroll {
 [data-theme="dark"] .team-note-action.accept {
   color: var(--canvas, #181b21);
 }
+
+/* ---- 付箋を Issue にする（ADR 019） ---- */
+.team-note-issue {
+  width: auto;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+}
+.team-note:hover .team-note-issue,
+.team-note:focus-within .team-note-issue,
+.team-note:focus .team-note-issue {
+  opacity: 1;
+}
+.team-note-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.team-note-issue-link {
+  grid-column: 2 / -1;
+  justify-self: start;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+.team-note-issue-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.team-note-status a {
+  color: var(--accent);
+  font-weight: 600;
+}
+.note-issue-dialog {
+  width: min(720px, calc(100vw - 48px));
+  padding: 24px 28px;
+  color: var(--ink);
+}
+.note-issue-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.note-issue-dialog p.note-issue-lead {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+#note-issue-source {
+  color: var(--ink);
+}
+.note-issue-error {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--error, #a72a35);
+  border-radius: 8px;
+  background: var(--error-surface, #fff0f1);
+  color: var(--error, #a72a35);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.note-issue-error a {
+  color: inherit;
+  font-weight: 600;
+}
+.note-issue-type {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+.note-issue-type legend {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.note-issue-type label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.note-issue-type .note-issue-hint {
+  margin-left: 4px;
+}
+.note-issue-row {
+  display: grid;
+  grid-template-columns: 1fr 180px;
+  gap: 12px;
+}
+.note-issue-row:has(> [data-for="Task"][hidden]) {
+  grid-template-columns: 180px;
+}
+.note-issue-field {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+}
+.note-issue-field[hidden] {
+  display: none;
+}
+.note-issue-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+.note-issue-required {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--error, #a72a35);
+}
+.note-issue-hint {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.note-issue-field input,
+.note-issue-field select,
+.note-issue-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.note-issue-field textarea {
+  resize: vertical;
+}
+.note-issue-field [aria-invalid="true"] {
+  border-color: var(--error, #a72a35);
+  box-shadow: 0 0 0 1px var(--error, #a72a35);
+}
+.note-issue-dialog :is(input, select, textarea, button, a):focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+.note-issue-dialog p.note-issue-guide {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.note-issue-guide a {
+  color: var(--accent);
+}
+.note-issue-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.note-issue-actions button {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.note-issue-actions button.primary {
+  border-color: var(--accent);
+}
+.note-issue-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+[data-theme="dark"] .note-issue-error {
+  background: transparent;
+  color: #ffb4b9;
+  border-color: #ffb4b9;
+}
+[data-theme="dark"] .note-issue-required {
+  color: #ffb4b9;
+}

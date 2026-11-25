@@ -4632,6 +4632,11 @@ window.Whiteboard = {
   statusColumn,
   goal,
   getSnapshot: () => clone(state),
+  /** 今ボードに出している PBI の ID（付箋の Issue 化で親 PBI の候補を並べる順に使う）。 */
+  visibleLaneIds: () => [...selectedIds()],
+  /** 付箋から Issue を作った後に、ボードへ早めに出すための静かな再取得。 */
+  refreshAfterNoteIssue: () =>
+    adapter ? refreshBoard(undefined, { silent: true }) : null,
   beginConnection,
   setConnectionError(message) {
     initialLoading = false;

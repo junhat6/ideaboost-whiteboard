@@ -570,6 +570,157 @@
         </div>
       </div>
     </dialog>
+    <dialog
+      id="note-issue-dialog"
+      class="note-issue-dialog"
+      aria-labelledby="note-issue-heading"
+      aria-describedby="note-issue-lead"
+    >
+      <form id="note-issue-form" method="dialog" novalidate>
+        <div class="dialog-top">
+          <h2 id="note-issue-heading">付箋を Issue にする</h2>
+          <button
+            type="button"
+            class="icon-button"
+            id="note-issue-close"
+            aria-label="閉じる（書いた内容はこの画面を開いている間残ります）"
+          >
+            ×
+          </button>
+        </div>
+        <p id="note-issue-lead" class="note-issue-lead">
+          元の付箋: <span id="note-issue-source"></span>
+        </p>
+        <div
+          id="note-issue-error"
+          class="note-issue-error"
+          role="alert"
+          hidden
+        ></div>
+        <fieldset class="note-issue-type">
+          <legend>種類</legend>
+          <label
+            ><input type="radio" name="type" value="Task" checked /> Task<span
+              class="note-issue-hint"
+              >実装などの具体的な作業</span
+            ></label
+          >
+          <label
+            ><input type="radio" name="type" value="PBI" /> PBI<span
+              class="note-issue-hint"
+              >Why と利用者への体験</span
+            ></label
+          >
+        </fieldset>
+        <label class="note-issue-field">
+          <span class="note-issue-label"
+            >タイトル<em class="note-issue-required">必須</em></span
+          >
+          <input
+            id="note-issue-title"
+            name="title"
+            maxlength="256"
+            required
+            autocomplete="off"
+          />
+          <span class="note-issue-hint" data-for="PBI" hidden
+            >「取り組み：できるようになること」。PBI-
+            やジャンルは付けません。</span
+          >
+        </label>
+        <div class="note-issue-row">
+          <label class="note-issue-field" data-for="Task">
+            <span class="note-issue-label">親 PBI</span>
+            <select id="note-issue-parent" name="parent"></select>
+          </label>
+          <label class="note-issue-field">
+            <span class="note-issue-label">Status</span>
+            <select id="note-issue-status" name="status">
+              <option>未整理</option>
+              <option>壁打ち中</option>
+              <option>着手可能</option>
+              <option>作業中</option>
+              <option>レビュー中</option>
+            </select>
+          </label>
+        </div>
+        <label class="note-issue-field" data-for="PBI" hidden>
+          <span class="note-issue-label"
+            >ユーザーストーリー<em class="note-issue-required">必須</em></span
+          >
+          <textarea
+            name="story"
+            rows="2"
+            placeholder="参加者として、入力を中断せず案を書き続けたい。なぜなら、思いついた内容を忘れる前に残したいからだ。"
+          ></textarea>
+          <span class="note-issue-hint"
+            >誰が・何をしたいか・なぜ必要か。本文の冒頭に見出しなしで入ります。</span
+          >
+        </label>
+        <label class="note-issue-field">
+          <span class="note-issue-label"
+            >Why<em class="note-issue-required">必須</em></span
+          >
+          <textarea
+            name="why"
+            rows="3"
+            placeholder="現状の問題、誰がどんな場面で困っているか、どう変わるとよいか。"
+          ></textarea>
+          <span class="note-issue-hint"
+            >解決方法が未定でも構いません。確かめていない背景は書かず、担当者と
+            AI で詰めます。</span
+          >
+        </label>
+        <label class="note-issue-field" data-for="PBI" hidden>
+          <span class="note-issue-label">ユーザーに提供する体験</span>
+          <textarea
+            name="experience"
+            rows="2"
+            placeholder="参加者が個人作業画面で付箋を追加すると、そのまま本文を書き始められる。"
+          ></textarea>
+        </label>
+        <label class="note-issue-field" data-for="Task">
+          <span class="note-issue-label">How</span>
+          <textarea
+            name="how"
+            rows="2"
+            placeholder="分かっている方針や仮説（仮と明記）。未定なら空で構いません。"
+          ></textarea>
+        </label>
+        <label class="note-issue-field" data-for="Task">
+          <span class="note-issue-label">作業完了条件</span>
+          <textarea
+            name="acceptance"
+            rows="2"
+            placeholder="完成を判断する主要な結果を少数だけ。"
+          ></textarea>
+        </label>
+        <label class="note-issue-field">
+          <span class="note-issue-label" id="note-issue-notes-label"
+            >関連Issue・補足</span
+          >
+          <textarea name="notes" rows="2"></textarea>
+        </label>
+        <p class="note-issue-guide">
+          書き方は
+          <a
+            href="https://github.com/engineer-first/idea-boost/blob/develop/docs/team/issue-writing.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            referrerpolicy="no-referrer"
+            >Issue記述ルール</a
+          >。作ると付箋は済みになり、Issue へのリンクが付きます。
+        </p>
+        <div class="note-issue-actions">
+          <button type="button" id="note-issue-cancel" class="secondary">
+            キャンセル
+          </button>
+          <button type="submit" id="note-issue-submit" class="primary">
+            Issue を作る
+          </button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="list-dialog" aria-labelledby="list-heading">
       <div class="dialog-top">
         <h2 id="list-heading"></h2>
@@ -611,6 +762,14 @@
         <p>
           <strong>Doneへの移動・「完了」の選択でIssueもClose。</strong
           ><br />別の列へ戻しても、自動ではReopenしません。
+        </p>
+      </section>
+      <section class="help-section">
+        <h3>チームの付箋を Issue にする</h3>
+        <p>
+          付箋の「Issue に」（付箋の上で <kbd>I</kbd>）で、必須の欄を書いて Task
+          か PBI を作れます。親 PBI と Status
+          も選べます。作ると付箋は済みになり、Issue へのリンクが付きます。
         </p>
       </section>
       <section class="help-section">

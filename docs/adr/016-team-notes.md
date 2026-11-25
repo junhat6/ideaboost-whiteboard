@@ -66,7 +66,7 @@
 
 - M2: リモート MCP（`notes_list` / `note_suggest` / `note_attach` / `note_propose`）は [ADR 018](018-remote-mcp.md) で実装した（本番では無効、dev で有効）。M1 の `suggest` / `attach` / `propose` を AI の種別で呼ぶ内部の入口で、人が採否を決める。本番で有効にするのは、ログイン必須化と managed OAuth の実機確認の後。
 - アプリ全体のログイン必須化（Cloudflare Access）。利用者の承認は済んでいるが、手順書を確認してから切り替える。
-- 付箋を Issue にする操作は v1 では入れない。
+- 付箋を Issue にする操作は [ADR 019](019-note-to-issue.md) で足した（2026-11-25、オーナー方針で前倒し）。
 
 ## 検証
 

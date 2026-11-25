@@ -28,6 +28,13 @@
       "namespace_id": "8160001",
       "simple": { "limit": 20, "period": 60 },
     },
+    // 付箋からの Issue 作成の上限（ADR 019）。実 Issue は画面から消せないので、編集（PUBLIC_LIMITER）より
+    // ずっと低くし、public-temporary の間は匿名全体で、チームモードでは利用者ごとに数える。無ければ作成は閉じる。
+    {
+      "name": "NOTE_ISSUE_LIMITER",
+      "namespace_id": "8160003",
+      "simple": { "limit": 5, "period": 60 },
+    },
   ],
   "assets": {
     "directory": "./web",

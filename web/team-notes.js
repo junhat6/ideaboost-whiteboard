@@ -54,6 +54,10 @@
     sign_in_required: "ログインし直してください。",
     item_not_found: "この案はもうありません。最新を表示しています。",
     attachments_full: "残せる添付の上限（10 件）に達しています。",
+    note_already_issued: "この付箋はすでに別の Issue と結び付いています。",
+    invalid_issue: "Issue の番号を確かめられませんでした。",
+    issue_not_from_note:
+      "この付箋から作った Issue として確かめられませんでした。最新を取得してください。",
   };
 
   function setStatus(text, kind = "", action) {
@@ -73,23 +77,20 @@
     }
   }
 
-  async function api(method, body) {
+  async function api(method, body, path = "api/team-notes", timeout = 20000) {
     let response;
     try {
-      response = await fetch(
-        new URL("api/team-notes", new URL(".", location.href)),
-        {
-          method,
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: AbortSignal.timeout(20000),
-          headers: {
-            Accept: "application/json",
-            ...(body ? { "Content-Type": "application/json" } : {}),
-          },
-          body: body ? JSON.stringify(body) : undefined,
+      response = await fetch(new URL(path, new URL(".", location.href)), {
+        method,
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: AbortSignal.timeout(timeout),
+        headers: {
+          Accept: "application/json",
+          ...(body ? { "Content-Type": "application/json" } : {}),
         },
-      );
+        body: body ? JSON.stringify(body) : undefined,
+      });
     } catch {
       const e = new Error("network");
       e.ambiguous = method === "POST";
@@ -302,7 +303,12 @@
     li.className = "team-note" + (note.done ? " done" : "");
     li.tabIndex = 0;
     li.dataset.noteId = note.id;
-    li.setAttribute("aria-label", note.text + (note.done ? "（済み）" : ""));
+    li.setAttribute(
+      "aria-label",
+      note.text +
+        (note.issue ? `（Issue #${note.issue.number}）` : "") +
+        (note.done ? "（済み）" : ""),
+    );
     const check = document.createElement("input");
     check.type = "checkbox";
     check.checked = note.done;
@@ -345,6 +351,16 @@
       text.ondblclick = () => startEdit(note);
       li.append(text);
     }
+    const tools = el("span", "team-note-tools");
+    if (!note.issue && !note.done && editingId !== note.id) {
+      const toIssue = el("button", "team-note-issue", "Issue に");
+      toIssue.type = "button";
+      toIssue.tabIndex = -1;
+      toIssue.setAttribute("aria-label", "Issue にする（I）");
+      toIssue.title = "Issue にする（I）";
+      toIssue.onclick = () => openIssueDialog(note);
+      tools.append(toIssue);
+    }
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "team-note-remove";
@@ -353,7 +369,27 @@
     remove.setAttribute("aria-label", "剥がす");
     remove.title = "剥がす（Delete）";
     remove.onclick = () => removeNote(note);
-    li.append(remove);
+    tools.append(remove);
+    li.append(tools);
+    if (note.issue) {
+      const href = issueHref(note.issue);
+      if (href) {
+        const link = el(
+          "a",
+          "team-note-issue-link",
+          `Issue #${note.issue.number}`,
+        );
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.referrerPolicy = "no-referrer";
+        link.setAttribute(
+          "aria-label",
+          `この付箋から作った Issue #${note.issue.number} を GitHub で開く`,
+        );
+        li.append(link);
+      }
+    }
     if (editingId !== note.id && !note.done)
       for (const s of note.suggestions || [])
         li.append(suggestionBlock(note, s));
@@ -625,6 +661,434 @@
     (rest[Math.min(at, rest.length - 1)] || input).focus();
   }
 
+  // ---- 付箋を Issue にする（ADR 019） ----
+  // 編集画面で必須の欄を埋め、Worker が付箋ごとの DO を通して GitHub に作る。
+  // 作れたら付箋にその Issue を結び付けて済みにする。結果不明は自動で再送しない。
+  const issueDialog = document.getElementById("note-issue-dialog");
+  const issueForm = document.getElementById("note-issue-form");
+  const ISSUE_BASE = "https://github.com/engineer-first/idea-boost/issues/";
+  const ISSUE_FIELDS = {
+    PBI: ["story", "why", "experience", "notes"],
+    Task: ["why", "how", "acceptance", "notes"],
+  };
+  const REQUIRED = { PBI: ["title", "story", "why"], Task: ["title", "why"] };
+  const FIELD_NAMES = {
+    title: "タイトル",
+    story: "ユーザーストーリー",
+    why: "Why",
+  };
+  const STEP_NAMES = {
+    type: "種類",
+    parent: "親 PBI",
+    project: "Project への追加",
+    status: "Status",
+  };
+  const issueMessages = {
+    invalid_title: "タイトルは 1〜256 文字で書いてください。",
+    required_why: "Why を書いてください。",
+    required_story: "ユーザーストーリーを書いてください。",
+    field_too_long: "1 つの欄は 10000 文字までです。",
+    parent_not_pbi:
+      "親に選んだ Issue が見つからないか、PBI ではありません。選び直してください。",
+    parent_closed: "親に選んだ PBI は閉じています。選び直してください。",
+    status_option_missing:
+      "Project にこの Status がありません。別の Status を選んでください。",
+    github_writes_disabled: "この環境では GitHub へ書き込めません。",
+    scope_not_public:
+      "公開範囲を確認できないため作りませんでした。再読み込みしてください。",
+    rate_limited: "操作が多すぎます。少し待ってから作ってください。",
+    mutation_queue_full:
+      "保存が混み合っています。少し待ってから作ってください。",
+    github_request_failed:
+      "GitHub が Issue の作成を受け付けませんでした。内容を確かめてもう一度作ってください。",
+    sign_in_required: "ログインし直してください。",
+    origin_mismatch:
+      "このページからの操作として確認できませんでした。再読み込みしてください。",
+  };
+  const issueDrafts = new Map();
+  // 結果不明になった付箋。同じ画面からは作り直させない（DO 側でも止まる）。
+  const issueBlocked = new Set();
+  let issueNote = null;
+  let issueReturn = null;
+  let issueBusy = false;
+
+  function issueHref(issue) {
+    return Number.isSafeInteger(issue?.number) &&
+      issue.number > 0 &&
+      issue.url === ISSUE_BASE + issue.number
+      ? issue.url
+      : null;
+  }
+
+  const issueField = (name) => issueForm.elements.namedItem(name);
+  const issueType = () =>
+    issueForm.querySelector('input[name="type"]:checked')?.value === "PBI"
+      ? "PBI"
+      : "Task";
+
+  function setIssueType(type) {
+    for (const node of issueForm.querySelectorAll("[data-for]"))
+      node.hidden = node.dataset.for !== type;
+    document.getElementById("note-issue-notes-label").textContent =
+      type === "PBI" ? "補足" : "関連Issue・補足";
+  }
+
+  function boardPbis() {
+    let snapshot = null;
+    let visible = [];
+    try {
+      snapshot = window.Whiteboard?.getSnapshot?.();
+      visible = window.Whiteboard?.visibleLaneIds?.() || [];
+    } catch {
+      /* ボードがまだ読めていなくても、親なしで作れる */
+    }
+    const lanes = (snapshot?.lanes || []).filter(
+      (l) =>
+        l.type === "PBI" &&
+        Number.isSafeInteger(l.number) &&
+        l.number > 0 &&
+        l.state !== "CLOSED",
+    );
+    const shown = new Set(visible);
+    return {
+      shown: lanes.filter((l) => shown.has(l.id)),
+      others: lanes.filter((l) => !shown.has(l.id)),
+    };
+  }
+
+  function fillParents(selected) {
+    const select = issueField("parent");
+    const none = new Option("親 PBI なし（ボードには出ません）", "");
+    const groups = [];
+    const { shown, others } = boardPbis();
+    for (const [label, list] of [
+      ["ボードに表示中", shown],
+      ["その他の PBI", others],
+    ]) {
+      if (!list.length) continue;
+      const group = document.createElement("optgroup");
+      group.label = label;
+      for (const l of list)
+        group.append(new Option(`#${l.number} ${l.title}`, String(l.number)));
+      groups.push(group);
+    }
+    select.replaceChildren(none, ...groups);
+    select.value =
+      selected && select.querySelector(`option[value="${selected}"]`)
+        ? String(selected)
+        : "";
+  }
+
+  function keptAttachments(note) {
+    return (note.attachments || [])
+      .filter((a) => a.state === "kept")
+      .map((a) =>
+        a.kind === "url"
+          ? `- ${a.label ? a.label + ": " : ""}${a.value}`
+          : `- ${a.value.replace(/\s*\n\s*/g, " ")}`,
+      )
+      .join("\n");
+  }
+
+  function readIssueForm() {
+    const value = (name) => issueField(name)?.value ?? "";
+    return {
+      type: issueType(),
+      title: value("title"),
+      parent: value("parent"),
+      status: value("status"),
+      story: value("story"),
+      why: value("why"),
+      experience: value("experience"),
+      how: value("how"),
+      acceptance: value("acceptance"),
+      notes: value("notes"),
+    };
+  }
+
+  function writeIssueForm(draft) {
+    for (const radio of issueForm.querySelectorAll('input[name="type"]'))
+      radio.checked = radio.value === draft.type;
+    for (const name of [
+      "title",
+      "status",
+      "story",
+      "why",
+      "experience",
+      "how",
+      "acceptance",
+      "notes",
+    ])
+      issueField(name).value = draft[name] ?? "";
+    if (!issueField("status").value) issueField("status").value = "未整理";
+    fillParents(draft.parent);
+    setIssueType(draft.type);
+  }
+
+  // 閉じた後や別の付箋を開いている間に結果が返ったら、ダイアログではなく棚の状態行に出す。
+  function reportIssueError(note, text, link) {
+    if (issueDialog.open && issueNote?.id === note.id)
+      return showIssueError(text, link);
+    setStatus(
+      `「${note.text.slice(0, 20)}」: ${text}`,
+      "error",
+      link && {
+        label: link.label,
+        run: () => window.open(link.href, "_blank", "noopener,noreferrer"),
+      },
+    );
+  }
+
+  function showIssueError(text, link) {
+    const box = document.getElementById("note-issue-error");
+    box.replaceChildren();
+    box.hidden = !text;
+    if (!text) return;
+    box.append(document.createTextNode(text));
+    if (link) {
+      const a = el("a", "", link.label);
+      a.href = link.href;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.referrerPolicy = "no-referrer";
+      box.append(" ", a);
+    }
+  }
+
+  function syncIssueControls() {
+    const submit = document.getElementById("note-issue-submit");
+    submit.disabled = issueBusy || !issueNote || issueBlocked.has(issueNote.id);
+    submit.textContent = issueBusy ? "作成中…" : "Issue を作る";
+    if (issueBusy) issueDialog.setAttribute("aria-busy", "true");
+    else issueDialog.removeAttribute("aria-busy");
+  }
+
+  function openIssueDialog(note) {
+    if (!issueDialog || note.issue || note.done) return;
+    if (mode !== "api" && mode !== "sample") return;
+    if (issueDialog.open) return;
+    issueNote = note;
+    issueReturn = note.id;
+    document.getElementById("note-issue-source").textContent = note.text;
+    writeIssueForm(
+      issueDrafts.get(note.id) || {
+        type: "Task",
+        title: note.text,
+        status: "未整理",
+        parent: "",
+        notes: keptAttachments(note),
+      },
+    );
+    for (const node of issueForm.querySelectorAll("[aria-invalid]"))
+      node.removeAttribute("aria-invalid");
+    if (issueBlocked.has(note.id))
+      showIssueError(
+        "前回の作成の結果を確認できていません。二重に作らないよう、この付箋からは作れません。GitHub で確かめてください。",
+        { label: "GitHub の Issue 一覧", href: ISSUE_BASE },
+      );
+    else if (mode === "sample")
+      showIssueError("サンプル表示です。Issue は作られません。");
+    else showIssueError("");
+    syncIssueControls();
+    issueDialog.showModal();
+    issueField("title").focus();
+    issueField("title").select();
+  }
+
+  function closeIssueDialog() {
+    if (!issueDialog.open) return;
+    // 書いた内容は、この画面を開いている間は付箋ごとに残す（閉じても消えない）。
+    if (issueNote && !issueBusy) issueDrafts.set(issueNote.id, readIssueForm());
+    issueDialog.close();
+  }
+
+  function issueResultStatus(issue, warning) {
+    statusEl.textContent = "";
+    statusEl.className = "team-note-status" + (warning ? " error" : "");
+    statusEl.hidden = false;
+    const href = issueHref(issue);
+    statusEl.append(
+      document.createTextNode(
+        warning ? `Issue #${issue.number} を作りました。${warning}` : "",
+      ),
+    );
+    if (!warning) statusEl.append(document.createTextNode("Issue "));
+    if (href) {
+      const a = el("a", "", `#${issue.number}`);
+      a.href = href;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.referrerPolicy = "no-referrer";
+      if (warning) statusEl.append(" ", a);
+      else statusEl.append(a);
+    }
+    if (!warning)
+      statusEl.append(
+        document.createTextNode(" を作り、付箋を済みにしました。"),
+      );
+  }
+
+  async function linkIssue(note, issue) {
+    while (busy) await inflight;
+    return write(
+      { op: "issue", id: note.id, number: issue.number, url: issue.url },
+      (data) =>
+        replace(
+          data?.note || {
+            ...note,
+            done: true,
+            issue: { number: issue.number, url: issue.url },
+            rev: note.rev + 1,
+          },
+        ),
+    );
+  }
+
+  async function submitIssue() {
+    if (issueBusy || !issueNote || issueBlocked.has(issueNote.id)) return;
+    const note = issueNote;
+    const form = readIssueForm();
+    for (const node of issueForm.querySelectorAll("[aria-invalid]"))
+      node.removeAttribute("aria-invalid");
+    const missing = REQUIRED[form.type].filter((k) => !form[k].trim());
+    if (missing.length) {
+      for (const k of missing)
+        issueField(k).setAttribute("aria-invalid", "true");
+      showIssueError(
+        "必須の欄を書いてください: " +
+          missing.map((k) => FIELD_NAMES[k]).join("、"),
+      );
+      issueField(missing[0]).focus();
+      return;
+    }
+    if (mode === "sample") {
+      showIssueError("サンプル表示です。Issue は作られません。");
+      return;
+    }
+    const body = {
+      requestId: requestId(),
+      noteId: note.id,
+      type: form.type,
+      title: form.title,
+      status: form.status,
+      ...(form.type === "Task" && form.parent
+        ? { parent: Number(form.parent) }
+        : {}),
+    };
+    for (const k of ISSUE_FIELDS[form.type])
+      if (form[k].trim()) body[k] = form[k];
+    issueDrafts.set(note.id, form);
+    issueBusy = true;
+    showIssueError("");
+    syncIssueControls();
+    let issue = null;
+    let warning = "";
+    try {
+      // サーバーは GitHub を数回続けて呼ぶので、付箋の書き込みより長く待つ。待ちきれなければ結果不明。
+      const data = await api(
+        "POST",
+        body,
+        `api/team-notes/${note.id}/issue`,
+        90000,
+      );
+      issue = data.issue;
+    } catch (e) {
+      if (e.data?.issue && issueHref(e.data.issue)) {
+        issue = e.data.issue;
+        if (e.code === "note_already_issued")
+          warning =
+            "（この付箋からは前に作っていました。新しくは作っていません）";
+        else if (e.code === "partial_issue")
+          warning =
+            "ただし次が済んでいません。再送はしないので、GitHub で直してください: " +
+            (e.data.failed || []).map((x) => STEP_NAMES[x] || x).join("、") +
+            "。";
+        else
+          warning =
+            "ただし Project・Status・親 PBI が反映されたか確かめられませんでした。GitHub で確かめてください。";
+      } else if (e.ambiguous) {
+        issueBlocked.add(note.id);
+        reportIssueError(
+          note,
+          "Issue が作られたか確認できません。再送はしていません。二重に作らないよう、GitHub で確かめてください。",
+          { label: "GitHub の Issue 一覧", href: ISSUE_BASE },
+        );
+      } else {
+        reportIssueError(
+          note,
+          issueMessages[e.code] ||
+            "Issue を作れませんでした。内容を確かめてください。",
+        );
+      }
+    } finally {
+      issueBusy = false;
+      syncIssueControls();
+    }
+    if (!issue) return;
+    if (issueNote?.id === note.id && issueDialog.open) issueDialog.close();
+    const linked = await linkIssue(note, issue);
+    // 下書きは結び付けに成功してから消す。失敗したら押し直しで同じ内容のまま受領を取りにいける。
+    if (linked) issueDrafts.delete(note.id);
+    if (linked) issueResultStatus(issue, warning);
+    else
+      // Issue はできている。付箋への結び付けだけ失敗した。もう一度「Issue に」を押すと、
+      // 新しくは作らずに同じ Issue を結び付け直す（DO が付箋ごとの受領を返す）。
+      issueResultStatus(
+        issue,
+        "付箋への結び付けに失敗しました。最新を取得し、もう一度「Issue に」を押すと同じ Issue を結び付けます。",
+      );
+    window.Whiteboard?.refreshAfterNoteIssue?.()?.catch?.(() => {});
+    focusNote(note.id);
+  }
+
+  if (issueDialog && issueForm) {
+    issueForm.addEventListener("change", (e) => {
+      if (e.target.name === "type") setIssueType(issueType());
+    });
+    issueForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitIssue();
+    });
+    issueForm.addEventListener("keydown", (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        submitIssue();
+      }
+      // 入力欄・ラジオ・選択の Enter で送らない（IME の確定や暗黙の送信で作ってしまわない）。
+      // 送るのは ⌘/Ctrl+Enter か「Issue を作る」ボタンだけ。
+      else if (
+        e.key === "Enter" &&
+        ["INPUT", "SELECT"].includes(e.target.tagName)
+      )
+        e.preventDefault();
+    });
+    issueDialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      closeIssueDialog();
+    });
+    issueDialog.addEventListener("close", () => {
+      issueNote = null;
+      const id = issueReturn;
+      issueReturn = null;
+      if (id) focusNote(id);
+    });
+    document.getElementById("note-issue-close").onclick = closeIssueDialog;
+    document.getElementById("note-issue-cancel").onclick = closeIssueDialog;
+    // 暗幕（dialog の外）のクリックだけで閉じる。dialog の余白のクリックでは閉じない。
+    issueDialog.addEventListener("click", (e) => {
+      if (e.target !== issueDialog) return;
+      const r = issueDialog.getBoundingClientRect();
+      if (
+        e.clientX < r.left ||
+        e.clientX > r.right ||
+        e.clientY < r.top ||
+        e.clientY > r.bottom
+      )
+        closeIssueDialog();
+    });
+  }
+
   function autosize() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 160) + "px";
@@ -684,6 +1148,15 @@
     } else if (e.key === "Escape") {
       handled();
       input.focus();
+    } else if (
+      e.key.toLowerCase() === "i" &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      handled();
+      if (!note.issue && !note.done) openIssueDialog(note);
     } else if (
       e.key.toLowerCase() === "z" &&
       (e.metaKey || e.ctrlKey) &&

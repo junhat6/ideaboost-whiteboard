@@ -11,6 +11,7 @@ test("help concentrates on non-obvious editing and status behavior", async ({
   await expect(dialog.locator("h3")).toHaveText([
     "選ぶ変更と、書く変更",
     "列とステータス",
+    "チームの付箋を Issue にする",
     "Demo goalを直したいとき",
   ]);
   await expect(dialog).not.toContainText(/最大6|Fで|Escape/);

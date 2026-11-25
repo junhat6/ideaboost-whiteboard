@@ -65,6 +65,9 @@ export class IssueCoordinator extends DurableObject<Env> {
     }
     if (path === "/api/board" && request.method === "GET")
       return this.reader.fetch(request);
+    // 付箋への Issue の結び付けの照合（ADR 019）。Worker の内部からだけ届く（外の経路は転送しない）。
+    if (path === "/internal/note-issued" && request.method === "GET")
+      return Response.json({ issued: await this.coordinator.issued() });
     const reader = this.env.MUTATIONS!.getByName(
       "engineer-first/idea-boost:board-reader",
     );

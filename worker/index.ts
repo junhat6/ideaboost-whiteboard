@@ -21,6 +21,8 @@ export interface Env extends AuthConfig {
   TEAM_NOTES_MCP_ENABLED?: string;
   /** MCP 経由の書き込みの、利用者ごとのレート制限。無ければ MCP の書き込みは閉じる。 */
   MCP_LIMITER?: RateLimit;
+  /** 付箋からの Issue 作成の上限（ADR 019）。無ければ作成は閉じる（503）。 */
+  NOTE_ISSUE_LIMITER?: RateLimit;
   /** 未設定（本番）だけ GitHub へ書ける。dev は "disabled"。"enabled" 以外の値は全て書き込みを止める。 */
   GITHUB_WRITES?: string;
   ESTIMATE_HOURS_READ_ENABLED?: string;
@@ -165,6 +167,8 @@ export function createWorker(auth = authenticate, api = handleApi) {
                 await env.PUBLIC_LIMITER.limit({
                   // 付箋は棚が 30 秒ごとに読み直すため、ボードの読み書きと別の共有 key にする。
                   // 同じ key だと、数人が棚を開いているだけでボードの読み取りが 429 になる。
+                  // 付箋の Issue 化（/api/team-notes/<id>/issue）は GitHub への書き込みなので、
+                  // 付箋の枠ではなく Issue の編集と同じ public-write の枠を使う。
                   key:
                     (url.pathname === "/api/team-notes"
                       ? "public-notes-"
@@ -280,6 +284,54 @@ export function createWorker(auth = authenticate, api = handleApi) {
             );
           }
         }
+        const noteIssue = new URL(request.url).pathname.match(
+          /^\/api\/team-notes\/(n_[a-z0-9]{8,32})\/issue$/,
+        );
+        if (noteIssue) {
+          // 付箋の Issue 化（ADR 019）。付箋が無効なら存在しない経路と同じ 404。
+          if (env.TEAM_NOTES_ENABLED !== "true")
+            throw new AccessError(404, "not_found");
+          if (request.method !== "POST")
+            throw new AccessError(405, "method_not_allowed");
+          if (githubWritesDisabled(env))
+            throw new AccessError(403, "github_writes_disabled");
+          if (!env.MUTATIONS)
+            throw new AccessError(503, "mutation_coordinator_not_configured");
+          // 実 Issue は画面から消せないので、編集の枠とは別の低い枠で数える。public-temporary では
+          // 匿名全体を 1 つの key にまとめる（利用者を名乗り替えて枠を増やせないように）。
+          if (!env.NOTE_ISSUE_LIMITER)
+            throw new AccessError(503, "rate_limit_not_configured");
+          if (
+            !(
+              await env.NOTE_ISSUE_LIMITER.limit({
+                key:
+                  env.AUTH_MODE === "public-temporary"
+                    ? "public-note-issue"
+                    : "note-issue:" + user.id,
+              })
+            ).success
+          )
+            throw new AccessError(429, "rate_limited");
+          // 付箋ごとの DO で直列化し、requestId と「この付箋の Issue」を記録する。
+          const coordinator = env.MUTATIONS.getByName(
+            `engineer-first/idea-boost:note-issue:${noteIssue[1]}`,
+          );
+          try {
+            return secure(await coordinator.fetch(internal));
+          } catch {
+            // 転送で失敗しても Issue はできているかもしれない。再送を促さない。
+            return secure(
+              Response.json(
+                {
+                  ok: false,
+                  error: "mutation_outcome_unresolved",
+                  ambiguous: true,
+                },
+                { status: 503 },
+              ),
+            );
+          }
+        }
         if (
           request.method === "GET" &&
           new URL(request.url).pathname === "/api/board" &&
@@ -303,8 +355,45 @@ export function createWorker(auth = authenticate, api = handleApi) {
           const notes = env.TEAM_NOTES.getByName(
             "engineer-first/idea-boost:team-notes",
           );
+          let forward = internal;
+          if (request.method === "POST") {
+            // 付箋に Issue を結び付ける op は、その付箋から実際に作った Issue（付箋ごとの DO の受領）だけ通す。
+            // 任意の番号を結び付けて、その付箋から二度と作れなくすることを防ぐ（ADR 019）。
+            const text = await internal.text();
+            let data: { op?: unknown; id?: unknown; number?: unknown } | null =
+              null;
+            try {
+              data = text.length <= 16000 ? JSON.parse(text) : null;
+            } catch {
+              /* 形の誤りは DO が 400 で返す */
+            }
+            if (data?.op === "issue") {
+              if (
+                typeof data.id !== "string" ||
+                !/^n_[a-z0-9]{8,32}$/.test(data.id)
+              )
+                throw new AccessError(400, "invalid_issue");
+              if (!env.MUTATIONS)
+                throw new AccessError(
+                  503,
+                  "mutation_coordinator_not_configured",
+                );
+              const receipt = await env.MUTATIONS.getByName(
+                `engineer-first/idea-boost:note-issue:${data.id}`,
+              ).fetch(new Request("https://internal/internal/note-issued"));
+              const issued = receipt.ok
+                ? ((await receipt.json()) as { issued?: { number?: number } })
+                    .issued
+                : null;
+              if (!issued || issued.number !== data.number)
+                throw new AccessError(409, "issue_not_from_note");
+            }
+            forward = new Request(internal, { body: text });
+            // 読み直した本文の長さは元の Content-Length と違うことがある。転送では付け直させる。
+            forward.headers.delete("content-length");
+          }
           try {
-            return secure(await notes.fetch(internal));
+            return secure(await notes.fetch(forward));
           } catch {
             // 転送で失敗しても、DO 側で書き込みが済んでいる可能性がある。再送を促さない。
             return secure(

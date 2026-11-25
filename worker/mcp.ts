@@ -89,6 +89,10 @@ function view(note: TeamNote) {
       ...(a.label ? { label: a.label } : {}),
       state: a.state,
     })),
+    // 人がこの付箋から作った Issue（ADR 019）。AI は Issue を作らず、番号を読むだけ。
+    ...(note.issue
+      ? { issue: { number: note.issue.number, url: note.issue.url } }
+      : {}),
   };
 }
 

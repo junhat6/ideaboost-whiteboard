@@ -63,7 +63,12 @@ test("dev は本番と別の Worker で、付箋を開き、GitHub の資格・�
   assert.equal(config.vars.TEAM_NOTES_MCP_ENABLED, "true");
   assert.equal("ACCESS_DEV_JWKS" in config.vars, false);
   const prodLimits = config.ratelimits as { name: string; namespace_id: string }[];
-  assert.deepEqual(prodLimits.map((r) => r.name).sort(), ["MCP_LIMITER", "PUBLIC_LIMITER"]);
+  assert.deepEqual(prodLimits.map((r) => r.name).sort(), [
+    "MCP_LIMITER",
+    // 付箋からの Issue 作成の上限（ADR 019）。dev は GitHub に書かないので置かない（作成は 403 で止まる）。
+    "NOTE_ISSUE_LIMITER",
+    "PUBLIC_LIMITER",
+  ]);
   // rate limit の namespace は本番・dev のすべてで重ならない（重なると枠を共有してしまう）。
   const namespaces = [...prodLimits, ...dev.ratelimits].map((r: { namespace_id: string }) => r.namespace_id);
   assert.equal(new Set(namespaces).size, namespaces.length);
