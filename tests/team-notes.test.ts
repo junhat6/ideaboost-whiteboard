@@ -292,11 +292,13 @@ test("付箋が無効な Worker は全メソッドで 404 を返し、DO へ転�
     throw Error("must not require Access");
   });
   let limited = 0;
+  const keys: string[] = [];
   const limitedEnv = (enabled: string | undefined) => ({
     ...publicEnv(notes, enabled),
     PUBLIC_LIMITER: {
-      limit: async () => {
+      limit: async ({ key }: { key: string }) => {
         limited++;
+        keys.push(key);
         return { success: true };
       },
     },
@@ -312,6 +314,9 @@ test("付箋が無効な Worker は全メソッドで 404 を返し、DO へ転�
     200,
   );
   assert.equal(limited, 1);
+  // 有効時は、棚の定期取得がボードの共有枠（public-read / public-write）を食わない別の key を使う。
+  await worker.fetch(workerRequest("POST"), limitedEnv("true"));
+  assert.deepEqual(keys, ["public-notes-read", "public-notes-write"]);
   forwarded = 0;
   for (const enabled of [undefined, "false", "TRUE", "1"])
     for (const method of ["GET", "POST"]) {

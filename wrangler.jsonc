@@ -21,6 +21,13 @@
       "namespace_id": "5473658",
       "simple": { "limit": 30, "period": 60 },
     },
+    // MCP 経由の書き込みの、利用者ごとの上限（ADR 018）。dev と同じ 20 回 / 60 秒から始める。
+    // namespace_id はアカウント内のほかの rate limit（PUBLIC_LIMITER・dev の MCP_LIMITER）と重ならない値。
+    {
+      "name": "MCP_LIMITER",
+      "namespace_id": "8160001",
+      "simple": { "limit": 20, "period": 60 },
+    },
   ],
   "assets": {
     "directory": "./web",
@@ -33,10 +40,12 @@
   "vars": {
     "GITHUB_APP_ID": "5473658",
     "GITHUB_INSTALLATION_ID": "175301060",
-    // チームの付箋は匿名で書けるため、ログイン必須化（#10）までは本番で無効（ADR 016）。
-    "TEAM_NOTES_ENABLED": "false",
-    // リモート MCP（/mcp）も本番では無効（ADR 016 の M2）。有効にするのはログイン必須化と managed OAuth の確認の後。
-    "TEAM_NOTES_MCP_ENABLED": "false",
+    // チームの付箋は本番で有効（2026-11-25 オーナー方針、ADR 016）。public-temporary の間は
+    // 実 Issue の編集と同じく、秘密の path・Origin・共有の rate limit の内側で匿名で書ける。
+    "TEAM_NOTES_ENABLED": "true",
+    // リモート MCP（/mcp）もフラグは有効。ただし Worker は public-temporary では常に 404 を返す（匿名の MCP は作らない）。
+    // ログイン必須化（AUTH_MODE を外す）と同時に、Access の JWT で認証されたメンバーにだけ開く（ADR 018）。
+    "TEAM_NOTES_MCP_ENABLED": "true",
   },
   // 付箋とリモート MCP を実際の AI クライアントで試す dev（ADR 017）。CI・release は deploy しない。
   // 人が `wrangler deploy --env dev` するときだけ使う。本番の値・URL・secret はここへ写さない。

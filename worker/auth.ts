@@ -18,7 +18,15 @@ export interface AuthConfig {
    * チームモード（authenticate() を通る全ルート）を 503 にする。public-temporary はこの関数を通らないので影響しない。
    */
   ACCESS_DEV_JWKS?: string;
+  /**
+   * CI の本番スモーク用の Access service token の Client ID（runbook 4.3）。
+   * service token の JWT には email が無く、common_name に Client ID が入る。これと一致するときだけ、
+   * 読み取り専用の主体 `service:ci-smoke` として通す（どの要求を許すかは Worker が絞る）。
+   */
+  ACCESS_SERVICE_TOKEN_CLIENT_ID?: string;
 }
+/** CI の service token の主体。メンバーの ID（Access の sub）と混ざらない固定値。 */
+export const SERVICE_PRINCIPAL = "service:ci-smoke";
 const LOCAL_ORIGIN = /^http:\/\/(?:localhost|127\.0\.0\.1):\d{1,5}$/;
 const keySets = new Map<string, JWTVerifyGetKey>();
 export class AccessError extends Error {
@@ -80,18 +88,33 @@ export async function authenticate(
       issuer,
       audience: env.ACCESS_AUD,
       algorithms: ["RS256"],
-      requiredClaims: ["sub", "email", "iat", "exp"],
+      // sub・email は人の主体でだけ要求する（service token の JWT には email が無い）。下で種別ごとに検査する。
+      requiredClaims: ["iat", "exp"],
       clockTolerance: 5,
     }));
   } catch {
     throw new AccessError(401, "invalid_access_token");
   }
+  // service token: email が無く、common_name が登録済みの Client ID と完全一致するときだけ。
+  // 検証（署名・issuer・audience）は人と同じで、緩めない。
+  if (payload.email === undefined && payload.common_name !== undefined) {
+    const clientId = env.ACCESS_SERVICE_TOKEN_CLIENT_ID;
+    if (
+      !clientId ||
+      typeof payload.common_name !== "string" ||
+      payload.common_name !== clientId
+    )
+      throw new AccessError(403, "service_token_not_allowed");
+    return { id: SERVICE_PRINCIPAL, email: "", service: true as const };
+  }
+  // 人の主体: 以前の requiredClaims と同じく、sub・email が無ければ 401。
   if (
     typeof payload.email !== "string" ||
     typeof payload.sub !== "string" ||
-    !allowed.includes(payload.email.toLowerCase())
-  ) {
+    !payload.sub
+  )
+    throw new AccessError(401, "invalid_access_token");
+  if (!allowed.includes(payload.email.toLowerCase()))
     throw new AccessError(403, "member_not_allowed");
-  }
   return { id: payload.sub, email: payload.email.toLowerCase() };
 }
