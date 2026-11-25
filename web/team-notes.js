@@ -192,13 +192,37 @@
   // 描き直しの間に立てる。フォーカスのある欄を外すと blur が同期で起きるので、
   // それを「人がフォーカスを外した」と区別する（isConnected では区別できない）。
   let rendering = false;
+  const EDIT_FIELDS = ".team-note-edit, .team-note-memo-edit textarea";
   function render() {
+    // 書いている欄の値とカーソルを、作り直した欄へ引き継ぐ（ほかの書き込みの後の描き直しで、
+    // 書きかけが黙って元に戻らないように）。
+    const live = [...shelf.querySelectorAll(EDIT_FIELDS)].map((f) => ({
+      id: f.closest("[data-note-id]")?.dataset.noteId,
+      memo: f.matches("textarea:not(.team-note-edit)"),
+      value: f.value,
+      start: f.selectionStart,
+      end: f.selectionEnd,
+      readOnly: f.readOnly,
+    }));
     rendering = true;
     try {
       renderNow();
     } finally {
       rendering = false;
     }
+    if (!live.length) return;
+    // 新しい欄は自分の microtask でフォーカスとカーソルを置くので、その後に戻す。
+    queueMicrotask(() => {
+      for (const l of live) {
+        const li = l.id && shelf.querySelector(`[data-note-id="${l.id}"]`);
+        const field = li?.querySelector(
+          l.memo ? ".team-note-memo-edit textarea" : ".team-note-edit",
+        );
+        if (!field || field.readOnly || l.readOnly) continue;
+        field.value = l.value;
+        field.setSelectionRange(l.start, l.end);
+      }
+    });
   }
   function renderNow() {
     const open = notes.filter((n) => !n.done);
@@ -763,6 +787,12 @@
       replace(next);
     });
     focusNote(note.id);
+  }
+
+  /** 棚の中の入力欄（select・textarea）にフォーカスがあるか。 */
+  function shelfTyping() {
+    const active = document.activeElement;
+    return !!(shelf.contains(active) && active.matches("select,textarea"));
   }
 
   function focusNote(id) {
@@ -1453,7 +1483,8 @@
         "付箋への結び付けに失敗しました。最新を取得し、もう一度「Issue に」を押すと同じ Issue を結び付けます。",
       );
     window.Whiteboard?.refreshAfterNoteIssue?.()?.catch?.(() => {});
-    focusNote(note.id);
+    // 待っている間に別の付箋で書き始めていれば、その欄からフォーカスを奪わない。
+    if (!shelfTyping()) focusNote(note.id);
   }
 
   if (issueDialog && issueForm) {
@@ -1486,11 +1517,10 @@
       issueNote = null;
       const id = issueReturn;
       issueReturn = null;
-      // close は後から届く。その間に同じ付箋の中で入力（PBI の一覧・本文やメモの編集）を
+      // close は後から届く。その間に棚のどこかで入力（PBI の一覧・本文やメモの編集・一言入力）を
       // 始めていれば、フォーカスを奪わない（奪うと blur で入力が閉じる）。
       const li = id && shelf.querySelector(`[data-note-id="${id}"]`);
-      const active = document.activeElement;
-      const typing = li?.contains(active) && active.matches("select,textarea");
+      const typing = shelfTyping();
       if (li && !typing) li.focus();
     });
     document.getElementById("note-issue-close").onclick = closeIssueDialog;

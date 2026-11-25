@@ -32,12 +32,17 @@ async function fakeShelf(page: Page, initial: Note[]) {
         status: 404,
         json: { ok: false, error: "note_not_found" },
       });
-    if (note.rev !== body.rev)
+    // issue は rev を持たない op（ADR 019）。
+    if (body.op !== "issue" && note.rev !== body.rev)
       return route.fulfill({
         status: 409,
         json: { ok: false, error: "note_conflict", note },
       });
     note.rev++;
+    if (body.op === "issue") {
+      note.done = true;
+      Object.assign(note, { issue: { number: body.number, url: body.url } });
+    }
     if (body.op === "memo") {
       if (body.memo) note.memo = body.memo;
       else delete note.memo;
@@ -321,4 +326,52 @@ test("書いている間に付箋が剥がされたら、書いた文を状態�
   await expect(
     page.locator("#team-note-list .team-note-text", { hasText: "新しい付箋" }),
   ).toBeVisible();
+});
+
+test("ほかの書き込み（Issue 作成の結果の結び付け）で描き直しても、書いているメモは残り、フォーカスも奪わない", async ({
+  page,
+}) => {
+  const server = await fakeShelf(page, [
+    { id: ID, text: "告知文", done: false, rev: 1, memo: "元" },
+    { id: "n_fake000002", text: "会場の電源", done: false, rev: 1 },
+  ]);
+  await setup(page);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route("**/api/team-notes/*/issue", async (route) => {
+    await gate;
+    return route.fulfill({
+      json: {
+        ok: true,
+        issue: {
+          number: 42,
+          url: "https://github.com/engineer-first/idea-boost/issues/42",
+        },
+      },
+    });
+  });
+  await page.locator('#team-note-list [data-note-id="n_fake000002"]').focus();
+  await page.keyboard.press("i");
+  await page
+    .locator('#note-issue-form textarea[name="why"]')
+    .fill("電源が足りない");
+  await page.keyboard.press(SAVE);
+  await expect(page.locator("#note-issue-submit")).toHaveText("作成中…");
+  await page.keyboard.press("Escape");
+
+  await card(page).focus();
+  await page.keyboard.press("m");
+  await page.keyboard.type("を追記した長い文");
+  release();
+  await expect
+    .poll(() => server.posts.some((p) => p.op === "issue"))
+    .toBe(true);
+  await expect(
+    page.locator('#team-note-done [data-note-id="n_fake000002"]'),
+  ).toHaveCount(1);
+  await expect(field(page)).toBeFocused();
+  await expect(field(page)).toHaveValue("元を追記した長い文");
+  await page.keyboard.type("。");
+  await expect(field(page)).toHaveValue("元を追記した長い文。");
+  expect(server.posts.filter((p) => p.op === "memo")).toHaveLength(0);
 });
