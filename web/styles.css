@@ -4617,3 +4617,18 @@ main > #board-scroll {
   font-size: 11px;
   color: var(--muted);
 }
+.team-note-memo-latest {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+}
+.team-note-memo-latest p {
+  margin: 4px 0 0;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

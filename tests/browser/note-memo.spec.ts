@@ -51,7 +51,9 @@ async function fakeShelf(page: Page, initial: Note[]) {
 const ID = "n_fake000001";
 const card = (page: Page) =>
   page.locator(`#team-note-list [data-note-id="${ID}"]`);
-const field = (page: Page) => card(page).locator(".team-note-memo-edit textarea");
+const field = (page: Page) =>
+  card(page).locator(".team-note-memo-edit textarea");
+const input = (page: Page) => page.locator("#team-note-input");
 const SAVE = process.platform === "darwin" ? "Meta+Enter" : "Control+Enter";
 
 test("キーボードだけでメモを書く: Enter は改行、⌘/Ctrl+Enter で保存、一言は短いまま、Issue 化の Why になる", async ({
@@ -108,17 +110,19 @@ test("キーボードだけでメモを書く: Enter は改行、⌘/Ctrl+Enter 
   expect(line).toBe(1);
 
   await page.keyboard.press("i");
-  await expect(page.locator('#note-issue-form textarea[name="why"]')).toHaveValue(
-    "去年は電源が足りなかった。\n延長コードは 3 本要る。",
-  );
+  await expect(
+    page.locator('#note-issue-form textarea[name="why"]'),
+  ).toHaveValue("去年は電源が足りなかった。\n延長コードは 3 本要る。");
   // 下書きがあれば、メモより下書きを優先する。
-  await page.locator('#note-issue-form textarea[name="why"]').fill("下書きの Why");
+  await page
+    .locator('#note-issue-form textarea[name="why"]')
+    .fill("下書きの Why");
   await page.keyboard.press("Escape");
   await card(page).focus();
   await page.keyboard.press("i");
-  await expect(page.locator('#note-issue-form textarea[name="why"]')).toHaveValue(
-    "下書きの Why",
-  );
+  await expect(
+    page.locator('#note-issue-form textarea[name="why"]'),
+  ).toHaveValue("下書きの Why");
   await page.keyboard.press("Escape");
 
   // Escape は送らずに取り消す。
@@ -130,7 +134,9 @@ test("キーボードだけでメモを書く: Enter は改行、⌘/Ctrl+Enter 
   expect(server.posts).toHaveLength(1);
 });
 
-test("メモの競合は最新を表示し、結果不明は再送しない", async ({ page }) => {
+test("競合・結果不明でも書いたメモを捨てず、最新と並べて開き直す。再送はしない", async ({
+  page,
+}) => {
   const server = await fakeShelf(page, [
     { id: ID, text: "告知文", done: false, rev: 1, memo: "元のメモ" },
   ]);
@@ -145,21 +151,86 @@ test("メモの競合は最新を表示し、結果不明は再送しない", as
   await expect(page.locator("#team-note-status")).toContainText(
     "他の人が先にこの付箋を変更しました",
   );
-  await card(page).locator(".team-note-memo summary").click();
-  await expect(card(page).locator(".team-note-memo-text")).toHaveText(
+  await expect(page.locator("#team-note-status")).toContainText("残しています");
+  // 書きかけはそのまま、いま保存されているメモと並べて見せる。
+  await expect(field(page)).toHaveValue("元のメモを直す");
+  await expect(card(page).locator(".team-note-memo-latest p")).toHaveText(
     "他の人のメモ",
   );
 
+  // 通信が切れた: 保存されたか分からないので、自動で再送せず、書きかけも残す。
   server.failNext((route) => route.abort("connectionreset"));
-  await card(page).focus();
-  await page.keyboard.press("m");
-  await page.keyboard.press(SAVE.replace("Enter", "a"));
-  await page.keyboard.press("Delete");
+  await field(page).focus();
   await page.keyboard.press(SAVE);
   await expect(page.locator("#team-note-status")).toContainText(
     "保存結果を確認できません",
   );
+  await expect(field(page)).toHaveValue("元のメモを直す");
   const memoPosts = server.posts.filter((p) => p.op === "memo");
   expect(memoPosts).toHaveLength(2);
-  expect(memoPosts[1]).toMatchObject({ rev: 2, memo: "" });
+  expect(memoPosts[1]).toMatchObject({ rev: 2, memo: "元のメモを直す" });
+
+  // 人が確かめてから、空にして保存し直す（消す）。
+  await field(page).fill("");
+  await page.keyboard.press(SAVE);
+  await expect(card(page).locator(".team-note-memo")).toHaveCount(0);
+  await expect(card(page)).toBeFocused();
+  expect(server.posts.filter((p) => p.op === "memo")[2]).toMatchObject({
+    memo: "",
+  });
+});
+
+test("書いている間の再取得で欄を閉じず、送信中の入力は止め、フォーカスを外すと保存する", async ({
+  page,
+}) => {
+  const server = await fakeShelf(page, [
+    { id: ID, text: "告知文", done: false, rev: 1 },
+  ]);
+  await setup(page);
+  // 窓へ戻ったときの再取得を遅らせ、その間に書き始める。
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const delayGet = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await gate;
+    return route.fallback();
+  };
+  await page.route("**/api/team-notes", delayGet);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await card(page).focus();
+  await page.keyboard.press("m");
+  await page.keyboard.type("あいう");
+  release();
+  await page.waitForResponse((r) => r.url().includes("/api/team-notes"));
+  await page.keyboard.type(" えお");
+  await expect(field(page)).toBeFocused();
+  await expect(field(page)).toHaveValue("あいう えお");
+  expect(server.posts).toHaveLength(0);
+  await page.unroute("**/api/team-notes", delayGet);
+
+  // 送信中は欄を止め、後から打った文字が黙って消えないようにする。
+  server.failNext(async (route) => {
+    await new Promise((r) => setTimeout(r, 500));
+    const body = route.request().postDataJSON();
+    const note = server.notes[0];
+    note.rev++;
+    note.memo = body.memo;
+    return route.fulfill({ json: { ok: true, note } });
+  });
+  await page.keyboard.press(SAVE);
+  await expect(field(page)).toHaveJSProperty("readOnly", true);
+  await page.keyboard.type("X");
+  await expect(card(page).locator(".team-note-memo-text")).toHaveText(
+    "あいう えお",
+  );
+
+  // フォーカスを外すと保存する。
+  await card(page).focus();
+  await page.keyboard.press("m");
+  await page.keyboard.type("。");
+  await input(page).focus();
+  await expect(card(page).locator(".team-note-memo-text")).toHaveText(
+    "あいう えお。",
+  );
+  expect(server.posts.filter((p) => p.op === "memo")).toHaveLength(2);
 });

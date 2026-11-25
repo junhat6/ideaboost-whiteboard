@@ -34,6 +34,8 @@
   // 詳しいメモを書いている付箋と、メモを開いている付箋（ADR 021）。
   let memoEditingId = null;
   const openMemos = new Set();
+  // 保存できなかった（競合・結果不明）メモの書きかけ。付箋ごとに、この画面を開いている間だけ残す。
+  const memoDrafts = new Map();
   const MEMO_MAX = 2000;
   let lastRemoved = null;
   let seq = 0;
@@ -378,6 +380,7 @@
       "aria-label",
       note.text +
         (note.pbi ? `（PBI ${pbiLabel(note.pbi, lanes)}）` : "") +
+        (note.memo ? "（メモあり）" : "") +
         (note.issue ? `（Issue #${note.issue.number}）` : "") +
         (note.done ? "（済み）" : ""),
     );
@@ -568,10 +571,39 @@
   }
 
   // メモの編集。Enter は改行、⌘/Ctrl+Enter かフォーカスを外すと保存、Escape で取り消す。
+  // 保存できなかった書きかけを開き直したとき、いま保存されているメモを並べて比べられるようにする。
+  function refreshMemoLatest() {
+    if (!memoEditingId) return;
+    const box = shelf.querySelector(
+      `[data-note-id="${memoEditingId}"] .team-note-memo-latest`,
+    );
+    if (!box) return;
+    const latest =
+      notes.find((n) => n.id === memoEditingId)?.memo || "（メモなし）";
+    box.querySelector("p").textContent = latest;
+  }
+
   function memoEditor(note) {
     const wrap = el("div", "team-note-memo-edit");
+    const draft = memoDrafts.get(note.id);
+    if (draft !== undefined) {
+      // 競合・結果不明で保存できなかった書きかけ。最新と見比べて、人が決める。
+      const latest = el("div", "team-note-memo-latest");
+      latest.append(
+        el("span", "team-note-badge", "いま保存されているメモ"),
+        el("p", "", note.memo || "（メモなし）"),
+      );
+      wrap.append(
+        latest,
+        el(
+          "p",
+          "team-note-memo-hint",
+          "下は保存できなかった書きかけです。見比べて直し、もう一度保存してください。",
+        ),
+      );
+    }
     const field = document.createElement("textarea");
-    field.value = note.memo || "";
+    field.value = draft ?? note.memo ?? "";
     field.maxLength = MEMO_MAX;
     field.rows = 5;
     field.setAttribute(
@@ -586,26 +618,32 @@
       "⌘/Ctrl+Enter で保存・Escape で取り消し",
     );
     let closed = false;
+    const save = () => {
+      closed = true;
+      // 送っている間に打った文字が黙って消えないよう、送る値で欄を止める。
+      field.readOnly = true;
+      saveMemo(note, field.value);
+    };
     field.onkeydown = (e) => {
       e.stopPropagation();
       if (e.isComposing || e.keyCode === 229) return;
+      if (closed) return;
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        closed = true;
-        saveMemo(note, field.value);
+        save();
       } else if (e.key === "Escape") {
         e.preventDefault();
         closed = true;
+        memoDrafts.delete(note.id);
         memoEditingId = null;
         render();
         focusNote(note.id);
       }
     };
     field.onblur = () => {
-      if (!closed && memoEditingId === note.id) {
-        closed = true;
-        saveMemo(note, field.value);
-      }
+      // 描き直しで外れたとき・別のアプリへ切り替えたときは保存しない（戻れば続きを書ける）。
+      if (!field.isConnected || !document.hasFocus()) return;
+      if (!closed && memoEditingId === note.id) save();
     };
     wrap.append(field, hint);
     queueMicrotask(() => {
@@ -623,14 +661,18 @@
     render();
   }
 
-  async function saveMemo(note, value) {
-    memoEditingId = null;
+  async function saveMemo(original, value) {
     const memo = value.replace(/\r\n?/g, "\n").trim();
+    const note = notes.find((n) => n.id === original.id) || original;
+    memoEditingId = null;
     if (memo === (note.memo || "")) {
+      memoDrafts.delete(note.id);
       render();
       return focusNote(note.id);
     }
     if ([...memo].length > MEMO_MAX) {
+      memoDrafts.set(note.id, value);
+      memoEditingId = note.id;
       render();
       return setStatus(messages.invalid_memo, "error");
     }
@@ -645,9 +687,20 @@
         replace(next);
       },
     );
-    if (ok && memo) openMemos.add(note.id);
-    if (ok) render();
-    focusNote(note.id);
+    if (ok) {
+      memoDrafts.delete(note.id);
+      if (memo) openMemos.add(note.id);
+      render();
+      return focusNote(note.id);
+    }
+    // 競合・結果不明: 打ったメモを捨てず、最新と並べて編集欄を開き直す（再送はしない）。
+    memoDrafts.set(note.id, memo);
+    memoEditingId = note.id;
+    render();
+    const status = statusEl.querySelector("span");
+    if (status)
+      status.textContent +=
+        " 書いたメモは消さずに残しています。見比べてから保存し直してください。";
   }
 
   function startPbiEdit(note) {
@@ -715,6 +768,14 @@
       const data = await api("GET");
       notes = sortNotes(data.notes || []);
       proposals = data.proposals || [];
+      // 編集中に再取得が返っても、入力欄を作り直さない（書きかけが blur で保存されて閉じ、
+      // 続く打鍵が付箋のショートカットになるため）。編集を終えたときに最新で描き直す。
+      if (editingId || pbiEditingId || memoEditingId) {
+        if (mode === "api" && statusEl.classList.contains("stale"))
+          setStatus("");
+        refreshMemoLatest();
+        return;
+      }
       if (data.sample === true && mode !== "api") {
         // 静的プレビュー（scripts/preview.mjs）だけが返す見本。保存しない。
         mode = "sample";
@@ -1164,8 +1225,13 @@
     issueNote = note;
     issueReturn = note.id;
     document.getElementById("note-issue-source").textContent = note.text;
+    const issueDraft = issueDrafts.get(note.id);
     writeIssueForm(
-      issueDrafts.get(note.id) || {
+      // Why が空の下書きなら、その後に書いたメモを Why に使う（ADR 021）。
+      (issueDraft &&
+        (issueDraft.why.trim() || !note.memo
+          ? issueDraft
+          : { ...issueDraft, why: note.memo })) || {
         type: "Task",
         title: note.text,
         status: "未整理",
@@ -1372,8 +1438,7 @@
       // 始めていれば、フォーカスを奪わない（奪うと blur で入力が閉じる）。
       const li = id && shelf.querySelector(`[data-note-id="${id}"]`);
       const active = document.activeElement;
-      const typing =
-        li?.contains(active) && active.matches("select,textarea");
+      const typing = li?.contains(active) && active.matches("select,textarea");
       if (li && !typing) li.focus();
     });
     document.getElementById("note-issue-close").onclick = closeIssueDialog;
