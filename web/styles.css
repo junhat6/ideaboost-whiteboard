@@ -4419,3 +4419,101 @@ main > #board-scroll {
 [data-theme="dark"] .note-issue-required {
   color: #ffb4b9;
 }
+
+/* 関係する PBI（ADR 020）。棚の入力欄の下の小さな選択と、付箋の本文の下の番号・題。 */
+.team-note-pbi-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.team-note-pbi-pick span {
+  flex: none;
+}
+.team-note-pbi-pick select,
+.team-note-pbi-edit {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+.team-note-pbi-edit {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: auto;
+  padding: 2px;
+}
+.team-note-pbi-pick select:focus-visible,
+.team-note-pbi-edit:focus-visible,
+.team-note-pbi:focus-visible,
+.pbi-note-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.team-note-pbi {
+  grid-column: 2 / -1;
+  justify-self: start;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.team-note-pbi-button {
+  width: auto;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+}
+.team-note:hover .team-note-pbi-button,
+.team-note:focus-within .team-note-pbi-button,
+.team-note:focus .team-note-pbi-button {
+  opacity: 1;
+}
+/* PBI 行の入口。左セルの最小構成を崩さないよう、hover・focus のときだけ見せる。 */
+.pbi-note-add {
+  flex: none;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--input-border, #7d8da8);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+}
+.pbi-cell:hover .pbi-note-add,
+.pbi-cell:focus-within .pbi-note-add {
+  opacity: 1;
+}
+.team-shelf[hidden] ~ #board-scroll .pbi-note-add,
+:root:fullscreen .pbi-note-add {
+  display: none;
+}

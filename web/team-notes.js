@@ -15,6 +15,7 @@
   const countEl = $("#team-note-count");
   const statusEl = $("#team-note-status");
   const toggle = $("#team-shelf-toggle");
+  const pbiPick = $("#team-note-pbi");
   const MAX = 200;
   const BATCH = 20;
   const COLLAPSE_KEY = "ideaboost.teamShelf.collapsed";
@@ -28,6 +29,8 @@
   let busy = false;
   let inflight = Promise.resolve();
   let editingId = null;
+  // 関係する PBI を選び直している付箋（ADR 020）。
+  let pbiEditingId = null;
   let lastRemoved = null;
   let seq = 0;
 
@@ -58,7 +61,60 @@
     invalid_issue: "Issue の番号を確かめられませんでした。",
     issue_not_from_note:
       "この付箋から作った Issue として確かめられませんでした。最新を取得してください。",
+    invalid_pbi: "PBI の番号を確かめられませんでした。選び直してください。",
   };
+
+  // ---- 関係する PBI（ADR 020） ----
+  // 付箋は PBI の番号だけを持つ。題はボードの読み取り（GitHub が正本）から引き、
+  // ボードに無い番号は「#番号」だけを出す。
+  function boardLanes() {
+    try {
+      return (window.Whiteboard?.getSnapshot?.()?.lanes || []).filter(
+        (l) =>
+          l.type === "PBI" && Number.isSafeInteger(l.number) && l.number > 0,
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  function pbiLabel(number, lanes = boardLanes()) {
+    const lane = lanes.find((l) => l.number === number);
+    return lane ? `#${number} ${lane.title}` : `#${number}`;
+  }
+
+  /** PBI の選択肢（なし・ボードに表示中・その他の open な PBI）。selected が候補に無ければ番号だけで足す。 */
+  function pbiOptions(select, selected, noneLabel) {
+    const { shown, others } = boardPbis();
+    const groups = [];
+    for (const [label, list] of [
+      ["ボードに表示中", shown],
+      ["その他の PBI", others],
+    ]) {
+      if (!list.length) continue;
+      const group = document.createElement("optgroup");
+      group.label = label;
+      for (const l of list)
+        group.append(new Option(`#${l.number} ${l.title}`, String(l.number)));
+      groups.push(group);
+    }
+    const extra =
+      selected && ![...shown, ...others].some((l) => l.number === selected)
+        ? [new Option(pbiLabel(selected), String(selected))]
+        : [];
+    select.replaceChildren(new Option(noneLabel, ""), ...extra, ...groups);
+    select.value = selected ? String(selected) : "";
+  }
+
+  function selectedPbi() {
+    const n = Number(pbiPick?.value);
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+  }
+
+  // 開く直前に、今のボードから選択肢を作り直す（選んだ値は保つ）。
+  function refreshPbiPick() {
+    if (pbiPick) pbiOptions(pbiPick, selectedPbi(), "なし");
+  }
 
   function setStatus(text, kind = "", action) {
     statusEl.textContent = "";
@@ -125,8 +181,9 @@
     shelf.dataset.mode = mode;
     const focused = document.activeElement?.closest?.("[data-note-id]");
     const focusId = focused?.dataset.noteId;
-    listEl.replaceChildren(...open.map(item));
-    doneEl.replaceChildren(...done.map(item));
+    const lanes = boardLanes();
+    listEl.replaceChildren(...open.map((n) => item(n, lanes)));
+    doneEl.replaceChildren(...done.map((n) => item(n, lanes)));
     doneWrap.hidden = !done.length;
     $("#team-note-done-count").textContent = String(done.length);
     $("#team-note-proposals").hidden = !proposals.length;
@@ -137,6 +194,10 @@
     $("#team-note-empty").hidden =
       !!open.length || !!proposals.length || mode === "loading";
     input.disabled = mode === "loading" || mode === "error";
+    if (pbiPick) {
+      pbiPick.disabled = input.disabled;
+      if (document.activeElement !== pbiPick) refreshPbiPick();
+    }
     if (focusId) shelf.querySelector(`[data-note-id="${focusId}"]`)?.focus();
   }
 
@@ -298,7 +359,7 @@
     return li;
   }
 
-  function item(note) {
+  function item(note, lanes = boardLanes()) {
     const li = document.createElement("li");
     li.className = "team-note" + (note.done ? " done" : "");
     li.tabIndex = 0;
@@ -306,6 +367,7 @@
     li.setAttribute(
       "aria-label",
       note.text +
+        (note.pbi ? `（PBI ${pbiLabel(note.pbi, lanes)}）` : "") +
         (note.issue ? `（Issue #${note.issue.number}）` : "") +
         (note.done ? "（済み）" : ""),
     );
@@ -352,6 +414,15 @@
       li.append(text);
     }
     const tools = el("span", "team-note-tools");
+    if (editingId !== note.id && pbiEditingId !== note.id) {
+      const pick = el("button", "team-note-pbi-button", "PBI");
+      pick.type = "button";
+      pick.tabIndex = -1;
+      pick.setAttribute("aria-label", "関係する PBI を選ぶ（P）");
+      pick.title = "関係する PBI を選ぶ（P）";
+      pick.onclick = () => startPbiEdit(note);
+      tools.append(pick);
+    }
     if (!note.issue && !note.done && editingId !== note.id) {
       const toIssue = el("button", "team-note-issue", "Issue に");
       toIssue.type = "button";
@@ -371,6 +442,18 @@
     remove.onclick = () => removeNote(note);
     tools.append(remove);
     li.append(tools);
+    if (pbiEditingId === note.id) li.append(pbiEditor(note));
+    else if (note.pbi) {
+      const tag = el("button", "team-note-pbi", pbiLabel(note.pbi, lanes));
+      tag.type = "button";
+      tag.tabIndex = -1;
+      tag.setAttribute(
+        "aria-label",
+        `関係する PBI: ${pbiLabel(note.pbi, lanes)}（P で選び直す）`,
+      );
+      tag.onclick = () => startPbiEdit(note);
+      li.append(tag);
+    }
     if (note.issue) {
       const href = issueHref(note.issue);
       if (href) {
@@ -396,6 +479,77 @@
     if (note.attachments?.length)
       li.append(attachmentsBlock(note, note.attachments));
     return li;
+  }
+
+  // 付箋の上の PBI の選び直し。一覧（listbox）で選び、Enter かクリックで保存、Escape で取り消す。
+  // 矢印で選ぶたびには保存しない（閉じた select の change は矢印ごとに起きるため）。
+  function pbiEditor(note) {
+    const select = document.createElement("select");
+    select.className = "team-note-pbi-edit";
+    select.setAttribute(
+      "aria-label",
+      "関係する PBI を選ぶ（Enter で決定、Escape で取り消し）",
+    );
+    pbiOptions(select, note.pbi || null, "PBI なし（外す）");
+    select.size = Math.min(6, Math.max(2, select.options.length));
+    const choose = () => {
+      const n = Number(select.value);
+      savePbi(note, Number.isSafeInteger(n) && n > 0 ? n : null);
+    };
+    let done = false;
+    const cancel = () => {
+      if (done) return;
+      done = true;
+      pbiEditingId = null;
+      render();
+      focusNote(note.id);
+    };
+    select.onkeydown = (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        done = true;
+        choose();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancel();
+      }
+      e.stopPropagation();
+    };
+    select.onclick = (e) => {
+      if (e.target.tagName !== "OPTION") return;
+      done = true;
+      choose();
+    };
+    select.onblur = () => {
+      if (pbiEditingId === note.id) cancel();
+    };
+    queueMicrotask(() => select.focus());
+    return select;
+  }
+
+  function startPbiEdit(note) {
+    if (busy || mode === "loading" || mode === "error") return;
+    editingId = null;
+    pbiEditingId = note.id;
+    render();
+  }
+
+  async function savePbi(note, pbi) {
+    pbiEditingId = null;
+    if ((note.pbi || null) === pbi) {
+      render();
+      return focusNote(note.id);
+    }
+    while (busy) await inflight;
+    await write({ op: "pbi", id: note.id, rev: note.rev, pbi }, (data) => {
+      if (data?.note) return replace(data.note);
+      const next = { ...note, rev: note.rev + 1 };
+      if (pbi) next.pbi = pbi;
+      else delete next.pbi;
+      replace(next);
+    });
+    focusNote(note.id);
   }
 
   function focusNote(id) {
@@ -530,22 +684,31 @@
       return setStatus(messages.too_many_notes, "error");
     if (texts.some((t) => [...t].length > MAX))
       return setStatus(messages.invalid_text, "error");
-    const ok = await write({ op: "create", texts }, (data) => {
-      const created =
-        data?.notes ||
-        texts.map((text) => ({
-          id:
-            "n_sample" +
-            requestId()
-              .replace(/[^a-z0-9]/g, "")
-              .slice(-16),
-          text,
-          done: false,
-          rev: 1,
-        }));
-      notes = sortNotes([...created, ...notes]);
-    });
-    if (ok !== false) input.value = "";
+    const pbi = selectedPbi();
+    const ok = await write(
+      { op: "create", texts, ...(pbi ? { pbi } : {}) },
+      (data) => {
+        const created =
+          data?.notes ||
+          texts.map((text) => ({
+            id:
+              "n_sample" +
+              requestId()
+                .replace(/[^a-z0-9]/g, "")
+                .slice(-16),
+            text,
+            done: false,
+            rev: 1,
+            ...(pbi ? { pbi } : {}),
+          }));
+        notes = sortNotes([...created, ...notes]);
+      },
+    );
+    if (ok !== false) {
+      input.value = "";
+      // 選ばなければ今までと同じ付箋になるよう、貼ったら「なし」へ戻す。
+      if (pbiPick) pbiPick.value = "";
+    }
     autosize();
     input.focus();
   }
@@ -875,7 +1038,8 @@
         type: "Task",
         title: note.text,
         status: "未整理",
-        parent: "",
+        // 付箋に付けた PBI を親の初期値にする（ADR 020）。open でない PBI は候補に無いので「なし」になる。
+        parent: note.pbi ? String(note.pbi) : "",
         notes: keptAttachments(note),
       },
     );
@@ -1089,6 +1253,47 @@
     });
   }
 
+  if (pbiPick) {
+    pbiPick.addEventListener("focus", refreshPbiPick);
+    pbiPick.addEventListener("pointerdown", () => {
+      if (document.activeElement !== pbiPick) refreshPbiPick();
+    });
+    // 選択中の 1 文字でボードのショートカットを発火させない。Escape は一言入力へ戻る。
+    pbiPick.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        input.focus();
+      }
+      if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
+    });
+  }
+
+  /** ボードの PBI 行の入口から、その PBI を選んだ状態で一言入力へ移る。 */
+  let laneKey = "";
+  window.TeamNotes = {
+    /** ボードが描き直された。PBI の番号と題が変わったときだけ棚を描き直す（編集中は待つ）。 */
+    boardChanged() {
+      if (mode !== "api" && mode !== "sample") return;
+      // 題を出すのは PBI 付きの付箋だけ。無ければボードの読み取りを複製しない。
+      if (!notes.some((n) => n.pbi)) return;
+      const key = JSON.stringify(
+        boardLanes().map((l) => [l.number, l.title, l.state]),
+      );
+      if (key === laneKey || editingId || pbiEditingId) return;
+      laneKey = key;
+      render();
+    },
+    composeFor(number) {
+      if (!pbiPick || shelf.hidden) return false;
+      if (mode !== "api" && mode !== "sample") return false;
+      if (!Number.isSafeInteger(number) || number < 1) return false;
+      if (shelf.classList.contains("collapsed")) setCollapsed(false);
+      pbiOptions(pbiPick, number, "なし");
+      input.focus();
+      return true;
+    },
+  };
+
   function autosize() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 160) + "px";
@@ -1158,6 +1363,15 @@
       handled();
       if (!note.issue && !note.done) openIssueDialog(note);
     } else if (
+      e.key.toLowerCase() === "p" &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      handled();
+      startPbiEdit(note);
+    } else if (
       e.key.toLowerCase() === "z" &&
       (e.metaKey || e.ctrlKey) &&
       !e.shiftKey
@@ -1218,7 +1432,8 @@
   });
 
   const refresh = () => {
-    if (mode !== "api" || busy || editingId || document.hidden) return;
+    if (mode !== "api" || busy || editingId || pbiEditingId || document.hidden)
+      return;
     load();
   };
   setInterval(refresh, 30000);

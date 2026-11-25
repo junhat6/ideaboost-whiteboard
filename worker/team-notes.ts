@@ -40,6 +40,11 @@ export interface TeamNote {
   proposal?: boolean;
   /** この付箋から作った GitHub Issue（ADR 019）。付けると済みになる。 */
   issue?: NoteIssueLink;
+  /**
+   * 関係する PBI の Issue 番号（ADR 020）。番号だけを持ち、題はボード（GitHub が正本）から引く。
+   * 人だけが付け替え・外しをする。DO は GitHub を読まないので、PBI かどうかはここでは確かめない。
+   */
+  pbi?: number;
 }
 export interface NoteIssueLink {
   number: number;
@@ -129,8 +134,12 @@ export function normalizeAttachmentUrl(value: unknown): string | null {
   return url.href.length > ATTACHMENT_URL_MAX ? null : url.href;
 }
 
+/** 関係する PBI の番号。正の安全な整数だけ。 */
+const validPbi = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) >= 1;
+
 type Op =
-  | { op: "create"; texts: string[] }
+  | { op: "create"; texts: string[]; pbi?: number }
   | { op: "edit"; id: string; rev: number; text: string }
   | { op: "done"; id: string; rev: number; done: boolean }
   | { op: "remove"; id: string; rev: number }
@@ -148,7 +157,9 @@ type Op =
     }
   | { op: "propose"; text: string }
   // 人だけ: 付箋から作った Issue を結び付け、済みにする（ADR 019）。
-  | { op: "issue"; id: string; number: number; url: string };
+  | { op: "issue"; id: string; number: number; url: string }
+  // 人だけ: 関係する PBI の付け替え・外し（null）。rev で競合を検出する（ADR 020）。
+  | { op: "pbi"; id: string; rev: number; pbi: number | null };
 
 /** AI（Worker の内部の入口）だけが使える op。それ以外は人だけ。 */
 export const AI_OPS = new Set(["suggest", "attach", "propose"]);
@@ -169,7 +180,12 @@ export function parseOp(data: unknown): Op | string {
       if (d.texts.length > CREATE_BATCH_MAX) return "too_many_notes";
       const texts = d.texts.map(normalizeText);
       if (texts.some((t) => t === null)) return "invalid_text";
-      return { op: "create", texts: texts as string[] };
+      if (d.pbi !== undefined && !validPbi(d.pbi)) return "invalid_pbi";
+      return {
+        op: "create",
+        texts: texts as string[],
+        ...(d.pbi !== undefined ? { pbi: d.pbi as number } : {}),
+      };
     }
     case "edit": {
       const text = normalizeText(d.text);
@@ -237,6 +253,15 @@ export function parseOp(data: unknown): Op | string {
         id: d.id as string,
         number: d.number as number,
         url: d.url as string,
+      };
+    case "pbi":
+      if (!validId || !validRev) return "invalid_fields";
+      if (d.pbi !== null && !validPbi(d.pbi)) return "invalid_pbi";
+      return {
+        op: "pbi",
+        id: d.id as string,
+        rev: rev as number,
+        pbi: d.pbi as number | null,
       };
     case "propose": {
       const text = normalizeText(d.text);
@@ -544,6 +569,7 @@ export class TeamNotesStore {
             createdBy: user,
             createdAt: at,
             updatedAt: at,
+            ...(op.pbi !== undefined ? { pbi: op.pbi } : {}),
           };
           changed.push(note);
           next.ids.unshift(note.id);
@@ -554,7 +580,8 @@ export class TeamNotesStore {
       op.op === "edit" ||
       op.op === "done" ||
       op.op === "remove" ||
-      op.op === "restore"
+      op.op === "restore" ||
+      op.op === "pbi"
     ) {
       const current = await this.storage.get<TeamNote>("note:" + op.id);
       const isRemoved = meta.removed.includes(op.id);
@@ -572,6 +599,10 @@ export class TeamNotesStore {
           updatedAt: at,
         };
         if (op.op === "edit") note.text = op.text;
+        if (op.op === "pbi") {
+          if (op.pbi === null) delete note.pbi;
+          else note.pbi = op.pbi;
+        }
         if (op.op === "done") note.done = op.done;
         if (op.op === "remove") {
           next.ids = next.ids.filter((id) => id !== op.id);
