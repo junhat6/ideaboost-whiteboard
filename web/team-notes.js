@@ -208,6 +208,10 @@
       readOnly: f.readOnly,
       focused: f === document.activeElement,
     }));
+    // PBI の一覧にフォーカスがあれば、作り直した一覧へ戻す（値は付箋の pbi から作り直す）。
+    const pbiFocused = document.activeElement?.matches?.(".team-note-pbi-edit")
+      ? document.activeElement.value
+      : null;
     rendering = true;
     try {
       renderNow();
@@ -215,6 +219,13 @@
       rendering = false;
       claimFocus = false;
     }
+    if (pbiFocused !== null)
+      queueMicrotask(() => {
+        const select = shelf.querySelector(".team-note-pbi-edit");
+        if (!select) return;
+        select.value = pbiFocused;
+        select.focus();
+      });
     if (!live.length) return;
     // 新しい欄は自分の microtask でフォーカスとカーソルを置くので、その後に戻す。
     queueMicrotask(() => {
@@ -1504,7 +1515,12 @@
       );
     window.Whiteboard?.refreshAfterNoteIssue?.()?.catch?.(() => {});
     // 待っている間に別の付箋で書き始めていれば、その欄からフォーカスを奪わない。
-    if (!shelfTyping()) focusNote(note.id);
+    if (!shelfTyping()) {
+      // 作った付箋は済みの欄（たたまれていることがある）へ移る。見えなければ一言入力へ戻す。
+      const li = shelf.querySelector(`[data-note-id="${note.id}"]`);
+      if (li?.getClientRects().length) li.focus();
+      else input.focus();
+    }
   }
 
   if (issueDialog && issueForm) {
