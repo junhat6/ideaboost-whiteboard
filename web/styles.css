@@ -4493,19 +4493,16 @@ main > #board-scroll {
 .team-note:focus .team-note-pbi-button {
   opacity: 1;
 }
-/* PBI 行の入口。左セルの最小構成を崩さないよう、hover・focus のときだけ見せ、
-   見えない間も担当者名の幅を取らないよう、担当者の行の右端に重ねる。 */
-.pbi-context {
-  position: relative;
-}
+/* PBI 行の入口。左セルの最小構成を崩さないよう、hover・focus のときだけ見せる。
+   見えない間は幅 0 で担当者名の幅を取らず、Story points のバッジにも重ねない。 */
 .pbi-note-add {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  flex: none;
+  width: 0;
   height: 18px;
-  padding: 0 5px;
-  border: 1px solid var(--input-border, #7d8da8);
+  margin-left: -6px;
+  padding: 0;
+  overflow: hidden;
+  border: 0 solid var(--input-border, #7d8da8);
   border-radius: 4px;
   background: var(--surface);
   color: var(--ink);
@@ -4518,6 +4515,10 @@ main > #board-scroll {
 }
 .pbi-cell:hover .pbi-note-add,
 .pbi-cell:focus-within .pbi-note-add {
+  width: auto;
+  margin-left: 0;
+  padding: 0 5px;
+  border-width: 1px;
   opacity: 1;
 }
 .team-shelf[hidden] ~ #board-scroll .pbi-note-add,
