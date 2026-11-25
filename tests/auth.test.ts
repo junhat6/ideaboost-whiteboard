@@ -236,3 +236,138 @@ test("リモート MCP も Access の JWT が無い・不正なら閉じ（許�
     .sign(other.privateKey);
   assert.equal((await worker.fetch(post(forged, at), local)).status, 401);
 });
+
+// CI の本番スモーク用の Access service token（runbook 4.3）。漏れても読み取りしかできないことが契約。
+async function serviceToken(commonName: string) {
+  return new SignJWT({ common_name: commonName })
+    .setProtectedHeader({ alg: "RS256", kid: "test" })
+    .setSubject("")
+    .setIssuer("https://team.cloudflareaccess.com")
+    .setAudience("board")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(keys.privateKey);
+}
+const serviceEnv = { ...env, ACCESS_SERVICE_TOKEN_CLIENT_ID: "ci.access" };
+test("service token は登録済みの Client ID だけ通り、email も common_name も無い JWT は 401", async () => {
+  const principal = await authenticate(
+    req("/", await serviceToken("ci.access")),
+    serviceEnv,
+    jwks,
+  );
+  assert.equal(principal.id, "service:ci-smoke");
+  await assert.rejects(
+    authenticate(req("/", await serviceToken("other.access")), serviceEnv, jwks),
+    { status: 403 },
+  );
+  // Client ID の登録が無ければ、どの service token も通さない。
+  await assert.rejects(
+    authenticate(req("/", await serviceToken("ci.access")), env, jwks),
+    { status: 403 },
+  );
+  const bare = await new SignJWT({})
+    .setProtectedHeader({ alg: "RS256", kid: "test" })
+    .setSubject("member")
+    .setIssuer("https://team.cloudflareaccess.com")
+    .setAudience("board")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(keys.privateKey);
+  await assert.rejects(authenticate(req("/", bare), serviceEnv, jwks), {
+    status: 401,
+  });
+  // 署名・audience の検証は人と同じ。
+  await assert.rejects(
+    authenticate(
+      req("/", await serviceToken("ci.access")),
+      { ...serviceEnv, ACCESS_AUD: "other" },
+      jwks,
+    ),
+    { status: 401 },
+  );
+});
+
+test("service token の主体はスモークが読む経路と静的ファイルの GET だけ。書き込み・付箋・MCP は 403", async () => {
+  let apiCalls = 0;
+  const worker = createWorker(
+    async () => ({ id: "service:ci-smoke", email: "", service: true as const }),
+    async (request: Request) => {
+      if (!new URL(request.url).pathname.startsWith("/api/")) return null;
+      apiCalls++;
+      return Response.json({ ok: true });
+    },
+  );
+  const workerEnv = {
+    ...serviceEnv,
+    TEAM_NOTES_ENABLED: "true",
+    TEAM_NOTES_MCP_ENABLED: "true",
+    ASSETS: { fetch: async () => new Response("asset") },
+  } as any;
+  const call = (path: string, method = "GET") =>
+    worker.fetch(
+      new Request("https://board.example" + path, {
+        method,
+        headers: { Origin: "https://board.example", "content-type": "application/json" },
+        body: method === "POST" ? "{}" : undefined,
+      }),
+      workerEnv,
+    );
+  for (const path of ["/api/health", "/api/current-sprint", "/", "/app.js"])
+    assert.equal((await call(path)).status, 200, path);
+  for (const [path, method] of [
+    ["/api/board", "GET"],
+    ["/api/team-notes", "GET"],
+    ["/api/team-notes", "POST"],
+    ["/api/issues/2", "POST"],
+    ["/api/burndown/schedule", "POST"],
+    ["/mcp", "POST"],
+  ]) {
+    const response = await call(path, method);
+    assert.equal(response.status, 403, `${method} ${path}`);
+    assert.equal(((await response.json()) as any).error, "service_token_read_only");
+  }
+  assert.equal(apiCalls, 2);
+});
+
+test("チームモードの旧 public path は、認証の後に GET だけルートへ 308 で転送し、POST は 404", async () => {
+  const legacy = "/b/" + "c".repeat(48);
+  let authCalls = 0;
+  const worker = createWorker(async () => {
+    authCalls++;
+    return { id: "member", email: "member@example.com" };
+  });
+  const workerEnv = {
+    ...env,
+    LEGACY_PUBLIC_PATH: legacy,
+    ASSETS: { fetch: async () => new Response("asset") },
+  } as any;
+  const get = await worker.fetch(
+    new Request("https://board.example" + legacy + "/app.js?v=1"),
+    workerEnv,
+  );
+  assert.equal(get.status, 308);
+  assert.equal(get.headers.get("location"), "https://board.example/app.js?v=1");
+  const bare = await worker.fetch(
+    new Request("https://board.example" + legacy),
+    workerEnv,
+  );
+  assert.equal(bare.headers.get("location"), "https://board.example/");
+  const post = await worker.fetch(
+    new Request("https://board.example" + legacy + "/api/issues/2", {
+      method: "POST",
+      headers: { Origin: "https://board.example" },
+      body: "{}",
+    }),
+    workerEnv,
+  );
+  assert.equal(post.status, 404);
+  assert.equal(authCalls, 3);
+  // 未認証なら転送より先に認証で止まる（転送が認証を迂回しない）。
+  const guarded = createWorker(async () => {
+    throw new (await import("../worker/auth.ts")).AccessError(401, "sign_in_required");
+  });
+  assert.equal(
+    (await guarded.fetch(new Request("https://board.example" + legacy + "/"), workerEnv)).status,
+    401,
+  );
+});

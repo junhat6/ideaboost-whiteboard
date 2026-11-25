@@ -8,7 +8,7 @@
 - 既存の Sites デモ、他の GitHub App、実 Issue をテスト目的で変更しない。
 - 秘密・実チーム fixture・アクセストークンを git / クライアント / ログへ含めない。
 - チームモードは全ルート認証fail closed。明示承認済みpublic-temporaryは匿名閲覧/編集であることを正直に扱い、固定path/host、Origin、公開範囲、rate limitを維持する。
-- 外部認証設定、秘密の移行、権限拡張、有料契約は明示承認が必要。
+- 外部認証設定、秘密の移行、権限拡張、有料契約は明示承認が必要。ただし、ログイン必須化（Cloudflare Access）とリモート MCP の本番開放は 2026-11-25 のオーナー方針で承認済み（[docs/loop/README.md](docs/loop/README.md)）。権限があれば進め、無ければ止まった場所を `needs-human` に書く。有料契約は引き続き人が決める。
 
 ## 実装
 - web/ はフレームワーク不要の静的UI。server/github.mjs はGitHub境界。worker/ は認証と配信。
@@ -25,7 +25,7 @@
 - 「遂行して」で手元で行うのはリポジトリや文書の作業だけ。外部への送信・公開・課金は人に確かめる。成果は文か http/https の URL で `note_attach` する。
 
 ## ブランチ・リリース・ループ
-develop が開発の幹（直接 push 可）、main が本番。main へは `npm run release` の昇格 PR だけで入れ、full CI はそのときだけ必須（[docs/RELEASE.md](docs/RELEASE.md)）。仕事は GitHub Issues（`loop:finish`）と [docs/ROADMAP.md](docs/ROADMAP.md)、ループの決まりとリスク段階は [docs/loop/README.md](docs/loop/README.md)。develop-health が赤なら他より先に直す。
+本番にどんどん載せる（機能フラグで閉じたまま置かない）。チームの判断を理由に止めず、止まるのは権限が無いときだけ。develop が開発の幹（直接 push 可）、main が本番。main へは `npm run release` の昇格 PR だけで入れ、full CI はそのときだけ必須（[docs/RELEASE.md](docs/RELEASE.md)）。仕事は GitHub Issues（`loop:finish`）と [docs/ROADMAP.md](docs/ROADMAP.md)、ループの決まりとリスク段階は [docs/loop/README.md](docs/loop/README.md)。develop-health が赤なら他より先に直す。
 
 ## 並列開発
 Orca worktree は `orca.yaml` の setup/archive で準備・片付けする。e2e/dev の port は worktree ごとに分離済みなので固定 port を書かない (`scripts/worktree/ports.mjs` を使う)。詳細は docs/PARALLEL-DEV.md。

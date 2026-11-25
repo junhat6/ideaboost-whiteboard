@@ -57,16 +57,16 @@ test("dev は本番と別の Worker で、付箋を開き、GitHub の資格・�
       (b: { name: string }) => b.name === "TEAM_NOTES",
     ),
   );
-  // 本番は従来どおり。付箋無効・GitHub へ書ける。
-  assert.equal(config.vars.TEAM_NOTES_ENABLED, "false");
-  assert.equal(config.vars.TEAM_NOTES_MCP_ENABLED, "false");
+  // 本番: 付箋と MCP のフラグは有効（2026-11-25 オーナー方針）。MCP が実際に開くのはチームモードだけ
+  // （public-temporary では 404、tests/mcp.test.ts）。利用者ごとの MCP 書き込み上限を持つ。GitHub へ書ける。
+  assert.equal(config.vars.TEAM_NOTES_ENABLED, "true");
+  assert.equal(config.vars.TEAM_NOTES_MCP_ENABLED, "true");
   assert.equal("ACCESS_DEV_JWKS" in config.vars, false);
-  assert.equal(
-    (config.ratelimits ?? []).some(
-      (r: { name: string }) => r.name === "MCP_LIMITER",
-    ),
-    false,
-  );
+  const prodLimits = config.ratelimits as { name: string; namespace_id: string }[];
+  assert.deepEqual(prodLimits.map((r) => r.name).sort(), ["MCP_LIMITER", "PUBLIC_LIMITER"]);
+  // rate limit の namespace は本番・dev のすべてで重ならない（重なると枠を共有してしまう）。
+  const namespaces = [...prodLimits, ...dev.ratelimits].map((r: { namespace_id: string }) => r.namespace_id);
+  assert.equal(new Set(namespaces).size, namespaces.length);
   assert.equal("GITHUB_WRITES" in config.vars, false);
 });
 

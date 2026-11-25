@@ -182,7 +182,13 @@ jobs:
         run: node scripts/deployment-check.mjs smoke
         env:
           PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          # ログイン必須化（Cloudflare Access）の後に使う読み取り専用の service token。未登録なら付けない。
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
       - name: Read-only current Sprint metadata and history verification
         run: node scripts/deployment-check.mjs current-sprint-smoke
         env:
           PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          # ログイン必須化（Cloudflare Access）の後に使う読み取り専用の service token。未登録なら付けない。
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

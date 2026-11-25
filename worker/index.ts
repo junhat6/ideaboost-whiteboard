@@ -5,13 +5,19 @@ export interface Env extends AuthConfig {
   ASSETS: Fetcher;
   AUTH_MODE?: string;
   PUBLIC_PATH?: string;
+  /**
+   * チームモードへの移行期間だけ置く、旧 public-temporary の path（`/b/<48桁の16進>`）。
+   * 置かれていれば、その下への GET/HEAD をルートの同じ相対位置へ 308 で転送する（runbook 5 章）。
+   * POST は転送しない（本文ごとの自動再送をしない）。移行が終わったら外す。
+   */
+  LEGACY_PUBLIC_PATH?: string;
   PUBLIC_LIMITER?: RateLimit;
   MUTATIONS?: DurableObjectNamespace;
   HISTORY?: DurableObjectNamespace;
   TEAM_NOTES?: DurableObjectNamespace;
   /** "true" のときだけ /api/team-notes を開く。未設定・それ以外は存在しない経路として 404。 */
   TEAM_NOTES_ENABLED?: string;
-  /** "true" かつ付箋も有効なときだけ /mcp（リモート MCP）を開く。本番の wrangler.jsonc では "false"。 */
+  /** "true" かつ付箋も有効、かつチームモード（ログイン必須）のときだけ /mcp（リモート MCP）を開く。 */
   TEAM_NOTES_MCP_ENABLED?: string;
   /** MCP 経由の書き込みの、利用者ごとのレート制限。無ければ MCP の書き込みは閉じる。 */
   MCP_LIMITER?: RateLimit;
@@ -157,8 +163,13 @@ export function createWorker(auth = authenticate, api = handleApi) {
             if (
               !(
                 await env.PUBLIC_LIMITER.limit({
+                  // 付箋は棚が 30 秒ごとに読み直すため、ボードの読み書きと別の共有 key にする。
+                  // 同じ key だと、数人が棚を開いているだけでボードの読み取りが 429 になる。
                   key:
-                    request.method === "POST" ? "public-write" : "public-read",
+                    (url.pathname === "/api/team-notes"
+                      ? "public-notes-"
+                      : "public-") +
+                    (request.method === "POST" ? "write" : "read"),
                 })
               ).success
             )
@@ -168,6 +179,36 @@ export function createWorker(auth = authenticate, api = handleApi) {
           user = { id: "public-anonymous", email: "" };
         } else {
           user = await auth(request, env);
+          const url = new URL(request.url);
+          // 旧 public path の転送（移行期間だけ）。認証の後に行うので、転送が認証を迂回する入口にならない。
+          // 転送先は同じ origin のルート配下の同じ相対 path に限る（open redirect を作らない）。
+          const legacy = env.LEGACY_PUBLIC_PATH;
+          if (
+            legacy &&
+            /^\/b\/[a-f0-9]{48}$/.test(legacy) &&
+            (url.pathname === legacy || url.pathname.startsWith(legacy + "/"))
+          ) {
+            if (request.method !== "GET" && request.method !== "HEAD")
+              throw new AccessError(404, "not_found");
+            const rest = url.pathname.slice(legacy.length) || "/";
+            return secure(
+              Response.redirect(url.origin + rest + url.search, 308),
+            );
+          }
+          // CI の service token は読み取り専用。スモークが読む経路と静的ファイルの GET/HEAD だけ。
+          // 漏れても実 Issue・付箋・MCP には書けない（runbook 4.3）。
+          if ("service" in user && user.service) {
+            const readable =
+              ["/api/health", "/api/current-sprint", "/api/burndown"].includes(
+                url.pathname,
+              ) ||
+              (!url.pathname.startsWith("/api/") && url.pathname !== "/mcp");
+            if (
+              !readable ||
+              (request.method !== "GET" && request.method !== "HEAD")
+            )
+              throw new AccessError(403, "service_token_read_only");
+          }
         }
         if (new URL(request.url).pathname === "/mcp")
           return secure(await routeMcp(request, env, user));

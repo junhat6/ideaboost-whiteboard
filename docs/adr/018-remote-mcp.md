@@ -1,6 +1,6 @@
 # 018: チームの付箋をリモート MCP（`/mcp`）で手元の AI へ開く
 
-- 状態: 採用（本番では無効。dev で有効）
+- 状態: 採用。本番のフラグは有効（2026-11-25）。本番は public-temporary の間は 404 で、ログイン必須化（Access）と同時に開く
 - 日付: 2026-11-25（#8 M2）
 - 関連: [016](016-team-notes.md)（付箋と M1 の AI の op）、[017](017-dev-environment.md)（dev 環境）、[runbooks/login-required.md](../runbooks/login-required.md) の 8 章・9 章
 
@@ -24,7 +24,7 @@ Claude・ChatGPT・Codex などの手元の AI が、付箋を読み、直し案
 ### フラグ
 
 - 付箋のフラグ `TEAM_NOTES_ENABLED` と、MCP のフラグ `TEAM_NOTES_MCP_ENABLED` の両方が `"true"`（完全一致）のときだけ開く。どちらかが無効なら、存在しない経路と同じ 404 で、DO へは何も届かない。
-- 本番の `wrangler.jsonc` は `TEAM_NOTES_MCP_ENABLED: "false"` を明示する（本番の dry-run の bindings 表にも出る）。`env.dev` だけ `"true"`。
+- 本番の `wrangler.jsonc` も `TEAM_NOTES_MCP_ENABLED: "true"`（2026-11-25 オーナー方針「機能フラグで閉じたまま置かない」）。開くかどうかは認証モードが決める: public-temporary では下のとおり 404、チームモードでは Access の JWT で認証されたメンバーにだけ開く。つまり、ログイン必須化の切り替え（Worker 変数から `AUTH_MODE` を外す）が、そのまま本番 MCP の開放になる。コードの昇格を別に待たない。
 - `AUTH_MODE=public-temporary` では、フラグに関係なく 404。匿名の MCP は作らない（`/b/<path>/mcp` も同じ）。
 
 ### 認証
@@ -55,7 +55,7 @@ Claude・ChatGPT・Codex などの手元の AI が、付箋を読み、直し案
 
 - MCP 経由の書き込み（`note_suggest` / `note_attach` / `note_propose`）は、DO へ送る前に `MCP_LIMITER` を `key: "mcp-write:<利用者 ID>"` で通す。超えたら道具のエラー（保存していない、と明記。結果不明ではない）で返し、DO へは送らない。`notes_list` は制限しない。
 - binding が無ければ、MCP の書き込みは閉じる（fail closed）。読み取りは通る。
-- `MCP_LIMITER` は `env.dev` だけに置く（20 回 / 60 秒）。本番の設定（トップレベル）には足さない。本番で MCP を有効にするときに、上限を決め直してトップレベルへ足す（人の作業）。既存の `PUBLIC_LIMITER`（匿名公開の共有枠）と同じく Workers の Rate Limiting binding を使う。共有の key ではなく利用者ごとの key にした理由: MCP は認証済みのメンバーだけが使うので、利用者を区別でき、1 人の AI の暴走が他のメンバーを止めないようにするため。
+- `MCP_LIMITER` は本番（namespace 8160001）と `env.dev`（8160002）の両方に置く（20 回 / 60 秒）。namespace は重ならないことを `tests/dev-env.test.ts` で確かめる。既存の `PUBLIC_LIMITER`（匿名公開の共有枠）と同じく Workers の Rate Limiting binding を使う。共有の key ではなく利用者ごとの key にした理由: MCP は認証済みのメンバーだけが使うので、利用者を区別でき、1 人の AI の暴走が他のメンバーを止めないようにするため。
 - Rate Limiting binding は場所ごとの近似で、厳密な回数ではない（ローカルの `wrangler dev` でも上限の前後で止まることを確かめた。変更記録）。目的は暴走の歯止めで、正確な課金ではない。
 
 ### RFC 9728（protected resource metadata）
@@ -94,5 +94,5 @@ Claude・ChatGPT・Codex などの手元の AI が、付箋を読み、直し案
 
 - `tests/mcp.test.ts`: 道具が 4 つだけで説明に注意書きがあること、無い道具（採否・済み・剥がす・作成）を呼んでも DO へ何も届かないこと、書き込みが AI の op だけで種別と利用者を Worker が付けること、引数の `op`・`item`・`actor` が DO へ届かないこと、同じ requestId の再送・再利用・`before` の競合、転送の例外・DO の結果不明・JSON でない応答で自動再送しないこと、利用者ごとのレート制限と binding が無いときに閉じること、フラグ（未設定・`"false"`・`"TRUE"`）と public-temporary での 404、Origin・`Sec-Fetch-Site`・Content-Type・Accept の拒否と CORS を許可しないこと、付箋の API は従来どおり Origin が要ること、batch（100 件・1 件・書き込み・空）を 400 で拒否して DO へ何も送らないこと、済みの付箋の直し案の扱い。本物の `TeamNotesStore` をメモリ上で DO の代わりに使う。
 - `tests/auth.test.ts`: `/mcp` も JWT が無ければ 401、許可外なら 403（全経路の一覧に追加）。POST の `/mcp` で JWT が無い・偽造・別の鍵の署名なら 401。`ACCESS_DEV_JWKS` は https の `APP_ORIGIN` ではチームモードの全ルートが 503、localhost では試験用の鍵の JWT を同じ検証に通すこと。
-- `tests/dev-env.test.ts`: 本番は `TEAM_NOTES_MCP_ENABLED: "false"` で `MCP_LIMITER` を持たず、dev は `"true"` で rate limit は `MCP_LIMITER` だけ。どちらにも `ACCESS_DEV_JWKS` を置かない。
+- `tests/dev-env.test.ts`: 本番は `TEAM_NOTES_MCP_ENABLED: "true"` で `PUBLIC_LIMITER` と `MCP_LIMITER` を持ち、dev は `"true"` で rate limit は `MCP_LIMITER` だけ。namespace が重ならない。どちらにも `ACCESS_DEV_JWKS` を置かない。
 - 一度だけの確認（`.validation/m2/`、git に入れない）: `wrangler dev --env dev` と MCP Inspector の CLI で、道具の一覧・呼び出し・同じ requestId・競合・無い道具・認証の拒否・CSRF の拒否・レート制限を確かめた。dev の画面（1920・2560）で、AI が付けた直し案・添付・提案付箋が見えることを撮影した。

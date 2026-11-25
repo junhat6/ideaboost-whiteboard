@@ -14,12 +14,12 @@
 ## 2. 調べてから作る
 - 「まだ無い」と決めつけず、`rg` で既存の実装・部品を探してから作る
 - 受け入れ条件を満たす最小で完全な実装。押しても何も起きないボタン・空のハンドラ・TODO を残さない
-- R2 に触れるなら AGENTS.md の境界と該当 ADR を読み直す。R3 に当たると分かったら `needs-human` を付けて claim を外し、理由を書いて終わる
+- R2 に触れるなら AGENTS.md の境界と該当 ADR を読み直す。外部設定（R3）は権限があれば自分で進める。権限が無いと分かったら `needs-human` を付けて claim を外し、「どこで・何の権限が無いか」を書いて終わる
 
 ## 3. backpressure（push 前に自分で回す）
 - R0: `npm run check` と関係する browser spec（`npx playwright test <spec>`）
 - R1: 上記＋`npm run test:e2e`（全体）。1920×1080 と 2560×1440 で実際に操作して確かめる
-- R2: 上記＋Issue に独立検証を依頼するコメントを書き、別 context の検証結果が出るまで Issue を閉じない
+- R2: 上記＋同じ周回の中で別 context の agent（subagent か Orca worker）に独立検証させ、指摘を直してから push する。結果を Issue か commit 本文に 1〜3 行残す。人や別の周回を待たない
 - port は worktree ごとに分離済み（`npm run worktree:ports`）。固定 port を書かない
 - 実 GitHub への書き込み・本番 deploy を手元から行わない
 

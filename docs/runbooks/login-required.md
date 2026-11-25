@@ -1,7 +1,10 @@
 # 手順書: アプリ全体のログイン必須化（Cloudflare Access）
 
 - 対象 Issue: #10（ログイン必須化）、#8（チーム付箋。リモート MCP の前提）
-- 状態: **手順書のみ。まだ何も設定していない。** 外部設定は、この文書をオーナーが確認して承認した後に、人が行う。agent は Cloudflare・GitHub の設定、secret の登録、deploy をしない
+- 状態（2026-11-25 更新）: オーナー方針で**ログイン必須化と本番 MCP の開放は承認済み**。権限があれば agent も進めてよい（[../loop/README.md](../loop/README.md)）。
+  - 済み: 2 章 (1) のコード変更（スモークの両対応・service token の読み取り専用分岐・旧 path の 308 転送）と、8.4 の 1（本番の `MCP_LIMITER` とフラグ）。付箋の棚は本番で有効（ADR 016）。
+  - **止まっている所: (2) の A1。** 本番アカウントで Zero Trust（Access）が未有効。無料プラン（teams_free）の有効化を agent から申し込んだが確認で拒否され、wrangler の権限にも Access が無い。人が dashboard で Zero Trust を有効にする（無料）と、A2 以降へ進める。
+  - 有料契約はしない。
 - 関連: [../OPERATIONS.md](../OPERATIONS.md)（public-temporary の承認と境界）、[../ACTIONS-DEPLOYMENT.md](../ACTIONS-DEPLOYMENT.md)（CI 配信経路）、[../RELEASE.md](../RELEASE.md)（昇格の流れ）
 
 この文書には、メールアドレス・本番 URL・公開 path・アカウント ID・秘密の値を**書かない**（リポジトリは公開）。値が必要な所は `<…>` で置き、実際の値は Cloudflare と GitHub の設定画面にだけ置く。
@@ -24,7 +27,7 @@ AGENTS.md の「外部認証設定、秘密の移行、権限拡張、有料契�
 | --- | --- | --- | --- |
 | A1 | Zero Trust 組織とログイン方法 | Zero Trust の組織（team domain）を作る。ログイン方法は **One-time PIN**（メールに届く一回限りのコード）だけにする | team domain 名。外部 IdP（Google など）を足すかどうか（v1 では足さない案） |
 | A2 | Access アプリとポリシー | 本番 Worker の workers.dev ホストを Access の背後に置き、許可ポリシー（メンバーのメール）と Service Auth ポリシー（CI 用）を付ける | 許可する人の一覧の正本（下の 6 章）。セッションの長さ |
-| A3 | Worker 変数の差し替え | `ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS` を入れ、`AUTH_MODE`・`PUBLIC_PATH` を外す | 切り替えの日時と、メンバーへの告知 |
+| A3 | Worker 変数の差し替え | `ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS`・`ACCESS_SERVICE_TOKEN_CLIENT_ID`（4 章）・`LEGACY_PUBLIC_PATH`（今の `PUBLIC_PATH` と同じ値、5 章）を入れ、`AUTH_MODE`・`PUBLIC_PATH` を外す。**これで本番 MCP も開く**（ADR 018） | 切り替えの日時と、メンバーへの告知 |
 | A4 | CI 用 service token と GitHub secret | Access の service token を 1 本発行し、production environment に secret を 2 つ足す（`CF_ACCESS_CLIENT_ID`・`CF_ACCESS_CLIENT_SECRET` の名前案）。`PRODUCTION_BASE_URL` をルートの URL に更新する | token の有効期限と更新の担当者 |
 | A5 | 料金 | Zero Trust の無料枠の人数上限を公式の料金ページで確かめる | 人数が無料枠に収まること。有料契約はしない |
 
@@ -39,7 +42,7 @@ AGENTS.md の「外部認証設定、秘密の移行、権限拡張、有料契�
 ### 正しい順序
 
 ```text
-(1) コード変更を develop → 昇格 PR → main（本番に配信）
+(1) コード変更を develop → 昇格 PR → main（本番に配信）【2026-11-25 済み】
       ├ CI スモークが「旧 path」と「ルート」の両方の PRODUCTION_BASE_URL を受け入れる
       ├ CI スモークが health の accessMode に public-temporary と team の両方を受け入れる
       ├ CI スモークが service token のヘッダーを送れる（secret があるときだけ）
@@ -110,9 +113,9 @@ secret を repository ではなく **production environment** に置く理由: p
 
 ### 4.3 service token の JWT に email が無い点への対応（コード変更）
 
-service token で通った要求にも Access は `Cf-Access-Jwt-Assertion` を付けるが、その JWT には `email` が無く、代わりに `common_name`（token の Client ID）が入る。今の `authenticate()` は `requiredClaims: ["sub", "email", "iat", "exp"]` で検証するので 401 になる。2 章 (1) のコード変更で、次の形の分岐を足す（実装は別 Issue・R2。ここでは要件だけ）。
+service token で通った要求にも Access は `Cf-Access-Jwt-Assertion` を付けるが、その JWT には `email` が無く、代わりに `common_name`（token の Client ID）が入る。以前の `authenticate()` は `requiredClaims: ["sub", "email", "iat", "exp"]` で検証していたので 401 になっていた。2 章 (1) のコード変更で、次の分岐を足した（2026-11-25 実装済み、`worker/auth.ts`・`worker/index.ts`、試験は `tests/auth.test.ts`）。
 
-- `email` が無く `common_name` があり、それが Worker 変数（名前案 `ACCESS_SERVICE_TOKEN_CLIENT_ID`）と一致するときだけ、service token の主体として通す
+- `email` が無く `common_name` があり、それが Worker 変数 `ACCESS_SERVICE_TOKEN_CLIENT_ID`と一致するときだけ、service token の主体として通す
 - その主体は **GET だけ**、かつスモークが読む path（`/api/health`、`/api/current-sprint`、`/api/burndown`、静的 asset）だけに限る。POST・会議まとめ・MCP は 403
 - 主体の ID は `service:ci-smoke` のような固定値にし、メンバーの ID と混ざらないようにする
 - issuer・audience・署名の検証は人と同じにする（service token 用に検証を緩めない）
@@ -150,7 +153,7 @@ service token で通った要求にも Access は `Cf-Access-Jwt-Assertion` を�
 
 ### 転送の実装の注意（コード変更の要件）
 
-- 旧 path の値は今と同じく Worker 変数で持つ（名前案 `LEGACY_PUBLIC_PATH`）。コード・文書・ログに値を書かない
+- 旧 path の値は今と同じく Worker 変数で持つ（`LEGACY_PUBLIC_PATH`、2026-11-25 実装済み）。コード・文書・ログに値を書かない
 - 転送先はルートの同じ相対 path に限る。クエリ以外の任意の転送先を受け付けない（open redirect を作らない）
 - 移行が終わったら変数を外し、転送のコードも消す（別 Issue）
 
@@ -245,7 +248,7 @@ Worker が既に行っていること（設定は不要）:
 
 前提: ログイン必須化（1〜7 章）が済み、8.1.4 が dev で通っていること。
 
-1. `wrangler.jsonc` のトップレベルに `MCP_LIMITER`（利用者ごとの上限。dev と同じ 20 回 / 60 秒から始める）を足し、`TEAM_NOTES_ENABLED` と `TEAM_NOTES_MCP_ENABLED` を `"true"` にする PR を出す。本番の dry-run の bindings 表で、増えたのがこの 3 行だけであることを確かめる
+1. 【2026-11-25 済み】`wrangler.jsonc` のトップレベルに `MCP_LIMITER`（20 回 / 60 秒、namespace 8160001）を足し、`TEAM_NOTES_ENABLED` と `TEAM_NOTES_MCP_ENABLED` を `"true"` にした。本番の dry-run の bindings 表で、変わったのがこの 3 行だけであることを確かめた。public-temporary の間は `/mcp` は 404 のまま
 2. 本番の Access アプリで managed OAuth を有効にし、8.1.2 と同じ redirect URI を設定する
 3. 10 章の「MCP」を確かめる
 4. 切り戻し: `TEAM_NOTES_MCP_ENABLED` を `"false"` に戻して deploy すると `/mcp` は 404 に戻る（付箋の棚は残る）

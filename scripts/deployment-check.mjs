@@ -36,11 +36,25 @@ export function productionBase(raw) {
     url.password ||
     url.search ||
     url.hash ||
-    !/^\/b\/[a-f0-9]{48}\/$/.test(url.pathname)
+    // 移行期間は旧 public path とルート（ログイン必須化の後）の両方を受け入れる（runbook 4.4）。
+    !(url.pathname === "/" || /^\/b\/[a-f0-9]{48}\/$/.test(url.pathname))
   )
     throw new Error("Production URL does not match the approved Worker path");
   return url;
 }
+// Access の背後の本番を読むための service token（あれば）。値はログに出さない。
+export function accessHeaders(env = process.env) {
+  const id = env.CF_ACCESS_CLIENT_ID;
+  const secret = env.CF_ACCESS_CLIENT_SECRET;
+  // token が無い間（public-temporary）は従来どおりヘッダーを一切付けない。
+  if (!id && !secret) return undefined;
+  if (!id || !secret)
+    throw new Error("Access service token is only partly configured");
+  return { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": secret };
+}
+// ルートの URL（ログイン必須）は accessMode=team、旧 path は public-temporary だけを正とする。
+const expectedAccessMode = (base) =>
+  productionBase(base).pathname === "/" ? "team" : "public-temporary";
 export function trustedPush(env, checkoutSha) {
   if (
     env.GITHUB_ACTIONS !== "true" ||
@@ -73,10 +87,16 @@ export async function currentMain(sha, token, fetcher = fetch) {
       "main changed or could not be verified; deployment stopped",
     );
 }
-export async function verifyDeployment(base, expectedAssets, fetcher = fetch) {
+export async function verifyDeployment(
+  base,
+  expectedAssets,
+  fetcher = fetch,
+  headers = accessHeaders(),
+) {
   const get = (path) =>
     fetcher(new URL(path, productionBase(base)), {
       method: "GET",
+      headers,
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(10000),
@@ -87,7 +107,7 @@ export async function verifyDeployment(base, expectedAssets, fetcher = fetch) {
   if (
     health.configured !== true ||
     health.mode !== "github" ||
-    health.accessMode !== "public-temporary" ||
+    health.accessMode !== expectedAccessMode(base) ||
     health.storyPoints !== true
   )
     throw new Error(
@@ -102,12 +122,17 @@ export async function verifyDeployment(base, expectedAssets, fetcher = fetch) {
       throw new Error(`Production asset does not match this commit: ${name}`);
   }
 }
-export async function inspectCurrentSprint(base, fetcher = fetch) {
+export async function inspectCurrentSprint(
+  base,
+  fetcher = fetch,
+  headers = accessHeaders(),
+) {
   const url = new URL("api/current-sprint", productionBase(base));
   let response;
   try {
     response = await fetcher(url, {
       method: "GET",
+      headers,
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(30000),
@@ -162,14 +187,19 @@ export async function inspectCurrentSprint(base, fetcher = fetch) {
 }
 // Exercise the deployed history/DO read path without pinning a historical Sprint
 // or a mutable hours total. No retries, credentials, redirects or raw-data logs.
-export async function inspectCurrentHistory(base, current, fetcher = fetch) {
+export async function inspectCurrentHistory(
+  base,
+  current,
+  fetcher = fetch,
+  headers = accessHeaders(),
+) {
   if (current.status !== "current")
     return { checked: false, reason: "no_current_sprint" };
   const url = new URL(`api/burndown?milestone=${current.milestone}`, productionBase(base));
   let response;
   try {
     response = await fetcher(url, {
-      method: "GET", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(30000),
+      method: "GET", headers, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(30000),
     });
   } catch {
     throw new Error("Current history read failed");

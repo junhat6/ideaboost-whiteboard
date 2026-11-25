@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   productionBase,
+  accessHeaders,
   trustedPush,
   currentMain,
   verifyDeployment,
@@ -400,4 +401,34 @@ test("current history smoke rejects malformed data and sanitizes transport failu
   let reads = 0;
   await assert.rejects(() => inspectCurrentHistory("https://example.com/", current, async () => { reads++; }), /production/i);
   assert.equal(reads, 0);
+});
+
+// ログイン必須化（runbook 4.4）: 移行期間は旧 path とルートの両方を受け入れ、
+// accessMode は URL の形に合うものだけを正とする。Access の service token はヘッダーで送る。
+const root = "https://ideaboost-whiteboard.ideaboost-whiteboard.workers.dev/";
+test("ログイン後のルート URL も承認済みホストなら受け入れ、別の path は拒否", () => {
+  assert.equal(productionBase(root).pathname, "/");
+  for (const value of [root + "other/", root + "b/short/", root.replace("workers.dev", "example.com")])
+    assert.throws(() => productionBase(value));
+});
+test("service token は両方そろったときだけヘッダーにし、片方だけなら止める", () => {
+  assert.equal(accessHeaders({}), undefined);
+  assert.deepEqual(
+    accessHeaders({ CF_ACCESS_CLIENT_ID: "id", CF_ACCESS_CLIENT_SECRET: "s" }),
+    { "CF-Access-Client-Id": "id", "CF-Access-Client-Secret": "s" },
+  );
+  assert.throws(() => accessHeaders({ CF_ACCESS_CLIENT_SECRET: "s" }));
+});
+test("health の accessMode は URL の形と一致するときだけ通り、service token を付けて送る", async () => {
+  const seen = [];
+  const fetcher = (accessMode) => async (_url, init) => {
+    seen.push(init);
+    return Response.json({ configured: true, mode: "github", accessMode, storyPoints: true });
+  };
+  const headers = { "CF-Access-Client-Id": "id", "CF-Access-Client-Secret": "s" };
+  await verifyDeployment(root, [], fetcher("team"), headers);
+  assert.deepEqual(seen[0].headers, headers);
+  assert.equal(seen[0].redirect, "error");
+  await assert.rejects(verifyDeployment(root, [], fetcher("public-temporary"), headers));
+  await assert.rejects(verifyDeployment(base, [], fetcher("team"), undefined));
 });
