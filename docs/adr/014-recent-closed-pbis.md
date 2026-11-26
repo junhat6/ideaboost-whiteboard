@@ -8,9 +8,9 @@ PBI行は view 16 のフィルター（`repo:engineer-first/idea-boost is:issue 
 
 ## 判断
 
-- 管理するPBIのpickerに「最近Closeした PBI も候補に含める（過去28日）」を置く。既定はOFF。
-- ONの時だけ `GET /api/board?closed=recent` とし、サーバーはview条件の `is:open` を `is:closed closed:>=<28日前>` に置き換えた2本目のPBI行queryを並列で読む。子孫の展開、Project順（POSITION）、milestone絞り込み、公開確認は既存の経路をそのまま通す。
-- 28日はスプリント2回分。全期間のClose済み（現時点74件）を毎回子孫まで展開すると読取が重くなるため、レビューに必要な直近に限る。
+- 管理するPBIのpickerに「最近Closeした PBI も候補に含める（過去10日）」を置く。既定はOFF。
+- ONの時だけ `GET /api/board?closed=recent` とし、サーバーはview条件の `is:open` を `is:closed closed:>=<10日前>` に置き換えた2本目のPBI行queryを並列で読む。子孫の展開、Project順（POSITION）、milestone絞り込み、公開確認は既存の経路をそのまま通す。
+- 10日は直近のスプリントレビューに必要な範囲（2026-11-27 に利用者の指定で28日から短縮）。全期間のClose済み（現時点74件）を毎回子孫まで展開すると読取が重くなるため、レビューに必要な直近に限る。
 - view条件に `is:open` が無い場合は書き換えない（既にClose済みを含む、または別の意図の条件）。応答の `scope.recentClosed` が null になり、pickerは追加取得できないことを示す。
 - 共有snapshot（ADR 004）は既定の読取だけに使い、`closed=recent` は毎回fresh。既定の読取量・応答は変えない。
 - 設定はブラウザーごと（localStorage）。PBI選択と同じく、GitHub側の共有設定は変えない。

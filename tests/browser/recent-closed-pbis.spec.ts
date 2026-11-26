@@ -32,7 +32,7 @@ function boards() {
     tasks: [...structuredClone(open.tasks), ...closedTasks],
     scope: {
       ...open.scope,
-      recentClosed: { days: 28, filter: "type:PBI is:closed" },
+      recentClosed: { days: 10, filter: "type:PBI is:closed" },
     },
   };
   return { open, withClosed };

@@ -104,12 +104,12 @@ test("closed=recent adds recently closed PBIs with their children in Project ord
   );
   assert.equal(
     f.queries.find((q) => q.query.includes("BoardRowsClosed")).filter,
-    "repo:engineer-first/idea-boost is:issue type:PBI is:closed closed:>=2026-10-19",
+    "repo:engineer-first/idea-boost is:issue type:PBI is:closed closed:>=2026-11-06",
   );
   assert.deepEqual(d.scope.recentClosed, {
-    days: 28,
+    days: 10,
     filter:
-      "repo:engineer-first/idea-boost is:issue type:PBI is:closed closed:>=2026-10-19",
+      "repo:engineer-first/idea-boost is:issue type:PBI is:closed closed:>=2026-11-06",
   });
   // The original open view filter remains the reported scope.
   assert.equal(d.scope.viewFilter, VIEW);
@@ -130,6 +130,6 @@ test("recent closed filter only rewrites an explicit is:open qualifier", () => {
   assert.equal(recentClosedFilter("type:PBI is:openish", NOW), null);
   assert.equal(
     recentClosedFilter("is:open type:PBI", NOW),
-    "is:closed closed:>=2026-10-19 type:PBI",
+    "is:closed closed:>=2026-11-06 type:PBI",
   );
 });

@@ -49,7 +49,7 @@ const META_FIELDS = `id public url field(name:"Status") { ... on ProjectV2Single
 const BOOTSTRAP = `query BoardBootstrap { repository(owner:"${OWNER}",name:"${REPO}") { isPrivate } organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { ${META_FIELDS} items(first:100,${PROJECT_ORDER}) { ${INDEX} } } } }`;
 // Closed PBIs leave view 16 (`is:open`). Sprint reviews still need recently
 // completed rows, so an explicit opt-in adds only a bounded recent window.
-export const RECENT_CLOSED_DAYS = 28;
+export const RECENT_CLOSED_DAYS = 10;
 const OPEN_QUALIFIER = /(^|\s)is:open(?=\s|$)/gi;
 export function recentClosedFilter(filter, at) {
   if (typeof filter !== "string" || !filter.match(OPEN_QUALIFIER)) return null;
