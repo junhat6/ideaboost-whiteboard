@@ -294,6 +294,13 @@ function paperPixels(
   expect([b.width, b.height]).toEqual([a.width, a.height]);
   let checked = 0,
     changed = 0;
+  const isPaper = (x: number, y: number) => {
+    const offset = (y * a.width + x) * 4;
+    return (
+      fill.every((value, channel) => a.data[offset + channel] === value) &&
+      a.data[offset + 3] === 255
+    );
+  };
   for (let y = 6; y < a.height - 6; y++)
     for (let x = 6; x < a.width - 6; x++) {
       // U changes the three-character unset label, not the paper behind the title.
@@ -305,10 +312,14 @@ function paperPixels(
       )
         continue;
       const offset = (y * a.width + x) * 4;
-      if (
-        fill.every((value, channel) => a.data[offset + channel] === value) &&
-        a.data[offset + 3] === 255
-      ) {
+      // Only paper whose 8 neighbours are also paper counts. An anti-aliased
+      // avatar/text edge pixel can equal the fill by chance and re-rasterize
+      // by one step when the halo layer composites; that is not the paper.
+      let interior = true;
+      for (let dy = -1; dy <= 1 && interior; dy++)
+        for (let dx = -1; dx <= 1 && interior; dx++)
+          interior = isPaper(x + dx, y + dy);
+      if (interior) {
         checked++;
         if (
           fill.some((value, channel) => b.data[offset + channel] !== value) ||
