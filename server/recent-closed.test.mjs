@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { createHandler, recentClosedFilter } from "./github.mjs";
+import {
+  activeSprintClosedFilter,
+  createHandler,
+  recentClosedFilter,
+} from "./github.mjs";
 import { env, fixture, makeIssue, req } from "../tests/github-fixture.mjs";
 
 // 合成データのみ。Close済みPBIはview 16 (is:open) から外れるため、
@@ -132,4 +136,25 @@ test("recent closed filter only rewrites an explicit is:open qualifier", () => {
     recentClosedFilter("is:open type:PBI", NOW),
     "is:closed closed:>=2026-11-06 type:PBI",
   );
+});
+
+test("burndown observations keep PBIs closed since the running sprint started", () => {
+  const sprint = (startAt, endAt) => ({ assignmentWindow: { startAt, endAt } });
+  const milestones = [
+    sprint("2026-11-08T15:00:00.000Z", "2026-11-15T15:00:00.000Z"),
+    sprint("2026-11-15T15:00:00.000Z", "2026-11-30T15:00:00.000Z"),
+    sprint("2026-11-30T15:00:00.000Z", "2026-12-08T15:00:00.000Z"),
+    {},
+  ];
+  // JST 11/16 00:00 starts the running sprint; its UTC date covers that whole JST day.
+  assert.equal(
+    activeSprintClosedFilter("is:open type:PBI", milestones, NOW),
+    "is:closed closed:>=2026-11-15 type:PBI",
+  );
+  assert.equal(
+    activeSprintClosedFilter("is:open type:PBI", [milestones[0]], NOW),
+    null,
+    "no running sprint means no closed rows",
+  );
+  assert.equal(activeSprintClosedFilter("type:PBI", milestones, NOW), null);
 });

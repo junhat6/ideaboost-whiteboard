@@ -58,6 +58,20 @@ export function recentClosedFilter(filter, at) {
     .slice(0, 10);
   return filter.replace(OPEN_QUALIFIER, `$1is:closed closed:>=${since}`);
 }
+// Burndown observations keep PBIs closed during a running sprint. Otherwise a
+// finished PBI takes its completed work out of the sprint the day it closes.
+// The UTC date of the earliest running sprint start (JST 00:00) covers that
+// whole JST day; earlier closes belong to the previous sprint.
+export function activeSprintClosedFilter(filter, milestones, at) {
+  if (typeof filter !== "string" || !filter.match(OPEN_QUALIFIER)) return null;
+  const starts = (milestones ?? [])
+    .map((m) => m.assignmentWindow)
+    .filter((w) => w && Date.parse(w.startAt) <= at && at < Date.parse(w.endAt))
+    .map((w) => Date.parse(w.startAt));
+  if (!starts.length) return null;
+  const since = new Date(Math.min(...starts)).toISOString().slice(0, 10);
+  return filter.replace(OPEN_QUALIFIER, `$1is:closed closed:>=${since}`);
+}
 const ITEMS = `query BoardItems($after:String) { organization(login:"${OWNER}") { projectV2(number:${PROJECT}) { items(first:100,after:$after,${PROJECT_ORDER}) { ${INDEX} } } } }`;
 // Reject incomplete/obviously inconsistent scans instead of silently inventing an
 // order. GitHub does not promise a snapshot across cursor requests: this detects
@@ -1132,10 +1146,20 @@ export function createHandler({
       recentClosed && !observation
         ? recentClosedFilter(meta.view.filter, now())
         : null;
+    const catalogRead = observation
+      ? read("milestones", () => observationMilestones(env))
+      : null;
+    async function closedRowsFilter() {
+      return observation
+        ? activeSprintClosedFilter(meta.view.filter, await catalogRead, now())
+        : closedFilter;
+    }
     async function hierarchy() {
       const [openRows, closedRows] = await Promise.all([
         pages("BoardRowsFull", meta.view.filter),
-        closedFilter ? pages("BoardRowsClosed", closedFilter) : [],
+        closedRowsFilter().then((filter) =>
+          filter ? pages("BoardRowsClosed", filter) : [],
+        ),
       ]);
       const openIds = new Set(openRows.map((v) => v.issue.id));
       const rows = [
@@ -1188,9 +1212,7 @@ export function createHandler({
         index(),
         hierarchy(),
         observation ? [] : read("assignees", () => assignees(env)),
-        observation
-          ? read("milestones", () => observationMilestones(env))
-          : null,
+        catalogRead,
       ]);
     // Reconcile membership and preserve original Project order across traversal depths.
     const ordered = [...order.keys()];

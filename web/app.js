@@ -4461,7 +4461,11 @@ async function openBurndown(hoverGeneration = null) {
       !document.querySelector("dialog[open]") &&
       !$("#burndown-open").hidden
     )
-      burnPanel.open(selectedMilestone);
+      // チャートはボードで表示中のPBIだけを集計する（Close済みを含む）。
+      burnPanel.open(
+        selectedMilestone,
+        selectedLanes().map((l) => l.id),
+      );
   } catch {
     if (
       intent === burnIntent &&
