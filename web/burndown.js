@@ -28,6 +28,63 @@ const observedLabel = (display) =>
   display.observedAt
     ? `${display.mode === "historical" ? "最終記録" : "観測"}: ${new Date(display.observedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} JST`
     : "記録なし";
+const summaryFields = [
+  "remainingHours",
+  "estimatedHours",
+  "unestimated",
+  "estimated",
+  "total",
+  "cancelled",
+];
+// ボードで表示中のPBIだけを合計した表示用データ。PBI別の内訳がない応答
+// （古い記録・旧API）は推測で按分せず、元のスプリント全体のまま返す。
+export function focusOnPbis(data, pbis) {
+  if (!Array.isArray(pbis) || !data?.pbis || typeof data.pbis !== "object")
+    return data;
+  const selected = new Set(pbis);
+  const sum = (values, fields) =>
+    Object.fromEntries(
+      fields.map((field) => [
+        field,
+        values.reduce((total, value) => total + (value?.[field] ?? 0), 0),
+      ]),
+    );
+  const pick = (map) =>
+    Object.entries(map)
+      .filter(([pbi]) => selected.has(pbi))
+      .map(([, value]) => value);
+  const summary = {
+    ...sum(pick(data.pbis), summaryFields),
+    excludedChildren: 0,
+  };
+  return {
+    ...data,
+    focus: {
+      pbis: pbis.length,
+      inSprint: Object.keys(data.pbis).filter((pbi) => selected.has(pbi))
+        .length,
+    },
+    current: summary,
+    display:
+      data.display?.mode === "historical"
+        ? { ...data.display, summary }
+        : data.display,
+    rebase: data.rebase && {
+      ...data.rebase,
+      observations: (data.rebase.observations || []).map((point) =>
+        point.byPbi
+          ? {
+              ...point,
+              ...sum(pick(point.byPbi), [
+                "remainingHours",
+                "assumedIncompleteTasks",
+              ]),
+            }
+          : { ...point, remainingHours: null, reason: "pbi_unavailable" },
+      ),
+    },
+  };
+}
 export function chart(data) {
   const root = node("section", undefined, "burn-chart");
   const display = displayFor(data),
@@ -327,6 +384,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     sourceGeneration = 0,
     origin,
     selected = null,
+    pbis = null,
     loading = false,
     refreshQueued = false,
     wakeQueued = null;
@@ -497,8 +555,9 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
       .querySelector('button[data-day][tabindex="0"]')
       ?.focus({ preventScroll: true });
   };
-  function render(data) {
-    currentData = data;
+  function render(raw) {
+    currentData = raw;
+    const data = focusOnPbis(raw, pbis);
     const display = displayFor(data),
       shown = display.summary,
       historical = display.mode === "historical";
@@ -515,6 +574,7 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     }
     select.value = String(data.milestone);
     const renderKey = JSON.stringify([
+      pbis,
       data.scope,
       data.milestone,
       data.current,
@@ -549,6 +609,22 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
         chart(data),
         node("p", observedLabel(display), "burn-note burn-observed"),
       );
+      if (data.focus)
+        content.append(
+          node(
+            "p",
+            `ボードで表示中のPBI ${data.focus.pbis}件のうち、このスプリントの作業がある${data.focus.inSprint}件だけを集計しています。`,
+            "burn-note burn-focus",
+          ),
+        );
+      else if (pbis && !data.pbis)
+        content.append(
+          node(
+            "p",
+            "PBI別の記録がないため、スプリント全体を表示しています。",
+            "burn-note burn-focus",
+          ),
+        );
       if (shown?.excludedChildren)
         content.append(
           node(
@@ -839,9 +915,10 @@ export function createBurndown({ onPrivate, onFieldPrivate, onClose }) {
     void load();
   }
   return {
-    open(milestone) {
+    open(milestone, displayedPbis = null) {
       origin = document.activeElement;
       selected = milestone ? Number(milestone) : selected;
+      pbis = Array.isArray(displayedPbis) ? [...displayedPbis] : null;
       closeSettings();
       error.hidden = true;
       dialog.showModal();

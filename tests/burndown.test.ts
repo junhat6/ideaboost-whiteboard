@@ -595,8 +595,8 @@ test("GETの再計算は保存済みsnapshotと日次summaryを変更せず、�
 test("有効snapshotに不在の現在Issueは未完了として加算するが、snapshot欠測は空白", () => {
   const task = fixture().data.tasks[0];
   const basis = [
-    { ...task, id: "known", estimate: 5 },
-    { ...task, id: "added", estimate: 8 },
+    { ...task, id: "known", pbi: "P1", estimate: 5 },
+    { ...task, id: "added", pbi: "P2", estimate: 8 },
   ];
   const past = [
     { ...task, id: "known", estimate: 1, status: "完了", complete: true },
@@ -606,7 +606,16 @@ test("有効snapshotに不在の現在Issueは未完了として加算するが�
     unknownTasks: 0,
     assumedIncompleteTasks: 1,
     reason: null,
+    byPbi: {
+      P1: { remainingHours: 0, assumedIncompleteTasks: 0 },
+      P2: { remainingHours: 8, assumedIncompleteTasks: 1 },
+    },
   });
+  assert.equal(
+    rebaseBurn([{ ...basis[0], pbi: undefined }], past).byPbi,
+    null,
+    "PBIを持たない記録はPBI別に推測で割り当てない",
+  );
   assert.equal(
     rebaseBurn(basis, []).remainingHours,
     13,

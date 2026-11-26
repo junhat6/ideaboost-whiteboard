@@ -271,6 +271,7 @@ export function rebaseBurn(basis: BurnTask[] | null, snapshot: unknown) {
     unknownTasks,
     assumedIncompleteTasks: null,
     reason,
+    byPbi: null,
   });
   if (basis === null) return unknown("basis_unavailable");
   const past = snapshotTasks(snapshot);
@@ -284,15 +285,35 @@ export function rebaseBurn(basis: BurnTask[] | null, snapshot: unknown) {
   // 利用者承認の遡及projection: 有効な記録にない現在対象は未完了として置く。
   // snapshot全体の欠測/不完全とは別で、作成日や実際の追加日を推測しない。
   const missing = active.filter((task) => !byId.has(task.id)).length;
+  const remaining = (task: BurnTask) =>
+    byId.get(task.id)?.complete ? 0 : task.estimate!;
   return {
-    remainingHours: weighted.reduce(
-      (sum, task) => sum + (byId.get(task.id)?.complete ? 0 : task.estimate!),
-      0,
-    ),
+    remainingHours: weighted.reduce((sum, task) => sum + remaining(task), 0),
     unknownTasks: 0,
     assumedIncompleteTasks: missing,
     reason: null,
+    // ボードで表示中のPBIだけを合計できるよう、同じ投影をPBI別にも返す。
+    byPbi: burnByPbi(active, (tasks) => ({
+      remainingHours: tasks
+        .filter((task) => task.estimate !== null && task.estimate > 0)
+        .reduce((sum, task) => sum + remaining(task), 0),
+      assumedIncompleteTasks: tasks.filter((task) => !byId.has(task.id)).length,
+    })),
   };
+}
+
+// PBIを持たない古い記録はPBI別に分けられないため null（推測で割り当てない）。
+export function burnByPbi<T>(
+  tasks: BurnTask[],
+  summarize: (tasks: BurnTask[]) => T,
+): Record<string, T> | null {
+  if (tasks.some((task) => typeof task.pbi !== "string")) return null;
+  const groups = new Map<string, BurnTask[]>();
+  for (const task of tasks)
+    groups.set(task.pbi!, [...(groups.get(task.pbi!) ?? []), task]);
+  return Object.fromEntries(
+    [...groups].map(([pbi, group]) => [pbi, summarize(group)]),
+  );
 }
 
 export class BurnHistory {
@@ -752,6 +773,12 @@ export class BurnHistory {
         milestones: source.milestones,
         milestone,
         current,
+        // 基準（進行中は現在、終了済みは最終記録）のPBI別集計。取消も件数に含めて
+        // summarizeBurn と同じ形にする。
+        pbis:
+          basisTasks === null
+            ? null
+            : burnByPbi(basisTasks, (tasks) => summarizeBurn(tasks)),
         display: boundary
           ? {
               mode: "historical",

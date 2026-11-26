@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chart } from "../web/burndown.js";
+import { chart, focusOnPbis } from "../web/burndown.js";
 
 // Minimal read-only DOM for executing the actual chart export without Chromium.
 class Element {
@@ -390,4 +390,86 @@ test("旧API応答の保存残量を新しい赤線として表示しない", ()
       p.textContent.includes("再計算データを取得できません"),
     ),
   );
+});
+
+test("表示中のPBIだけを合計し、PBI別の内訳がない応答は全体のまま推測しない", () => {
+  const sprint = (byPbi: any) => ({
+    milestone: 12,
+    current: {
+      remainingHours: 9,
+      estimatedHours: 20,
+      estimated: 3,
+      unestimated: 1,
+      total: 4,
+      cancelled: 0,
+      excludedChildren: 0,
+    },
+    display: { mode: "live" },
+    pbis: {
+      OPEN: {
+        remainingHours: 4,
+        estimatedHours: 10,
+        estimated: 2,
+        unestimated: 1,
+        total: 3,
+        cancelled: 0,
+      },
+      CLOSED: {
+        remainingHours: 0,
+        estimatedHours: 5,
+        estimated: 1,
+        unestimated: 0,
+        total: 1,
+        cancelled: 0,
+      },
+      OTHER: {
+        remainingHours: 5,
+        estimatedHours: 5,
+        estimated: 1,
+        unestimated: 0,
+        total: 1,
+        cancelled: 0,
+      },
+    },
+    rebase: {
+      policy: "latest-scope-observed-completion-v1",
+      observations: [
+        {
+          at: "a",
+          day: "2026-11-18",
+          remainingHours: 20,
+          assumedIncompleteTasks: 0,
+          byPbi,
+        },
+      ],
+    },
+  });
+  const focused = focusOnPbis(
+    sprint({
+      OPEN: { remainingHours: 10, assumedIncompleteTasks: 0 },
+      CLOSED: { remainingHours: 5, assumedIncompleteTasks: 1 },
+      OTHER: { remainingHours: 5, assumedIncompleteTasks: 0 },
+    }),
+    ["OPEN", "CLOSED", "NOT_IN_SPRINT"],
+  );
+  assert.deepEqual(focused.current, {
+    remainingHours: 4,
+    estimatedHours: 15,
+    unestimated: 1,
+    estimated: 3,
+    total: 4,
+    cancelled: 0,
+    excludedChildren: 0,
+  });
+  assert.deepEqual(focused.focus, { pbis: 3, inSprint: 2 });
+  assert.equal(focused.rebase.observations[0].remainingHours, 15);
+  assert.equal(focused.rebase.observations[0].assumedIncompleteTasks, 1);
+  // 古い記録の日はPBI別に分けられないため空白にし、全体値を流用しない。
+  assert.equal(
+    focusOnPbis(sprint(null), ["OPEN"]).rebase.observations[0].remainingHours,
+    null,
+  );
+  const legacy = { ...sprint(null), pbis: undefined };
+  assert.equal(focusOnPbis(legacy, ["OPEN"]), legacy);
+  assert.equal(focusOnPbis(sprint(null), null).current.remainingHours, 9);
 });

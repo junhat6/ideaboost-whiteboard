@@ -4,7 +4,8 @@
 
 - 正本は組織Issue Field `Estimate Hours`（Number / Public）。PBI配下の作業Issueの全体見積時間hであり、実績時間・残作業の自己申告・PBI Story points換算ではない。任意、未設定はnull。0は明示値としてのみ認める。
 - 公開fieldのID・型・公開範囲を開始/終了に検証し、Projectの参照field経由で取得する。通常boardの既存作業Issue queryへ同梱し、作業IssueごとのREST waterfallを追加しない。Project外の作業Issueを推定して加えない。
-- スプリントは固定repoの正式milestone番号。view 16のPBIと正式子孫のうち、作業Issue自身または所属PBIのmilestoneが一致する対象。作業Issue自身にmilestoneがある場合はそれを優先し、二重計上しない。表示6PBI・担当者・検索filterは集計対象に影響させない。
+- スプリントは固定repoの正式milestone番号。view 16のPBIと正式子孫のうち、作業Issue自身または所属PBIのmilestoneが一致する対象。作業Issue自身にmilestoneがある場合はそれを優先し、二重計上しない。担当者・検索filterは集計対象に影響させない。記録（観測）は表示中のPBIに関係なくスプリント全体を保存し、チャートの表示だけをボードで表示中のPBIに絞る（ADR 022）。
+- view 16は`is:open`のため、記録時は進行中スプリントの開始日以降にCloseしたPBIとその子孫も追加で読む（ADR 022）。PBIをCloseしても、その日に完了作業がスプリントから消えないようにする。
 - Status「完了」またはIssue CLOSED/COMPLETEDを完了とする。ただし見送り/CLOSED NOT_PLANNED・DUPLICATEは取消として除外し、完了成果へ含めない。Issue closedだけで理由不明の場合は完了と推定しない。
 
 ## 観測履歴
